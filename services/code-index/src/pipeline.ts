@@ -222,15 +222,16 @@ export class CodeIndexPipeline {
   ): Promise<number> {
     await this.init();
     const absolutePath = path.resolve(filePath);
+    const relativePath = path
+      .relative(process.cwd(), absolutePath)
+      .replace(/\\/g, "/");
+
     if (!fs.existsSync(absolutePath)) {
-      await this.store.deleteFileChunks(repoName, filePath);
+      await this.store.deleteFileChunks(repoName, relativePath);
       return 0;
     }
 
     const code = fs.readFileSync(absolutePath, "utf8");
-    const relativePath = path
-      .relative(process.cwd(), absolutePath)
-      .replace(/\\/g, "/");
 
     let hash = commitHash;
     if (!hash) {
@@ -376,15 +377,29 @@ export class CodeIndexPipeline {
     startLine: number,
     endLine: number,
   ): ReadCodeResult {
+    if (filePath.includes("\0")) {
+      throw new Error("Invalid path parameter");
+    }
+
     const resolvedPath = path.isAbsolute(filePath)
-      ? filePath
+      ? path.normalize(filePath)
       : path.resolve(process.cwd(), filePath);
+
+    const cwd = path.resolve(process.cwd());
+    if (!resolvedPath.startsWith(cwd + path.sep) && resolvedPath !== cwd) {
+      throw new Error(`Access denied: path escapes boundary: ${filePath}`);
+    }
 
     if (!fs.existsSync(resolvedPath)) {
       throw new Error(`File not found: ${filePath}`);
     }
 
-    const content = fs.readFileSync(resolvedPath, "utf8");
+    const real = fs.realpathSync(resolvedPath);
+    if (!real.startsWith(cwd + path.sep) && real !== cwd) {
+      throw new Error(`Access denied: symlink escapes boundary: ${filePath}`);
+    }
+
+    const content = fs.readFileSync(real, "utf8");
     const lines = content.split(/\r?\n/);
     const totalLines = lines.length;
 
@@ -405,16 +420,30 @@ export class CodeIndexPipeline {
    * Git blame for a specific line of code.
    */
   public async codeBlame(filePath: string, line: number): Promise<BlameResult> {
+    if (filePath.includes("\0")) {
+      throw new Error("Invalid path parameter");
+    }
+
     const resolvedPath = path.isAbsolute(filePath)
-      ? filePath
+      ? path.normalize(filePath)
       : path.resolve(process.cwd(), filePath);
+
+    const cwd = path.resolve(process.cwd());
+    if (!resolvedPath.startsWith(cwd + path.sep) && resolvedPath !== cwd) {
+      throw new Error(`Access denied: path escapes boundary: ${filePath}`);
+    }
 
     if (!fs.existsSync(resolvedPath)) {
       throw new Error(`File not found: ${filePath}`);
     }
 
+    const real = fs.realpathSync(resolvedPath);
+    if (!real.startsWith(cwd + path.sep) && real !== cwd) {
+      throw new Error(`Access denied: symlink escapes boundary: ${filePath}`);
+    }
+
     const relativePath = path
-      .relative(process.cwd(), resolvedPath)
+      .relative(process.cwd(), real)
       .replace(/\\/g, "/");
 
     const raw = await this.git.raw([

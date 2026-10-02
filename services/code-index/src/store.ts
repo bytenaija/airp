@@ -186,10 +186,6 @@ export class HybridKnowledgeStore {
   }
 
   public async upsertChunks(chunks: StoredChunk[]): Promise<void> {
-    for (const chunk of chunks) {
-      this.inMemoryChunks.set(chunk.id, chunk);
-    }
-
     if (this.pgvectorAvailable && this.pgPool && chunks.length > 0) {
       const client = await this.pgPool.connect();
       try {
@@ -244,6 +240,11 @@ export class HybridKnowledgeStore {
       }
     }
 
+    // Apply in-memory mutation only after successful persistence
+    for (const chunk of chunks) {
+      this.inMemoryChunks.set(chunk.id, chunk);
+    }
+
     this.rebuildBM25();
   }
 
@@ -265,10 +266,6 @@ export class HybridKnowledgeStore {
   }
 
   public async upsertRunbooks(runbooks: RunbookChunk[]): Promise<void> {
-    for (const rb of runbooks) {
-      this.inMemoryRunbooks.set(rb.id, rb);
-    }
-
     if (this.pgvectorAvailable && this.pgPool && runbooks.length > 0) {
       const client = await this.pgPool.connect();
       try {
@@ -310,6 +307,10 @@ export class HybridKnowledgeStore {
       } finally {
         client.release();
       }
+    }
+
+    for (const rb of runbooks) {
+      this.inMemoryRunbooks.set(rb.id, rb);
     }
   }
 

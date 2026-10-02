@@ -27,8 +27,11 @@ export class CodeEmbedder {
       this.extractor = await pipeline("feature-extraction", this.modelName);
     })();
 
-    await this.initializing;
-    this.initializing = null;
+    try {
+      await this.initializing;
+    } finally {
+      this.initializing = null;
+    }
   }
 
   public async embedText(text: string): Promise<number[]> {

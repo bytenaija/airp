@@ -2,6 +2,7 @@ import Fastify, { FastifyInstance } from "fastify";
 import { Gauge, Counter, Registry } from "prom-client";
 import { simpleGit } from "simple-git";
 import path from "node:path";
+import fs from "node:fs";
 import { CodeIndexPipeline } from "./pipeline.js";
 import { KnowledgeTopology } from "./topology.js";
 
@@ -72,6 +73,7 @@ export function buildCodeIndexServer(options?: ServerOptions): {
   let pollerTimer: NodeJS.Timeout | null = null;
   let lastIndexedCommit: string | null = null;
   let lastIndexedTime = Date.now();
+  const fileMtimeMap = new Map<string, number>();
 
   const updateMetrics = () => {
     const lagSec = Math.floor((Date.now() - lastIndexedTime) / 1000);
@@ -80,23 +82,62 @@ export function buildCodeIndexServer(options?: ServerOptions): {
     runbooksTotalGauge.set(pipeline.getStore().getRunbookCount());
   };
 
+  const isSupportedSourceFile = (filePath: string): boolean => {
+    const ignoredExtensions = [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".ico",
+      ".webp",
+      ".pdf",
+      ".wasm",
+      ".zip",
+      ".tar",
+      ".gz",
+      ".bin",
+      ".exe",
+      ".so",
+      ".dylib",
+      ".woff",
+      ".woff2",
+      ".ttf",
+      ".eot",
+      ".mp4",
+      ".mp3",
+      ".lock",
+      ".map",
+    ];
+    const base = path.basename(filePath);
+    if (base.endsWith(".d.ts") || base.endsWith(".map") || base.endsWith(".lock")) return false;
+    const ext = path.extname(filePath).toLowerCase();
+    return !ignoredExtensions.includes(ext);
+  };
+
   const runIncrementalPoll = async () => {
     try {
-      const git = simpleGit(path.resolve(repoPath));
+      const resolvedRepoPath = path.resolve(repoPath);
+      const git = simpleGit(resolvedRepoPath);
       let currentCommit = "";
       try {
         currentCommit = (await git.revparse(["HEAD"])).trim();
       } catch {
-        try {
-          currentCommit = (await simpleGit().revparse(["HEAD"])).trim();
-        } catch {
-          currentCommit = "unknown";
-        }
+        currentCommit = "unknown";
       }
 
       if (!lastIndexedCommit) {
         lastIndexedCommit = currentCommit;
         lastIndexedTime = Date.now();
+        if (currentCommit === "unknown" && fs.existsSync(resolvedRepoPath)) {
+          const files = pipeline.findCodeFiles(resolvedRepoPath);
+          for (const f of files) {
+            try {
+              fileMtimeMap.set(f, fs.statSync(f).mtimeMs);
+            } catch {
+              // Ignore unreadable files
+            }
+          }
+        }
         updateMetrics();
         return;
       }
@@ -104,7 +145,8 @@ export function buildCodeIndexServer(options?: ServerOptions): {
       if (currentCommit !== lastIndexedCommit && currentCommit !== "unknown") {
         let changedFiles: string[] = [];
         try {
-          const diffOutput = await simpleGit().diff([
+          // Scope diff specifically to repoPath using repo-scoped git instance
+          const diffOutput = await git.diff([
             "--name-only",
             lastIndexedCommit,
             currentCommit,
@@ -112,7 +154,8 @@ export function buildCodeIndexServer(options?: ServerOptions): {
           changedFiles = diffOutput
             .split("\n")
             .map((f) => f.trim())
-            .filter((f) => f.length > 0);
+            .filter((f) => f.length > 0)
+            .map((f) => path.resolve(resolvedRepoPath, f));
         } catch {
           // If diff fails, re-index full repository
           await pipeline.indexRepository(repoPath);
@@ -123,9 +166,7 @@ export function buildCodeIndexServer(options?: ServerOptions): {
           return;
         }
 
-        const codeFiles = changedFiles.filter((f) =>
-          [".ts", ".tsx", ".js", ".jsx"].some((ext) => f.endsWith(ext)),
-        );
+        const codeFiles = changedFiles.filter((f) => isSupportedSourceFile(f));
 
         for (const file of codeFiles) {
           await pipeline.indexFile(
@@ -138,6 +179,40 @@ export function buildCodeIndexServer(options?: ServerOptions): {
         indexRunsCounter.inc({ trigger: "poll_incremental" });
         lastIndexedCommit = currentCommit;
         lastIndexedTime = Date.now();
+      } else if (currentCommit === "unknown" && fs.existsSync(resolvedRepoPath)) {
+        // Fallback: mtime scan when Git metadata is unavailable
+        const currentFiles = new Set(pipeline.findCodeFiles(resolvedRepoPath));
+        let changesDetected = 0;
+
+        for (const file of currentFiles) {
+          try {
+            const currentMtime = fs.statSync(file).mtimeMs;
+            const previousMtime = fileMtimeMap.get(file);
+            if (previousMtime === undefined || currentMtime > previousMtime) {
+              await pipeline.indexFile(path.basename(repoPath), file, "unknown");
+              fileMtimeMap.set(file, currentMtime);
+              changesDetected++;
+            }
+          } catch {
+            // Ignore unreadable or transient files
+          }
+        }
+
+        for (const [trackedFile] of fileMtimeMap.entries()) {
+          if (!currentFiles.has(trackedFile)) {
+            const relativePath = path
+              .relative(process.cwd(), trackedFile)
+              .replace(/\\/g, "/");
+            await pipeline.getStore().deleteFileChunks(path.basename(repoPath), relativePath);
+            fileMtimeMap.delete(trackedFile);
+            changesDetected++;
+          }
+        }
+
+        if (changesDetected > 0) {
+          indexRunsCounter.inc({ trigger: "poll_mtime_incremental" });
+          lastIndexedTime = Date.now();
+        }
       }
 
       updateMetrics();
@@ -224,6 +299,46 @@ export function buildCodeIndexServer(options?: ServerOptions): {
     return { query, count: results.length, results };
   });
 
+  const validateSafePath = (rawPath: string): string => {
+    if (!rawPath || typeof rawPath !== "string" || rawPath.includes("\0")) {
+      throw new Error("Invalid path parameter");
+    }
+
+    const resolvedRepo = path.resolve(repoPath);
+    const resolvedCwd = path.resolve(process.cwd());
+    const allowedRoots = [resolvedRepo, resolvedCwd];
+
+    let candidatePath: string;
+    if (path.isAbsolute(rawPath)) {
+      candidatePath = path.normalize(rawPath);
+    } else {
+      const fromRepo = path.resolve(resolvedRepo, rawPath);
+      const fromCwd = path.resolve(resolvedCwd, rawPath);
+      candidatePath = fs.existsSync(fromRepo) ? fromRepo : fromCwd;
+    }
+
+    const isUnderAllowedRoot = allowedRoots.some(
+      (root) => candidatePath === root || candidatePath.startsWith(root + path.sep),
+    );
+
+    if (!isUnderAllowedRoot) {
+      throw new Error("Access denied: path escapes allowed repository boundary");
+    }
+
+    if (fs.existsSync(candidatePath)) {
+      const real = fs.realpathSync(candidatePath);
+      const realUnderRoot = allowedRoots.some(
+        (root) => real === root || real.startsWith(root + path.sep),
+      );
+      if (!realUnderRoot) {
+        throw new Error("Access denied: symlink escapes allowed repository boundary");
+      }
+      return candidatePath;
+    }
+
+    return candidatePath;
+  };
+
   // Read code
   server.get("/read", async (req, reply) => {
     const query = (req.query as any) || {};
@@ -233,6 +348,12 @@ export function buildCodeIndexServer(options?: ServerOptions): {
 
     if (!filePath || typeof filePath !== "string") {
       return reply.status(400).send({ error: "Missing path parameter" });
+    }
+
+    try {
+      validateSafePath(filePath);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
     }
 
     try {
@@ -251,6 +372,12 @@ export function buildCodeIndexServer(options?: ServerOptions): {
 
     if (!filePath || typeof filePath !== "string") {
       return reply.status(400).send({ error: "Missing path parameter" });
+    }
+
+    try {
+      validateSafePath(filePath);
+    } catch (err: any) {
+      return reply.status(403).send({ error: err.message });
     }
 
     try {

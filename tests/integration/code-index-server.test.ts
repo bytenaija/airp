@@ -80,6 +80,22 @@ describe("Code Index Server HTTP API (Integration)", () => {
     expect(body.commit).toBeTruthy();
   });
 
+  it("rejects path traversal attempts on GET /read and GET /blame", async () => {
+    const readRes = await serverInstance.server.inject({
+      method: "GET",
+      url: "/read?path=../../../../etc/passwd&startLine=1&endLine=10",
+    });
+    expect(readRes.statusCode).toBe(403);
+    expect(readRes.json().error).toContain("Access denied");
+
+    const blameRes = await serverInstance.server.inject({
+      method: "GET",
+      url: "/blame?path=../../../../etc/passwd&line=1",
+    });
+    expect(blameRes.statusCode).toBe(403);
+    expect(blameRes.json().error).toContain("Access denied");
+  });
+
   it("searches runbooks via POST /runbooks/search", async () => {
     const res = await serverInstance.server.inject({
       method: "POST",

@@ -195,11 +195,12 @@ export class KnowledgeTopology {
     if (filePath === cleanPattern) return true;
     // Directory wildcard e.g. services/checkout/**
     if (cleanPattern.endsWith("/**")) {
-      const prefix = cleanPattern.slice(0, -3);
-      return filePath.startsWith(prefix);
+      const prefix = cleanPattern.slice(0, -2); // retains trailing slash, e.g. "services/checkout/"
+      const baseDir = cleanPattern.slice(0, -3); // e.g. "services/checkout"
+      return filePath === baseDir || filePath.startsWith(prefix);
     }
     if (cleanPattern.endsWith("/*")) {
-      const prefix = cleanPattern.slice(0, -2);
+      const prefix = cleanPattern.slice(0, -1); // retains trailing slash, e.g. "services/checkout/"
       return (
         filePath.startsWith(prefix) &&
         !filePath.slice(prefix.length).includes("/")
