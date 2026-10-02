@@ -78,7 +78,7 @@ jobs:
         # Run inside the changefeed container so it uses the compose stack's
         # own DATABASE_URL instead of a hardcoded guess.
         working-directory: infra
-        run: docker compose exec -T changefeed npx prisma db push
+        run: docker compose exec -T changefeed npx prisma db push --schema=services/changefeed/prisma/schema.prisma
 
       - name: Run integration tests
         run: npx vitest run tests/integration
