@@ -48,6 +48,17 @@ BUILD (in addition to items 1-4 above):
    redeploy as the Epic 8 advisory provider → measure) in the epic docs.
    Unpublished runbook drafts and unreviewed outcomes are NEVER included in
    training exports.
+8. services/flywheel/reward.ts: deterministic reward-label derivation,
+   versioned as `reward-v1`, from the observed outcome:
+     base = 1.0 if diagnosis_correct and fix_merged_unmodified
+            0.5 if diagnosis_correct and not fix_merged_unmodified
+            0.0 if not diagnosis_correct
+     efficiency = 1.0 if mttr_seconds <= trailing p50 mttr in the outcome
+                  store (1.0 when the store holds fewer than 5 records),
+                  else 0.75
+     reward = round(base * efficiency, 2)
+   Each tuple stores the inputs, the derived label, and
+   `reward_version: "reward-v1".
 
 ACCEPTANCE CRITERIA (in addition to the above):
 - The 5 labeled records each contain the full training tuple (state,
@@ -57,3 +68,6 @@ ACCEPTANCE CRITERIA (in addition to the above):
 - Unpublished runbook drafts and unreviewed outcomes are excluded from
   training exports (test: a draft AND an unreviewed outcome present → both
   absent from export).
+- The reward derivation is deterministic and tested: the five scripted
+  incidents assert their expected labels (correct + unmodified + fast → 1.0;
+  correct + modified → 0.5; incorrect → 0.0).
