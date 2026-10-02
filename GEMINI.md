@@ -81,6 +81,15 @@ issue, or reply on the PR explaining why it is deferred, with a reason. A PR
 with unaddressed actionable comments will not be merged, no matter how green
 CI is.
 
+## Build generic, not demo-specific
+
+The demo services (checkout, payments, fraud-check) are scaffolding, not the
+product. Shared components must work for arbitrary services: never hardcode
+demo service names or their label formats into generic code — topology and
+service-specific behavior come from config files and environment variables.
+Prove generality in tests: include at least one service that is not part of
+the demo trio.
+
 ## The approval gate
 
 - The reviewer (Muse) reviews every PR: code quality, acceptance criteria,

@@ -29,6 +29,12 @@ The reviewer runs scheduled checks (roughly every 5 minutes) that:
      explicitly deferred with a written reason on the PR. Unaddressed
      actionable comments block approval — the reviewer verifies this
      before merging, not after.
+   - No overfitting to the demo services: generic components (correlator,
+     normalizer, incident store, CLI, query client) must not hardcode the
+     demo service names (checkout, payments, fraud-check) or their specific
+     label formats. Topology and service-specific behavior come from config
+     files and environment, not code. Tests must include at least one
+     service outside the demo trio to prove generality.
    - The code matches the epic prompt's BUILD steps.
    - Tests exist; cross-check the reported results against the CI run, then
      spot-check by reading the diff. Re-running is the builder's job, but
