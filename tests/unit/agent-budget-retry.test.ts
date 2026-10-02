@@ -280,4 +280,139 @@ describe("Investigation Agent Runtime: Budgets, Retries, and Read-Only Guards", 
     expect(actions).toContain("hypothesis_updated");
     expect(actions).toContain("investigation_concluded");
   });
+
+  it("default non-mock path invokes LLMClient.generateText with loaded versioned prompts and tool catalog", async () => {
+    const incident = createSampleIncident();
+    let invokedWith: any = null;
+
+    const mockClient = {
+      provider: "ollama" as const,
+      modelName: "llama3.2",
+      setTracker: () => {},
+      getTracker: () => undefined,
+      generateText: async (opts: any) => {
+        invokedWith = opts;
+        return {
+          text: "",
+          toolCalls: [
+            {
+              toolName: "deploys_recent",
+              args: { service: "payments", window: "2h" },
+            },
+          ],
+          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        };
+      },
+    } as any;
+
+    const runtime = new InvestigationAgentRuntime({
+      llmClient: mockClient,
+      budgets: { maxToolCalls: 1 },
+    });
+
+    await runtime.investigate(incident);
+
+    expect(invokedWith).toBeDefined();
+    expect(invokedWith.system).toContain("read-only");
+    expect(invokedWith.tools).toBeDefined();
+    expect(invokedWith.tools.deploys_recent).toBeDefined();
+    expect(invokedWith.tools.logs_query).toBeDefined();
+  });
+
+  it("asserts no evidence is added from empty or non-matching observations", async () => {
+    const incident = createSampleIncident();
+
+    const mockTools = {
+      assertReadOnly: () => {},
+      deploysRecent: async () => [],
+      metricsQuery: async () => ({ resultType: "matrix", series: [] }),
+      logsQuery: async () => [],
+      tracesSearch: async () => [],
+      codeSearch: async () => [],
+      codeRead: async () => "",
+      codeBlame: async () => ({ commit: "unrelated-commit", author: "unknown", date: "now" }),
+      runbookSearch: async () => [],
+      incidentsSimilar: async () => [],
+      setChangeEvents: () => {},
+      toAiSdkTools: () => ({}),
+    } as any;
+
+    const runtime = new InvestigationAgentRuntime({
+      tools: mockTools,
+      mockLLMResponses: [
+        { type: "tool_call", toolName: "metrics_query", toolArgs: { metric: "checkout_error_rate" } },
+        { type: "tool_call", toolName: "logs_query", toolArgs: { service: "checkout", pattern: "npe" } },
+        { type: "tool_call", toolName: "code_blame", toolArgs: { path: "foo.ts", line: 1 } },
+        { type: "conclude" },
+      ],
+    });
+
+    const diagnosis = await runtime.investigate(incident);
+
+    const confirmingEvidence = diagnosis.evidence.filter(
+      (e) => e.supports === true && (e.weight ?? 1) > 1.0,
+    );
+    expect(confirmingEvidence.length).toBe(0);
+  });
+
+  it("asserts retries issue real model calls on the default path when initial output is malformed", async () => {
+    const incident = createSampleIncident();
+    let generateTextCalls = 0;
+
+    const mockClient = {
+      provider: "ollama" as const,
+      modelName: "llama3.2",
+      setTracker: () => {},
+      getTracker: () => undefined,
+      generateText: async () => {
+        generateTextCalls++;
+        if (generateTextCalls === 1) {
+          // llmDrivenStep: returns conclude (no tool calls)
+          return {
+            text: "conclude investigation",
+            toolCalls: [],
+            usage: { promptTokens: 50, completionTokens: 10, totalTokens: 60 },
+          };
+        } else if (generateTextCalls === 2) {
+          // generateDiagnosisWithRetries attempt 1: returns malformed non-JSON
+          return {
+            text: "{ invalid_json_syntax: true",
+            toolCalls: [],
+            usage: { promptTokens: 50, completionTokens: 10, totalTokens: 60 },
+          };
+        } else {
+          // generateDiagnosisWithRetries attempt 2 (retry 1): returns valid JSON diagnosis
+          return {
+            text: JSON.stringify({
+              root_cause: "Recovered via real retry model call",
+              confidence: 0.85,
+              fixability: "code_fixable",
+            }),
+            toolCalls: [],
+            usage: { promptTokens: 50, completionTokens: 20, totalTokens: 70 },
+          };
+        }
+      },
+    } as any;
+
+    const runtime = new InvestigationAgentRuntime({
+      llmClient: mockClient,
+    });
+
+    const diagnosis = await runtime.investigate(incident);
+
+    expect(generateTextCalls).toBeGreaterThanOrEqual(3);
+    expect(diagnosis.root_cause).toBe("Recovered via real retry model call");
+    expect(diagnosis.confidence).toBe(0.85);
+
+    const errorEvent = incident.timeline.find(
+      (e) => e.action === "model_output_error",
+    );
+    expect(errorEvent).toBeDefined();
+
+    const recoveredEvent = incident.timeline.find(
+      (e) => e.action === "model_output_recovered",
+    );
+    expect(recoveredEvent).toBeDefined();
+  });
 });

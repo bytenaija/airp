@@ -882,9 +882,14 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
               2000,
               "conclude",
             );
-            rawDiagnosis = JSON.parse(res.text);
-          } catch {
-            // Keep rawDiagnosis undefined to derive generic defaults from hypothesis
+            if (res.text && res.text.trim()) {
+              rawDiagnosis = JSON.parse(res.text);
+            }
+          } catch (modelErr: any) {
+            if (modelErr instanceof SyntaxError) {
+              throw modelErr;
+            }
+            // Keep rawDiagnosis undefined on offline/network errors to derive generic defaults from hypothesis
           }
         }
 
@@ -936,6 +941,13 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
         };
 
         const validated = DiagnosisSchema.parse(candidateDiagnosis);
+        if (attempts > 1) {
+          this.appendTimeline(
+            incident,
+            "model_output_recovered",
+            `Model output successfully recovered on retry ${attempts - 1}/${maxRetries}`,
+          );
+        }
         return validated;
       } catch (err: any) {
         if (attempts === 1) {
