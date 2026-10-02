@@ -114,6 +114,7 @@ once it is merged.
 ## Rules that are never bent
 
 - Never push directly to `main`. All work goes through epic branches + PRs.
+- Never edit `prompts/`, `GEMINI.md`, `REVIEW_PROTOCOL.md`, or `CONTEXT.md` — those belong to the reviewer and the human. If a prompt needs changing, propose the exact change as a comment in the epic's tracking issue and wait for the reviewer to apply it.
 - Never merge your own PR.
 - Never start epic N+1 before epic N is approved.
 - Never invent credentials, phone home, or add paid/cloud dependencies.
