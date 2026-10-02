@@ -86,4 +86,18 @@ export class TopologyGraph {
 
     return result;
   }
+
+  /**
+   * Returns immediate direct downstream dependencies for the given service.
+   */
+  getDirectDownstream(service: string): string[] {
+    return [...(this.downstreamMap.get(service) ?? [])];
+  }
+
+  /**
+   * Returns all services defined in the topology.
+   */
+  getAllServices(): string[] {
+    return Array.from(this.downstreamMap.keys());
+  }
 }

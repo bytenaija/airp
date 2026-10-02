@@ -7,6 +7,22 @@ import {
   type TraceSearchResult,
   type ChangeEvent,
 } from "@airp/common";
+import {
+  findChangepoints,
+  alignToChanges,
+  type MetricDataPoint,
+  type ChangePoint,
+  type ChangeAlignment,
+  traceBisect,
+  type TraceRecord,
+  type SpanRecord,
+  type RankedSuspectSpan,
+  clusterLogs,
+  type LogClusterResult,
+  type LogEntryInput,
+  dependencyWalk,
+  type DependencyWalkResult,
+} from "../analysis/index.js";
 
 export interface CodeIndexPipelineLike {
   codeSearch(query: string, topK?: number): Promise<Array<any>>;
@@ -94,6 +110,10 @@ export class AgentTools {
     "runbook_search",
     "deploys_recent",
     "incidents_similar",
+    "change_point",
+    "trace_bisect",
+    "log_cluster",
+    "dependency_walk",
   ]);
 
   constructor(options: AgentToolsOptions = {}) {
@@ -402,6 +422,157 @@ export class AgentTools {
     return [];
   }
 
+  // 10. change_point
+  async changePoint(args: {
+    series?: MetricDataPoint[];
+    service?: string;
+    tolerance?: string | number;
+    threshold?: number;
+    drift?: number;
+  }): Promise<{ changepoints: ChangePoint[]; alignments: ChangeAlignment[] }> {
+    this.assertReadOnly("change_point");
+    let series = args.series;
+    if ((!series || series.length === 0) && args.service) {
+      try {
+        const metricRes = await this.metricsQuery({
+          metric: "http_requests_total",
+          labels: { service: args.service, status: "500" },
+        });
+        if (metricRes.series && metricRes.series.length > 0) {
+          series = metricRes.series[0].values.map((v: [number, string]) => ({
+            timestamp: new Date(v[0] * 1000).toISOString(),
+            value: parseFloat(v[1]) || 0,
+          }));
+        }
+      } catch {
+        series = [];
+      }
+    }
+    const changepoints = findChangepoints(series || [], {
+      threshold: args.threshold,
+      drift: args.drift,
+    });
+    const alignments = alignToChanges(
+      changepoints,
+      this.changeEvents,
+      args.tolerance ?? "5min",
+    );
+    return { changepoints, alignments };
+  }
+
+  // 11. trace_bisect
+  async traceBisect(args: {
+    traces?: Array<TraceRecord | SpanRecord[]>;
+    service?: string;
+    limit?: number;
+  }): Promise<{ suspects: RankedSuspectSpan[]; totalTraces: number }> {
+    this.assertReadOnly("trace_bisect");
+    let traces = args.traces;
+    if ((!traces || traces.length === 0) && args.service) {
+      try {
+        const searchResults = await this.tracesSearch({
+          service: args.service,
+          status: "error",
+          limit: args.limit ?? 10,
+        });
+        const fullTraces: TraceRecord[] = [];
+        for (const t of searchResults) {
+          try {
+            const rawTrace = (await this.queryClient.traceGet(t.traceId)) as any;
+            const batches = rawTrace?.batches || [];
+            const spans: SpanRecord[] = [];
+            for (const batch of batches) {
+              const svc =
+                batch.resource?.attributes?.find((a: any) => a.key === "service.name")?.value?.stringValue ||
+                args.service;
+              for (const scopeSpan of batch.scopeSpans || batch.instrumentationLibrarySpans || []) {
+                for (const s of scopeSpan.spans || []) {
+                  spans.push({
+                    traceId: t.traceId,
+                    spanId: s.spanId,
+                    parentSpanId: s.parentSpanId,
+                    name: s.name,
+                    serviceName: svc,
+                    status: s.status,
+                    attributes: s.attributes,
+                  });
+                }
+              }
+            }
+            if (spans.length > 0) {
+              fullTraces.push({ traceId: t.traceId, spans });
+            }
+          } catch {
+            // ignore single trace fetch failure
+          }
+        }
+        traces = fullTraces;
+      } catch {
+        traces = [];
+      }
+    }
+    const suspects = traceBisect(traces || []);
+    return {
+      suspects,
+      totalTraces: (traces || []).length,
+    };
+  }
+
+  // 12. log_cluster
+  async logCluster(args: {
+    service?: string;
+    incidentStart?: string;
+    logs?: LogEntryInput[];
+    preLogs?: LogEntryInput[];
+    postLogs?: LogEntryInput[];
+  }): Promise<{ clusters: LogClusterResult[]; topSignature?: LogClusterResult }> {
+    this.assertReadOnly("log_cluster");
+    let logs = args.logs;
+    if (!logs && !args.preLogs && !args.postLogs && args.service) {
+      try {
+        const fetched = await this.logsQuery({
+          service: args.service,
+          limit: 100,
+        });
+        logs = fetched.map((l) => ({
+          timestamp: l.timestamp,
+          message: l.line,
+          service: l.labels?.service || args.service,
+        }));
+      } catch {
+        logs = [];
+      }
+    }
+    const clusters = clusterLogs({
+      logs,
+      preLogs: args.preLogs,
+      postLogs: args.postLogs,
+      incidentStart: args.incidentStart,
+    });
+    return {
+      clusters,
+      topSignature: clusters.length > 0 ? clusters[0] : undefined,
+    };
+  }
+
+  // 13. dependency_walk
+  async dependencyWalk(args: {
+    rootService: string;
+    topologyPath?: string;
+    errorIndicators?: any[];
+    logs?: any[];
+    spans?: any[];
+  }): Promise<DependencyWalkResult> {
+    this.assertReadOnly("dependency_walk");
+    return dependencyWalk({
+      rootService: args.rootService,
+      topology: args.topologyPath,
+      errorIndicators: args.errorIndicators,
+      logs: args.logs,
+      spans: args.spans,
+    });
+  }
+
   // Convert to Vercel AI SDK Tools format
   toAiSdkTools(): Record<string, any> {
     return {
@@ -597,6 +768,91 @@ export class AgentTools {
             .describe("Max incidents to return"),
         }),
         execute: async (args) => this.incidentsSimilar(args),
+      }),
+
+      change_point: tool({
+        description:
+          "Run CUSUM change-point detection on a metric time series and align detected step changes to recent deployments within a tolerance window (default 5min).",
+        parameters: z.object({
+          service: z
+            .string()
+            .optional()
+            .describe("Service name to query error rate metric if series not provided"),
+          series: z
+            .array(
+              z.object({
+                timestamp: z.union([z.string(), z.number()]).describe("Data point timestamp"),
+                value: z.number().describe("Metric value at timestamp"),
+              }),
+            )
+            .optional()
+            .describe("Metric time series data points to analyze"),
+          tolerance: z
+            .string()
+            .optional()
+            .default("5min")
+            .describe("Time window alignment tolerance, e.g. '5min'"),
+        }),
+        execute: async (args) => this.changePoint(args as any),
+      }),
+
+      trace_bisect: tool({
+        description:
+          "Walk span trees of exemplar failing traces to identify the deepest failing span with error status, aggregated into ranked suspect spans.",
+        parameters: z.object({
+          service: z
+            .string()
+            .optional()
+            .describe("Service name to query failing traces from Tempo"),
+          limit: z
+            .number()
+            .int()
+            .positive()
+            .max(20)
+            .optional()
+            .default(10)
+            .describe("Max traces to analyze"),
+        }),
+        execute: async (args) => this.traceBisect(args),
+      }),
+
+      log_cluster: tool({
+        description:
+          "Normalize stack traces (stripping timestamps, IDs, and memory addresses) and cluster by signature, surfacing signatures that are NEW or sharply up since incident start.",
+        parameters: z.object({
+          service: z
+            .string()
+            .optional()
+            .describe("Service name to query logs for clustering"),
+          incident_start: z
+            .string()
+            .optional()
+            .describe("Incident start timestamp (ISO 8601) to distinguish new vs pre-existing logs"),
+        }),
+        execute: async (args) =>
+          this.logCluster({
+            service: args.service,
+            incidentStart: args.incident_start,
+          }),
+      }),
+
+      dependency_walk: tool({
+        description:
+          "Walk the service topology graph when errors are timeouts or 5xx returned by dependencies, re-rooting the investigation at the upstream culprit service.",
+        parameters: z.object({
+          root_service: z
+            .string()
+            .describe("Root service where symptoms were first observed, e.g. 'checkout'"),
+          topology_path: z
+            .string()
+            .optional()
+            .describe("Optional path to custom topology.yaml file"),
+        }),
+        execute: async (args) =>
+          this.dependencyWalk({
+            rootService: args.root_service,
+            topologyPath: args.topology_path,
+          }),
       }),
     };
   }

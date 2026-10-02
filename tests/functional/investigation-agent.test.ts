@@ -74,8 +74,8 @@ describe("Epic 4 Acceptance Criteria: Investigation Agent Runtime", () => {
     const errBody = errRes.json();
     expect(errBody.error).toBe("Payment service failure");
 
-    // 3. Fire alerts across checkout and payments
-    const t0 = new Date();
+    // 3. Fire alerts across checkout and payments (anchored inside 15-min tumbling window)
+    const t0 = new Date(Math.floor(Date.now() / (15 * 60 * 1000)) * (15 * 60 * 1000) + 60_000);
     const alerts: Alert[] = [
       {
         id: crypto.randomUUID(),
