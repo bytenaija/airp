@@ -356,6 +356,9 @@ export async function startServer(): Promise<void> {
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || "60000", 10),
   });
 
+  await server.listen({ port, host });
+  console.log(`Code index service listening on http://${host}:${port}`);
+
   console.log("Initializing CodeIndexPipeline...");
   await pipeline.init();
 
@@ -368,9 +371,7 @@ export async function startServer(): Promise<void> {
   }
 
   startPoller();
-
-  await server.listen({ port, host });
-  console.log(`Code index service listening on http://${host}:${port}`);
+  console.log("Code index background poller started");
 }
 
 // Auto-run if executed directly
