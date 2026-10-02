@@ -1,0 +1,23 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model ChangeEvent {
+  id        String   @id @default(uuid())
+  type      String
+  service   String
+  revision  String
+  ts        DateTime
+  author    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([service, ts])
+  @@index([type])
+  @@map("change_events")
+}
