@@ -14,7 +14,7 @@ reviewer's side of the contract.
 
 ## Review cycle (automated)
 
-The reviewer runs scheduled checks (roughly every 30 minutes) that:
+The reviewer runs scheduled checks (roughly every 5 minutes) that:
 
 1. List open PRs and new commits on epic branches since the last check.
 2. For each PR awaiting review, verify:
