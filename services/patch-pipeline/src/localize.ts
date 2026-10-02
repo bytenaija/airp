@@ -236,14 +236,19 @@ export async function localizeFault(
     }
   }
 
-  // Fallback defaults for canonical demo NPE if no stack trace extracted
+  // Fallback: extract file/line from diagnosis text if no stack trace found.
+  // No hardcoded service defaults: if nothing is found, the caller hands off
+  // rather than guessing.
   if (candidateLocations.length === 0) {
     // Check if diagnosis or root cause explicitly mentions a file/line
     const textToScan = `${inputs.diagnosis?.root_cause || ""} ${inputs.traceBisect?.deepestErrorSpan?.operation || ""}`;
     const extracted = extractFileAndLineFromText(textToScan);
     for (const loc of extracted) {
+      if (!culpritService) {
+        continue; // Cannot attribute a service: skip rather than guess.
+      }
       candidateLocations.push({
-        service: culpritService || "payments",
+        service: culpritService,
         file: loc.file,
         line: loc.line,
         source: "diagnosis_text",

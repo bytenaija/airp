@@ -184,7 +184,7 @@ export function handleCheckout(req: Request, res: Response) {
     expect(branches).toContain(`airp/fix-${incidentId}`);
   });
 
-  it("handles deliberately unfixable fault: exhausts 4 attempts and yields handoff note, not a garbage PR", async () => {
+  it("handles genuinely unfixable fault: exhausts 4 real attempts and yields handoff note, not a garbage PR", async () => {
     const incidentId = "inc-dependency-outage-503";
     const diagnosis: Diagnosis = {
       incident_id: incidentId,
@@ -215,14 +215,16 @@ export function handleCheckout(req: Request, res: Response) {
       reason: "Calls external fraud-check endpoint",
     };
 
+    // No cheat flags: the validation command genuinely always fails, so the
+    // real retry loop must exhaust all 4 attempts through real code paths.
     const result = await runPatchPipeline({
       incidentId,
       diagnosis,
       repoSnapshotDir: tempRepo,
       scratchCloneDir: tempScratch,
       suspect,
-      isDeliberatelyUnfixable: true,
       maxAttempts: 4,
+      testCommand: 'node -e "process.exit(1)"',
       sandboxConfig: {
         allowInsecureDevExecution: true,
         timeoutMs: 2000,
@@ -237,7 +239,7 @@ export function handleCheckout(req: Request, res: Response) {
       false,
     );
 
-    // Yields a structured handoff note
+    // Yields a structured handoff note with 4 REAL attempts
     expect(result.handoffNote).toBeDefined();
     expect(result.handoffNote?.status).toBe("handoff_required");
     expect(result.handoffNote?.attemptsCount).toBe(4);
@@ -245,9 +247,11 @@ export function handleCheckout(req: Request, res: Response) {
     expect(result.handoffNote?.humanActionRequired).toContain(
       "A human engineer must review",
     );
-    expect(result.handoffNote?.attempts[0].error).toContain(
-      "Unfixable dependency outage",
-    );
+    // Every attempt went through the real loop (no fabricated entries):
+    // each has either a diff-generation error or a sandbox failure reason.
+    for (const a of result.handoffNote!.attempts) {
+      expect(a.error).toBeDefined();
+    }
   });
 
   it("proves generality on an arbitrary non-demo microservice", async () => {

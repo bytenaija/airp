@@ -133,4 +133,55 @@ describe("Patch Pipeline - Constraint Enforcement", () => {
       "notification-dispatcher/src/sender.ts",
     ]);
   });
+
+  it("rejects everything when the service string is empty (fail closed)", () => {
+    const diff = [
+      "--- a/payments/src/retry.ts",
+      "+++ b/payments/src/retry.ts",
+      "@@ -1,1 +1,2 @@",
+      "-    foo();",
+      "+    foo();",
+      "+    bar();",
+    ].join("\n");
+
+    expect(() => validateDiffConstraints(diff, "", 50)).toThrow(
+      ConstraintViolationError,
+    );
+    expect(() => validateDiffConstraints(diff, "   ", 50)).toThrow(
+      ConstraintViolationError,
+    );
+  });
+
+  it("does not match lookalike filenames (oldpayments.ts is not the payments service)", () => {
+    const lookalikeDiff = [
+      "--- a/legacy/oldpayments.ts",
+      "+++ b/legacy/oldpayments.ts",
+      "@@ -1,1 +1,2 @@",
+      "-    foo();",
+      "+    foo();",
+      "+    bar();",
+    ].join("\n");
+
+    expect(() => validateDiffConstraints(lookalikeDiff, "payments", 50)).toThrow(
+      ConstraintViolationError,
+    );
+  });
+
+  it("counts hunk content lines starting with --- or +++ toward the 50-line limit", () => {
+    // A deleted SQL comment line ("--- x") inside a hunk must be counted,
+    // not misparsed as a file header.
+    const trickyDiff = [
+      "--- a/payments/src/query.ts",
+      "+++ b/payments/src/query.ts",
+      "@@ -1,2 +1,2 @@",
+      "--- SELECT 1; -- old comment",
+      "+-- SELECT 1; -- new comment",
+      " context line",
+    ].join("\n");
+
+    const metrics = validateDiffConstraints(trickyDiff, "payments", 50);
+    // 1 deleted + 1 added = 2 changed lines; file correctly identified.
+    expect(metrics.totalChangedLines).toBe(2);
+    expect(metrics.targetFiles).toEqual(["payments/src/query.ts"]);
+  });
 });

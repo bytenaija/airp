@@ -130,4 +130,74 @@ describe("VCS Provider - Local and GitHub Implementations", () => {
     const provider = getVCSProvider();
     expect(provider).toBeInstanceOf(LocalGitProvider);
   });
+
+  it("LocalGitProvider stages the ACTUAL patched source files, not just the description", async () => {
+    // Simulate a patched file in the working tree
+    const srcDir = path.join(tempDir, "payments", "src");
+    fs.mkdirSync(srcDir, { recursive: true });
+    const patchedFile = path.join(srcDir, "retry.ts");
+    fs.writeFileSync(patchedFile, "patched content\n", "utf8");
+
+    const diff = [
+      "--- a/payments/src/retry.ts",
+      "+++ b/payments/src/retry.ts",
+      "@@ -1,1 +1,1 @@",
+      "-original content",
+      "+patched content",
+    ].join("\n");
+
+    const provider = new LocalGitProvider();
+    const result = await provider.createPullRequest({
+      incidentId: "inc-stage-test",
+      repoDir: tempDir,
+      title: "Stage patched files",
+      incidentLink: "/incidents/inc-stage-test",
+      rootCause: "test",
+      evidenceSummary: "test",
+      testResults: "test",
+      rollbackPlan: "test",
+      diff,
+    });
+
+    expect(result.branch).toBe("airp/fix-inc-stage-test");
+
+    // The committed tree must contain the patched source file, not just
+    // PR_DESCRIPTION.md.
+    const committedFiles = execFileSync(
+      "git",
+      ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+      { cwd: tempDir, encoding: "utf8" },
+    )
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(committedFiles).toContain("PR_DESCRIPTION.md");
+    expect(committedFiles).toContain("payments/src/retry.ts");
+  });
+
+  it("LocalGitProvider refuses path traversal in diff-supplied file paths", async () => {
+    const evilDiff = [
+      "--- a/../../evil.sh",
+      "+++ b/../../evil.sh",
+      "@@ -1,1 +1,1 @@",
+      "-x",
+      "+y",
+    ].join("\n");
+
+    const provider = new LocalGitProvider();
+    // Must not throw on traversal; must simply not stage the evil path.
+    const result = await provider.createPullRequest({
+      incidentId: "inc-traversal-test",
+      repoDir: tempDir,
+      title: "Traversal guard",
+      incidentLink: "/incidents/inc-traversal-test",
+      rootCause: "test",
+      evidenceSummary: "test",
+      testResults: "test",
+      rollbackPlan: "test",
+      diff: evilDiff,
+    });
+    expect(result.branch).toBe("airp/fix-inc-traversal-test");
+    expect(fs.existsSync(path.join(tempDir, "evil.sh"))).toBe(false);
+  });
 });

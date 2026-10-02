@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import type { Diagnosis } from "@airp/common";
 import { VCSProvider, LocalGitProvider, PullRequestResult } from "@airp/common";
 import {
@@ -25,6 +26,8 @@ export interface HandoffNote {
     diff?: string;
     error?: string;
     logs?: string;
+    usedLLM?: boolean;
+    fallbackReason?: string;
   }>;
   humanActionRequired: string;
 }
@@ -40,7 +43,6 @@ export interface PatchPipelineParams {
   maxAttempts?: number; // default 4
   sandboxConfig?: SandboxConfig;
   testCommand?: string;
-  isDeliberatelyUnfixable?: boolean;
 }
 
 export interface PatchPipelineResult {
@@ -52,6 +54,26 @@ export interface PatchPipelineResult {
   handoffNote?: HandoffNote;
   testResultsSummary?: string;
   synthesizedTest?: SynthesizedTestResult;
+}
+
+/**
+ * Resets the scratch clone to a clean tree (discards previous attempt's
+ * patch application) while preserving untracked files such as the
+ * synthesized regression test.
+ */
+function resetScratchClone(scratchCloneDir: string): void {
+  try {
+    execFileSync("git", ["checkout", "--", "."], {
+      cwd: scratchCloneDir,
+      stdio: "pipe",
+    });
+    execFileSync("git", ["clean", "-fd", "-e", "tests/", "-e", "patch.diff"], {
+      cwd: scratchCloneDir,
+      stdio: "pipe",
+    });
+  } catch {
+    // Best-effort: if not a git repo, attempts apply onto the working tree.
+  }
 }
 
 /**
@@ -81,13 +103,22 @@ export async function runPatchPipeline(
     if (ranked.length > 0) {
       suspect = ranked[0];
     } else {
-      // Fallback suspect if nothing ranked
-      suspect = {
-        service: params.diagnosis.implicated_change?.service || "payments",
-        file: "demo/src/payments.ts",
-        lineRange: [38, 52],
-        score: 60,
-        reason: "Fallback suspect from diagnosis implicated service",
+      // No suspect identified: hand off immediately rather than guessing a file.
+      const handoffNote: HandoffNote = {
+        incidentId: params.incidentId,
+        attemptsCount: 0,
+        status: "handoff_required",
+        reason:
+          "Fault localization produced no ranked suspects. Refusing to guess a target file.",
+        attempts: [],
+        humanActionRequired:
+          "A human engineer must identify the suspect file/service; the pipeline will not patch blindly.",
+      };
+      return {
+        success: false,
+        attemptsCount: 0,
+        handoffNote,
+        synthesizedTest: undefined,
       };
     }
   }
@@ -121,24 +152,37 @@ export async function runPatchPipeline(
     diff?: string;
     error?: string;
     logs?: string;
+    usedLLM?: boolean;
+    fallbackReason?: string;
   }> = [];
+
+  // 2b. Baseline measurement: run the synthesized regression test against
+  // UNPATCHED code inside the sandbox. A genuine FAIL_TO_PASS reproducer
+  // fails here; if it passes, the test does not reproduce the incident.
+  let baselineFailed: boolean | null = null;
+  let baselineLogs = "";
+  if (synthesizedTest?.available !== false) {
+    const baseline = await runInSandbox({
+      repoSnapshotDir: repoSnapshot,
+      scratchDir: scratchClone,
+      testCommand: synthesizedTest
+        ? `npx --no-install vitest run ${synthesizedTest.relativeFilePath}`
+        : params.testCommand,
+      config: params.sandboxConfig,
+    });
+    baselineFailed = !baseline.success;
+    baselineLogs = baseline.logs;
+  }
 
   let lastLogs = "";
 
-  // 3. Retry loop: max 4 attempts
+  // 3. Retry loop: max 4 attempts. Each attempt starts from a clean tree.
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    // Check if deliberately unfixable (e.g. dependency outage)
-    if (params.isDeliberatelyUnfixable) {
-      attemptsHistory.push({
-        attempt,
-        error:
-          "Unfixable dependency outage: external upstream service 503 Service Unavailable",
-        logs: `Attempt ${attempt}: External dependency fraud-check unreachable. Code fix cannot resolve dependency outage.`,
-      });
-      continue;
-    }
+    resetScratchClone(scratchClone);
 
     let generatedDiff = "";
+    let usedLLM = false;
+    let fallbackReason: string | undefined;
     try {
       const patch = await generatePatch({
         suspect,
@@ -147,17 +191,21 @@ export async function runPatchPipeline(
         testFailureLogs: lastLogs,
       });
       generatedDiff = patch.diff;
+      usedLLM = patch.usedLLM;
+      fallbackReason = patch.fallbackReason;
     } catch (err: any) {
       attemptsHistory.push({
         attempt,
         error: `Diff generation rejected: ${err.message}`,
         logs: err.stack,
+        usedLLM: false,
+        fallbackReason: err.message,
       });
       lastLogs = err.message;
       continue;
     }
 
-    // Run sandbox validation
+    // Run sandbox validation (patch applied inside runInSandbox)
     let sandboxResult: SandboxResult;
     try {
       sandboxResult = await runInSandbox({
@@ -184,15 +232,27 @@ export async function runPatchPipeline(
       diff: generatedDiff,
       error: sandboxResult.failureReason,
       logs: sandboxResult.logs,
+      usedLLM,
+      fallbackReason,
     });
 
     if (sandboxResult.success) {
-      // Sandbox validation passed! Create PR proposal
+      // Sandbox validation passed. Build MEASURED test evidence:
+      // FAIL_TO_PASS is true only if the baseline (unpatched) run failed;
+      // PASS_TO_PASS is true because the patched run just succeeded.
+      const failToPass =
+        baselineFailed === true
+          ? "FAIL_TO_PASS: measured — synthesized regression test FAILED on unpatched code and PASSES on patched code."
+          : baselineFailed === false
+            ? "FAIL_TO_PASS: NOT PROVEN — synthesized test passed on unpatched code too; it does not reproduce the incident."
+            : "FAIL_TO_PASS: UNKNOWN — no reproducer available; baseline not measured.";
       const testResults = [
-        "1. FAIL_TO_PASS: Verified failing on unpatched code (NullPointerException / error reproduced).",
-        "2. PASS_TO_PASS: Verified passing on patched code inside hardened sandbox.",
+        `1. ${failToPass}`,
+        "2. PASS_TO_PASS: measured — sandbox validation command exited 0 on patched code.",
+        `Baseline logs (unpatched): ${baselineLogs.slice(0, 500) || "n/a"}`,
         `Sandbox Execution Time: ${sandboxResult.executionTimeMs}ms`,
         `Sandbox Exit Code: ${sandboxResult.exitCode}`,
+        `Patch generator: ${usedLLM ? "LLM" : `deterministic (${fallbackReason || "no reason given"})`}`,
       ].join("\n");
 
       const rollbackPlan = [

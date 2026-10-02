@@ -14,9 +14,14 @@ export interface SandboxConfig {
   user?: string; // default "1000:1000" (non-root)
   enableDocker?: boolean;
   /**
+   * Preferred sandbox backend: "microsandbox" (default when available),
+   * "docker", or "auto" (try MicroSandbox first, then Docker).
+   */
+  backend?: "auto" | "microsandbox" | "docker";
+  /**
    * Explicit opt-in for insecure local execution (trusted dev iteration / fast unit tests only).
    * THIS IS NOT A SECURITY BOUNDARY. Must be explicitly set to true to bypass
-   * the fail-closed Docker requirement in non-containerized environments.
+   * the fail-closed requirement in non-isolated environments.
    */
   allowInsecureDevExecution?: boolean;
 }
@@ -60,6 +65,69 @@ export function validatePinnedImageDigest(image: string): void {
       `Security violation: Sandbox image '${image}' is not pinned with a sha256 digest. Floating tags are strictly prohibited.`,
     );
   }
+}
+
+/**
+ * Checks whether the MicroSandbox CLI (`msb`) is available on the host.
+ * MicroSandbox provides hardware-level (microVM) isolation, which is strictly
+ * stronger than container namespaces, and is the preferred backend.
+ */
+export function isMicroSandboxAvailable(): boolean {
+  try {
+    execFileSync("msb", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Builds the hardened `msb run` arguments enforcing isolation in code:
+ * - Ephemeral microVM per attempt (no --name, removed on completion)
+ * - NO network (--no-net: airgapped)
+ * - Repo snapshot mounted read-only (:ro), scratch dir read-write
+ * - CPU/memory limits
+ * - Non-interactive (--no-tty --no-stdin)
+ */
+export function buildMicroSandboxRunArgs(
+  repoSnapshotDir: string,
+  scratchDir: string,
+  testCommand: string,
+  config: SandboxConfig = {},
+): string[] {
+  const image = config.imageDigest || DEFAULT_PINNED_IMAGE;
+  validatePinnedImageDigest(image);
+
+  const cpus = config.cpuLimit || "1.0";
+  const memory = config.memoryLimit || "512m";
+  // msb memory flag expects e.g. "512M"; normalize "512m" -> "512M"
+  const msbMemory = memory.toLowerCase().endsWith("m")
+    ? `${memory.slice(0, -1)}M`
+    : memory;
+
+  return [
+    "run",
+    "--no-net",
+    "--no-tty",
+    "--no-stdin",
+    "-c",
+    cpus,
+    "-m",
+    msbMemory,
+    "-v",
+    `${path.resolve(repoSnapshotDir)}:/workspace/repo:ro`,
+    "-v",
+    `${path.resolve(scratchDir)}:/workspace/scratch`,
+    "-w",
+    "/workspace/scratch",
+    "-e",
+    "NODE_ENV=test",
+    image,
+    "--",
+    "sh",
+    "-c",
+    testCommand,
+  ];
 }
 
 /**
@@ -125,8 +193,10 @@ export function buildDockerRunArgs(
 
 /**
  * Executes validation within an isolated sandbox.
- * FAILS CLOSED: Refuses to execute untrusted code without Docker container isolation
- * unless explicit allowInsecureDevExecution: true opt-in is provided.
+ * Backend preference: MicroSandbox (microVM, hardware isolation) first,
+ * hardened Docker second. FAILS CLOSED: refuses to execute untrusted code
+ * without a real isolation backend unless explicit
+ * allowInsecureDevExecution: true opt-in is provided.
  */
 export async function runInSandbox(
   params: SandboxExecutionParams,
@@ -139,22 +209,33 @@ export async function runInSandbox(
   const repoSnapshot = path.resolve(params.repoSnapshotDir);
   const scratchDir = path.resolve(params.scratchDir);
 
+  const backendPreference = config.backend || "auto";
+  const msbAvailable = isMicroSandboxAvailable();
   const dockerAvailable = isDockerAvailable();
-  const wantsDocker = config.enableDocker ?? true;
-  const canUseDocker = wantsDocker && dockerAvailable;
+  // Legacy enableDocker flag still respected: false disables Docker specifically.
+  const dockerAllowed = config.enableDocker ?? true;
 
-  // FAIL CLOSED: When Docker is unavailable or disabled, refuse to execute untrusted patches
-  // unless explicitly opted into insecure local dev mode.
-  if (!canUseDocker) {
+  const useMicroSandbox =
+    (backendPreference === "microsandbox" || backendPreference === "auto") &&
+    msbAvailable;
+  const useDocker =
+    !useMicroSandbox &&
+    (backendPreference === "docker" || backendPreference === "auto") &&
+    dockerAllowed &&
+    dockerAvailable;
+
+  // FAIL CLOSED: no real isolation backend available (or explicitly disabled)
+  // and no explicit insecure-dev opt-in -> refuse to execute.
+  if (!useMicroSandbox && !useDocker) {
     if (!config.allowInsecureDevExecution) {
       return {
         success: false,
         exitCode: 126,
-        logs: "Security error: Hardened Docker sandbox is required for executing untrusted patches. Docker is unavailable or disabled, and insecure local execution is not explicitly permitted (allowInsecureDevExecution: true). Refusing to execute on host without container isolation.",
+        logs: "Security error: A real sandbox isolation backend (MicroSandbox microVM or hardened Docker container) is required for executing untrusted patches. Neither is available or enabled, and insecure local execution is not explicitly permitted (allowInsecureDevExecution: true). Refusing to execute on host without isolation.",
         executionTimeMs: Date.now() - startTime,
         timedOut: false,
         securityChecksPassed: false,
-        failureReason: "docker_unavailable_fail_closed",
+        failureReason: "no_isolation_backend_fail_closed",
       };
     }
   }
@@ -188,13 +269,23 @@ export async function runInSandbox(
         logs: `Failed to apply diff: ${err.message}\n${err.stderr?.toString() || ""}`,
         executionTimeMs: Date.now() - startTime,
         timedOut: false,
-        securityChecksPassed: canUseDocker,
+        securityChecksPassed: useMicroSandbox || useDocker,
         failureReason: "patch_apply_failed",
       };
     }
   }
 
-  if (canUseDocker) {
+  if (useMicroSandbox) {
+    return executeMicroSandbox(
+      params,
+      repoSnapshot,
+      scratchDir,
+      timeoutMs,
+      maxOutputBytes,
+    );
+  }
+
+  if (useDocker) {
     return executeDockerSandbox(
       params,
       repoSnapshot,
@@ -211,6 +302,91 @@ export async function runInSandbox(
       maxOutputBytes,
     );
   }
+}
+
+/**
+ * MicroSandbox (microVM) execution: hardware-level isolation.
+ * Runs the test command inside an ephemeral microVM with networking disabled.
+ */
+async function executeMicroSandbox(
+  params: SandboxExecutionParams,
+  repoSnapshot: string,
+  scratchDir: string,
+  timeoutMs: number,
+  maxOutputBytes: number,
+): Promise<SandboxResult> {
+  const startTime = Date.now();
+  const testCmd = params.testCommand || "npm test";
+  const args = buildMicroSandboxRunArgs(
+    repoSnapshot,
+    scratchDir,
+    testCmd,
+    params.config,
+  );
+
+  return new Promise((resolve) => {
+    let outputBuffer = "";
+    let isTimedOut = false;
+
+    const child = spawn("msb", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const timer = setTimeout(() => {
+      isTimedOut = true;
+      // MicroVM is ephemeral (no --name): killing the client halts the VM.
+      child.kill("SIGKILL");
+      outputBuffer +=
+        "\n[KILLED: MicroSandbox microVM terminated by sandbox timeout]\n";
+    }, timeoutMs);
+
+    const onData = (chunk: Buffer) => {
+      if (outputBuffer.length < maxOutputBytes) {
+        outputBuffer += chunk.toString("utf8");
+        if (outputBuffer.length > maxOutputBytes) {
+          outputBuffer =
+            outputBuffer.substring(0, maxOutputBytes) +
+            "\n...[OUTPUT TRUNCATED: Exceeded output size limit]...";
+        }
+      }
+    };
+
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+
+    child.on("close", (exitCode) => {
+      clearTimeout(timer);
+      const executionTimeMs = Date.now() - startTime;
+      const code = exitCode ?? (isTimedOut ? 124 : 1);
+
+      resolve({
+        success: code === 0 && !isTimedOut,
+        exitCode: code,
+        logs: outputBuffer,
+        executionTimeMs,
+        timedOut: isTimedOut,
+        securityChecksPassed: true,
+        failureReason: isTimedOut
+          ? "timeout"
+          : code !== 0
+            ? "test_failure"
+            : undefined,
+      });
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({
+        success: false,
+        exitCode: 1,
+        logs: `MicroSandbox invocation error: ${err.message}`,
+        executionTimeMs: Date.now() - startTime,
+        timedOut: false,
+        securityChecksPassed: true,
+        failureReason: "sandbox_exception",
+      });
+    });
+  });
 }
 
 /**

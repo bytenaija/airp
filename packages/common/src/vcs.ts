@@ -64,11 +64,34 @@ export function formatPRDescription(options: CreatePullRequestOptions): string {
 }
 
 /**
+ * Extracts the target file paths from a unified diff (the `+++ b/<path>` lines).
+ */
+function diffTargetFiles(diff: string): string[] {
+  const files = new Set<string>();
+  const lines = diff.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const prev = i > 0 ? lines[i - 1] : "";
+    const isHeader =
+      (line.startsWith("+++ b/") || line.startsWith("+++ ")) &&
+      (prev.startsWith("--- a/") || prev.startsWith("--- "));
+    if (isHeader) {
+      const file = line.replace(/^\+\+\+\s+(?:b\/)?/, "").trim();
+      if (file && file !== "/dev/null") {
+        files.add(file);
+      }
+    }
+  }
+  return Array.from(files);
+}
+
+/**
  * LocalGitProvider:
  * Fully offline version control provider.
  * Creates branch airp/fix-<incident-id> in the scratch clone,
- * writes PR_DESCRIPTION.md with the §15.4.6 template, and returns local file URL.
- * Requires NO network and NO tokens.
+ * writes PR_DESCRIPTION.md with the §15.4.6 template, stages the ACTUAL
+ * patched source files (parsed from the diff) plus the description,
+ * and returns local file URL. Requires NO network and NO tokens.
  */
 export class LocalGitProvider implements VCSProvider {
   async createPullRequest(
@@ -99,10 +122,21 @@ export class LocalGitProvider implements VCSProvider {
     const descriptionPath = path.join(repoDir, "PR_DESCRIPTION.md");
     fs.writeFileSync(descriptionPath, descriptionContent, "utf8");
 
-    // Commit PR description and changes if in a git repo
+    // Commit the ACTUAL patched source files (from the diff) plus the
+    // description. Never commit an empty branch: the fix must be present.
     if (isGitRepo) {
+      const filesToStage = ["PR_DESCRIPTION.md"];
+      if (options.diff) {
+        for (const f of diffTargetFiles(options.diff)) {
+          // Guard against path traversal in diff-supplied paths.
+          const abs = path.resolve(repoDir, f);
+          if (abs.startsWith(repoDir + path.sep) && fs.existsSync(abs)) {
+            filesToStage.push(f);
+          }
+        }
+      }
       try {
-        execFileSync("git", ["add", "PR_DESCRIPTION.md"], {
+        execFileSync("git", ["add", "--", ...filesToStage], {
           cwd: repoDir,
           stdio: "pipe",
         });
@@ -119,8 +153,10 @@ export class LocalGitProvider implements VCSProvider {
           ],
           { cwd: repoDir, stdio: "pipe" },
         );
-      } catch {
-        // Ignored if nothing changed or already committed
+      } catch (err: any) {
+        throw new Error(
+          `LocalGitProvider: failed to commit patched files (${err.message}). Refusing to create a fix branch without the fix.`,
+        );
       }
     }
 
@@ -181,7 +217,22 @@ export class GitHubProvider implements VCSProvider {
         });
         const descriptionPath = path.join(repoDir, "PR_DESCRIPTION.md");
         fs.writeFileSync(descriptionPath, body, "utf8");
-        execFileSync("git", ["add", "."], { cwd: repoDir, stdio: "pipe" });
+        // Stage ONLY the remediation files: patched sources from the diff,
+        // the description. Never `git add .` (would sweep in patch.diff,
+        // scratch artifacts, node_modules symlinks).
+        const filesToStage = ["PR_DESCRIPTION.md"];
+        if (options.diff) {
+          for (const f of diffTargetFiles(options.diff)) {
+            const abs = path.resolve(repoDir, f);
+            if (abs.startsWith(repoDir + path.sep) && fs.existsSync(abs)) {
+              filesToStage.push(f);
+            }
+          }
+        }
+        execFileSync("git", ["add", "--", ...filesToStage], {
+          cwd: repoDir,
+          stdio: "pipe",
+        });
         execFileSync(
           "git",
           [
@@ -195,7 +246,25 @@ export class GitHubProvider implements VCSProvider {
           ],
           { cwd: repoDir, stdio: "pipe" },
         );
-        execFileSync("git", ["push", "-u", "origin", branchName, "--force"], {
+        // Refuse to clobber an existing remote branch: fail instead of --force.
+        const lsRemote = (() => {
+          try {
+            const out = execFileSync(
+              "git",
+              ["ls-remote", "--heads", "origin", branchName],
+              { cwd: repoDir, stdio: "pipe", encoding: "utf8" },
+            );
+            return out.trim().length > 0;
+          } catch {
+            return false;
+          }
+        })();
+        if (lsRemote) {
+          throw new Error(
+            `Remote branch origin/${branchName} already exists; refusing to overwrite (human edits may be present).`,
+          );
+        }
+        execFileSync("git", ["push", "-u", "origin", branchName], {
           cwd: repoDir,
           stdio: "pipe",
         });

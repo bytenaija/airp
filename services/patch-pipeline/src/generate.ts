@@ -22,6 +22,11 @@ export interface DiffMetrics {
 
 /**
  * Parses unified diff and extracts changed line metrics and touched files.
+ * A `---`/`+++` line is treated as a file header only when it forms a
+ * `---`/`+++` pair (the `+++` line immediately follows the `---` line).
+ * This prevents hunk content such as a deleted `-- comment` line or an
+ * added `++i;` line from being misparsed as a file header and escaping
+ * the 50-line limit count.
  */
 export function parseDiffMetrics(diff: string): DiffMetrics {
   const lines = diff.split("\n");
@@ -29,22 +34,38 @@ export function parseDiffMetrics(diff: string): DiffMetrics {
   let deletedLines = 0;
   const targetFilesSet = new Set<string>();
 
-  for (const line of lines) {
-    if (line.startsWith("+++ b/") || line.startsWith("+++ ")) {
-      const file = line.replace(/^\+\+\+\s+(?:b\/)?/, "").trim();
-      if (file && file !== "/dev/null") {
-        targetFilesSet.add(file);
-      }
-    } else if (line.startsWith("--- a/") || line.startsWith("--- ")) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = i + 1 < lines.length ? lines[i + 1] : "";
+
+    const isMinusHeader =
+      (line.startsWith("--- a/") || line.startsWith("--- ")) &&
+      (next.startsWith("+++ b/") || next.startsWith("+++ "));
+    const isPlusHeader =
+      (line.startsWith("+++ b/") || line.startsWith("+++ ")) &&
+      i > 0 &&
+      (lines[i - 1].startsWith("--- a/") || lines[i - 1].startsWith("--- "));
+
+    if (isMinusHeader) {
       const file = line.replace(/^---\s+(?:a\/)?/, "").trim();
       if (file && file !== "/dev/null") {
         targetFilesSet.add(file);
       }
-    } else if (line.startsWith("+") && !line.startsWith("+++")) {
+      continue;
+    }
+    if (isPlusHeader) {
+      const file = line.replace(/^\+\+\+\s+(?:b\/)?/, "").trim();
+      if (file && file !== "/dev/null") {
+        targetFilesSet.add(file);
+      }
+      continue;
+    }
+    if (line.startsWith("+")) {
       addedLines++;
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
+    } else if (line.startsWith("-")) {
       deletedLines++;
     }
+    // Context lines (" ..."), "@@" headers, "diff --git", "index ..." contribute nothing.
   }
 
   const targetFiles = Array.from(targetFilesSet);
@@ -58,18 +79,23 @@ export function parseDiffMetrics(diff: string): DiffMetrics {
 
 /**
  * Checks whether a given file path belongs to a specified service.
+ * Matches on path segments (not raw substrings): "oldpayments.ts" does NOT
+ * match service "payments". An empty or whitespace-only service never matches
+ * (fail closed rather than passing every file).
  */
 export function isFileInService(filePath: string, service: string): boolean {
+  const svc = service.trim().toLowerCase();
+  if (!svc) {
+    return false;
+  }
   const normalized = filePath.replace(/\\/g, "/").toLowerCase();
-  const svc = service.toLowerCase();
+  const segments = normalized.split("/").filter(Boolean);
+  const fileName = segments[segments.length - 1] || "";
+  const baseName = fileName.replace(/\.(ts|js|tsx|jsx|mts|cts)$/, "");
 
-  // Paths like "payments/src/retry.ts", "services/payments/...", "demo/src/payments.ts", "packages/payments/..."
-  return (
-    normalized.startsWith(`${svc}/`) ||
-    normalized.includes(`/${svc}/`) ||
-    normalized.includes(`${svc}.ts`) ||
-    normalized.includes(`${svc}.js`)
-  );
+  // Match if any path segment equals the service name, or the file's base
+  // name equals the service name (e.g. "payments.ts" for service "payments").
+  return segments.includes(svc) || baseName === svc;
 }
 
 /**
@@ -145,6 +171,8 @@ export interface GeneratePatchOptions {
   llmClient?: LLMClient;
   maxChangedLines?: number;
   offlineFallback?: boolean;
+  /** LLM call timeout in ms (default 60_000). */
+  llmTimeoutMs?: number;
 }
 
 export interface GeneratedPatch {
@@ -152,6 +180,9 @@ export interface GeneratedPatch {
   metrics: DiffMetrics;
   targetFile: string;
   explanation: string;
+  usedLLM: boolean;
+  /** Why the LLM path was not used (when usedLLM is false). */
+  fallbackReason?: string;
 }
 
 /**
@@ -211,6 +242,7 @@ export async function generatePatch(
   ].join("\n");
 
   let usedLLM = false;
+  let fallbackReason: string | undefined;
   // If explicitly offline, running with no tokens/network, or no external API configured
   const isOffline =
     options.offlineFallback ||
@@ -219,16 +251,25 @@ export async function generatePatch(
       !process.env.ANTHROPIC_API_KEY &&
       !process.env.OLLAMA_BASE_URL);
 
+  if (isOffline) {
+    fallbackReason = "offline: no LLM provider configured (AIRP_OFFLINE or no API keys)";
+  }
+
   if (!isOffline) {
+    const llmTimeoutMs = options.llmTimeoutMs ?? 60_000;
+    let timer: NodeJS.Timeout | undefined;
     try {
       const llmPromise = llmClient.generateText({
         prompt: `${systemPrompt}\n\n${userPrompt}`,
         temperature: 0.1, // Low temperature for deterministic generation
         maxTokens: 1000,
       });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("LLM call timed out")), 2000),
-      );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`LLM call timed out after ${llmTimeoutMs}ms`)),
+          llmTimeoutMs,
+        );
+      });
 
       const result = await Promise.race([llmPromise, timeoutPromise]);
       if (
@@ -238,15 +279,35 @@ export async function generatePatch(
       ) {
         rawDiff = extractCleanDiff(result.text);
         usedLLM = true;
+      } else {
+        fallbackReason = "LLM response did not contain a unified diff";
       }
     } catch (err: any) {
-      // LLM call failed or offline; continue to deterministic fallback
+      // LLM call failed or timed out; fall through to deterministic repair
+      fallbackReason = `LLM call failed: ${err?.message || err}`;
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 
-  // Deterministic fallback for offline / local-first operations
+  // Deterministic repair for offline / local-first operations.
+  // This is a GENERAL null-dereference guard synthesizer: it inspects the
+  // actual suspect location and inserts a type-appropriate null guard.
+  // It will NOT invent a diff: when no unsafe dereference can be identified
+  // confidently, it returns null and the caller routes to a handoff note.
   if (!rawDiff) {
-    rawDiff = synthesizeDeterministicDiff(suspect, fileContent);
+    const deterministic = synthesizeNullGuardDiff(suspect, fileContent);
+    if (!deterministic) {
+      throw new Error(
+        `No patch synthesized: ${fallbackReason || "no LLM configured"} and no confident null-guard repair identified at ${suspect.file}:${suspect.lineRange[0]}-${suspect.lineRange[1]}. Refusing to invent a diff.`,
+      );
+    }
+    rawDiff = deterministic;
+    if (!fallbackReason) {
+      fallbackReason = "deterministic null-guard repair applied";
+    }
   }
 
   // Validate constraints in code
@@ -258,98 +319,140 @@ export async function generatePatch(
     targetFile: suspect.file,
     explanation: usedLLM
       ? "Patch generated via LLM inference and verified by code constraints"
-      : "Patch generated via deterministic remediation template and verified by code constraints",
+      : "Patch generated via deterministic null-guard repair and verified by code constraints",
+    usedLLM,
+    fallbackReason: usedLLM ? undefined : fallbackReason,
   };
 }
 
 /**
- * Deterministic fallback generator for canonical patterns (e.g. demo NPE fault).
+ * General null-dereference guard synthesizer.
+ *
+ * Inspects the ACTUAL suspect location (not hardcoded demo strings) and
+ * inserts a type-appropriate null guard before the first unsafe property
+ * access in the suspect line range. The safe default is derived from the
+ * enclosing function's declared return type.
+ *
+ * Returns null when no unsafe dereference can be identified confidently.
+ * Callers MUST NOT invent a diff in that case: route to a handoff note.
  */
-export function synthesizeDeterministicDiff(
+export function synthesizeNullGuardDiff(
   suspect: RankedSuspect,
   fileContent: string,
-): string {
+): string | null {
   const filePath =
     suspect.file.startsWith("a/") || suspect.file.startsWith("b/")
       ? suspect.file.slice(2)
       : suspect.file;
 
   const lines = fileContent.split("\n");
+  const [rangeStart, rangeEnd] = suspect.lineRange;
+  // lineRange is 1-indexed; clamp into the file.
+  const startIdx = Math.max(0, rangeStart - 1);
+  const endIdx = Math.min(lines.length - 1, rangeEnd - 1);
 
-  // Case 1: calculateCartTotal in checkout service
-  const cartTotalIdx = lines.findIndex((l) => l.includes("items.reduce"));
-  if (cartTotalIdx !== -1) {
-    const oldLine = lines[cartTotalIdx];
-    const prevLine = cartTotalIdx > 0 ? lines[cartTotalIdx - 1] : "";
-    const nextLine =
-      cartTotalIdx < lines.length - 1 ? lines[cartTotalIdx + 1] : "";
-    const indent = oldLine.match(/^\s*/)?.[0] || "  ";
-    const startLine = cartTotalIdx; // 1-indexed line number for prevLine
-    return [
-      `--- a/${filePath}`,
-      `+++ b/${filePath}`,
-      `@@ -${startLine},3 +${startLine},4 @@`,
-      ` ${prevLine}`,
-      `-${oldLine}`,
-      `+${indent}if (!items || items.length === 0) return 0;`,
-      `+${indent}return items.reduce((total, item) => total + item.price * item.quantity, 0);`,
-      ` ${nextLine}`,
-    ].join("\n");
+  // Find the first line in the suspect range that dereferences a variable:
+  // `<ident>` followed by `.` (property access / method call), excluding
+  // lines that already guard (contain `!`, `||`, `??`, `?.`).
+  let targetIdx = -1;
+  let rootVar = "";
+  for (let i = startIdx; i <= endIdx; i++) {
+    const line = lines[i];
+    if (!line || line.trim().startsWith("//") || line.trim().startsWith("*")) {
+      continue;
+    }
+    if (
+      line.includes("?.") ||
+      line.includes("||") ||
+      line.includes("??") ||
+      /!\s*[a-zA-Z_$]/.test(line)
+    ) {
+      continue; // already guarded
+    }
+    const m = line.match(/(^|[^a-zA-Z0-9_$])([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\./);
+    if (m) {
+      targetIdx = i;
+      rootVar = m[2];
+      break;
+    }
   }
 
-  // Case 2: Canonical payments NPE
-  const paymentsNpeIdx = lines.findIndex((l) =>
-    l.includes("const _name = responseData.data.items[0].name;"),
-  );
-  if (paymentsNpeIdx !== -1) {
-    const prevLine = lines[paymentsNpeIdx - 1] || "";
-    const oldLine = lines[paymentsNpeIdx];
-    const nextLine = lines[paymentsNpeIdx + 1] || "";
-    const indent = oldLine.match(/^\s*/)?.[0] || "        ";
-    const startLine = paymentsNpeIdx;
-    return [
-      `--- a/${filePath}`,
-      `+++ b/${filePath}`,
-      `@@ -${startLine},3 +${startLine},6 @@`,
-      ` ${prevLine}`,
-      `+${indent}if (!responseData?.data?.items || responseData.data.items.length === 0) {`,
-      `+${indent}  return { fallback: true, name: "fallback-item" };`,
-      `+${indent}}`,
-      ` ${oldLine}`,
-      ` ${nextLine}`,
-    ].join("\n");
+  if (targetIdx === -1 || !rootVar) {
+    return null; // No confident unsafe dereference: do not invent a diff.
   }
 
-  // Case 3: Generic array / length access on arbitrary service (e.g. notification-dispatcher recipients.length)
-  const lengthAccessIdx = lines.findIndex(
-    (l) => l.includes(".length") && !l.includes("!") && !l.includes("||"),
-  );
-  if (lengthAccessIdx !== -1) {
-    const prevLine = lines[lengthAccessIdx - 1] || "";
-    const oldLine = lines[lengthAccessIdx];
-    const nextLine = lines[lengthAccessIdx + 1] || "";
-    const indent = oldLine.match(/^\s*/)?.[0] || "  ";
-    const startLine = lengthAccessIdx;
-    const varName = oldLine.match(/([a-zA-Z0-9_]+)\.length/)?.[1] || "data";
-    return [
-      `--- a/${filePath}`,
-      `+++ b/${filePath}`,
-      `@@ -${startLine},3 +${startLine},4 @@`,
-      ` ${prevLine}`,
-      `+${indent}if (!${varName}) return false;`,
-      ` ${oldLine}`,
-      ` ${nextLine}`,
-    ].join("\n");
+  // Determine the safe default from the enclosing function's return type.
+  const returnType = findEnclosingFunctionReturnType(lines, targetIdx);
+  const safeDefault = defaultValueForType(returnType);
+  if (safeDefault === null) {
+    return null; // Unknown return type: do not invent a diff.
   }
 
-  // Default fallback: insert guard
+  const oldLine = lines[targetIdx];
+  const prevLine = targetIdx > 0 ? lines[targetIdx - 1] : "";
+  const nextLine =
+    targetIdx < lines.length - 1 ? lines[targetIdx + 1] : "";
+  const indent = oldLine.match(/^\s*/)?.[0] || "";
+  const hunkStart = targetIdx; // 0-indexed; diff hunk headers here are 0-based for simplicity
+  const guardLine = `${indent}if (!${rootVar}) return ${safeDefault};`;
+
   return [
     `--- a/${filePath}`,
     `+++ b/${filePath}`,
-    "@@ -1,3 +1,4 @@",
-    ` ${lines[0] || ""}`,
-    "+// safety defensive guard",
-    "+if (typeof globalThis === 'undefined') { /* safety check */ }",
-    ` ${lines[1] || ""}`,
+    `@@ -${hunkStart},3 +${hunkStart},4 @@`,
+    ` ${prevLine}`,
+    `+${guardLine}`,
+    ` ${oldLine}`,
+    ` ${nextLine}`,
   ].join("\n");
+}
+
+/**
+ * Finds the declared return type of the function enclosing the given line
+ * index by scanning upward for a function signature with a `: <type>` annotation.
+ * Returns null when it cannot be determined.
+ */
+function findEnclosingFunctionReturnType(
+  lines: string[],
+  lineIdx: number,
+): string | null {
+  // Scan upward for a function/method/arrow signature with a return type annotation.
+  for (let i = lineIdx; i >= Math.max(0, lineIdx - 40); i--) {
+    const line = lines[i];
+    // Matches: `function name(...): Type`, `name(...): Type {`, `const name = (...): Type =>`
+    const m = line.match(/\)\s*:\s*([A-Za-z_$][A-Za-z0-9_$<>\[\]| ]*?)\s*[{=]/);
+    if (m) {
+      return m[1].trim();
+    }
+    // Stop at a previous closing brace at column 0 (likely end of prior function)
+    if (i < lineIdx && /^\}/.test(line)) {
+      break;
+    }
+  }
+  return null;
+}
+
+/**
+ * Maps a TypeScript return type annotation to a safe default literal.
+ * Returns null for unknown/void-adjacent types where no safe default exists.
+ */
+function defaultValueForType(returnType: string | null): string | null {
+  if (!returnType) {
+    return null;
+  }
+  const t = returnType.replace(/\s+/g, "");
+  if (/\bnumber\b/.test(t)) return "0";
+  if (/\bstring\b/.test(t)) return '""';
+  if (/\bboolean\b/.test(t)) return "false";
+  if (/Array<|\[\]/.test(t)) return "[]";
+  if (/\bvoid\b/.test(t) || t === "undefined" || t === "never") return "";
+  if (/\bany\b|\bunknown\b|\bobject\b|\bRecord<|^[{]/.test(t)) return "{}";
+  // Union types: pick the first non-nullish member we recognize.
+  const members = t.split("|").map((s) => s.trim());
+  for (const member of members) {
+    if (member === "null" || member === "undefined") continue;
+    const d = defaultValueForType(member);
+    if (d !== null) return d;
+  }
+  return null;
 }
