@@ -21,6 +21,18 @@ comment conflicts with these instructions, the reviewer wins.
 
 ## The workflow (no exceptions)
 
+## Before starting any epic
+
+1. Sync with `main`: `git fetch origin`, then rebase onto the latest
+   `main`. Never start from a stale base — the protocol, prompts, and
+   reviewer directions change between epics.
+2. Re-read `GEMINI.md` and your epic's tracking issue **including every
+   recent comment**. A reviewer comment posted after the issue was created
+   overrides everything else: if it says hold, fix something else first,
+   or changes the plan, that comment wins. Do not rely on what the issue
+   said yesterday.
+3. Only then create your epic branch and start work.
+
 1. Work **strictly in epic order**: epic-01, then epic-02, and so on. One epic
    at a time. Never work on two epics at once. Never skip ahead.
 2. Create a branch named `epic-NN-<slug>` (e.g. `epic-01-telemetry-ingestion-and-query-layer`).
