@@ -27,6 +27,13 @@ BUILD:
    unneeded syscalls. FRESH container per attempt, never reused. The sandbox
    must not reach the incident store, the policy engine, or the model API;
    only the orchestrator talks to those. Returns pass/fail + capped logs.
+   HARD REQUIREMENT: implement a MicroSandbox backend
+   (https://github.com/superradcompany/microsandbox) that runs patch
+   validation inside a microVM with networking disabled. Prefer MicroSandbox
+   where available, Docker as the alternative; fail closed if neither is
+   available (an explicit insecure-dev opt-in may exist for local iteration
+   but must never be the default). The red-team tests must exercise the
+   MicroSandbox path with attack simulations that can actually fail.
 5. Retry loop: on sandbox failure, feed logs back to the generator, max 4
    attempts, then give up with a handoff note.
 6. packages/common/vcs.ts: VCSProvider interface with TWO implementations:
