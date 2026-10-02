@@ -11,7 +11,7 @@ This repo is built **epic by epic, by an AI builder, under AI review**:
 | File | Purpose |
 |---|---|
 | `CONTEXT.md` | Global build context: stack, layout, hard requirements. Read first. |
-| `prompts/epic-NN-*.md` | The 16 epic prompts, in build order. One epic at a time. |
+| `prompts/epic-NN-*.md` | The 17 epic prompts, in build order. One epic at a time. |
 | `GEMINI.md` | Operating instructions for the builder agent (push always, PR per epic, never advance without approval). |
 | `REVIEW_PROTOCOL.md` | How the reviewer (Muse) approves epics and authorizes the next one. |
 | `docs/textbook.md` | The full textbook: concepts, architecture, spec, testing, hardening. |
