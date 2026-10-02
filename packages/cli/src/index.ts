@@ -450,7 +450,12 @@ program
       const invRes = await fetch(`${agentUrl}/investigate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ incident }),
+        body: JSON.stringify({
+          incident,
+          confidence_threshold: options.confidenceThreshold
+            ? parseFloat(options.confidenceThreshold)
+            : undefined,
+        }),
       });
 
       if (!invRes.ok) {

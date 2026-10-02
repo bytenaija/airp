@@ -32,6 +32,7 @@ export interface AgentToolsOptions {
   codeIndexUrl?: string;
   changeFeedUrl?: string;
   defaultTimeoutMs?: number;
+  changeEvents?: ChangeEvent[];
 }
 
 export function withTimeout<T>(
@@ -81,6 +82,19 @@ export class AgentTools {
   private readonly codeIndexUrl: string;
   private readonly changeFeedUrl: string;
   private readonly defaultTimeoutMs: number;
+  private changeEvents: ChangeEvent[] = [];
+
+  private static readonly READ_ONLY_OPERATIONS = new Set([
+    "logs_query",
+    "metrics_query",
+    "traces_search",
+    "code_search",
+    "code_read",
+    "code_blame",
+    "runbook_search",
+    "deploys_recent",
+    "incidents_similar",
+  ]);
 
   constructor(options: AgentToolsOptions = {}) {
     this.queryClient = options.queryClient || new QueryClient();
@@ -96,27 +110,19 @@ export class AgentTools {
       "http://localhost:8004"
     ).replace(/\/$/, "");
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 5000;
+    this.changeEvents = options.changeEvents ?? [];
+  }
+
+  setChangeEvents(events: ChangeEvent[]): void {
+    this.changeEvents = events;
   }
 
   // Strictly Read-Only Credential Guard
   assertReadOnly(operation: string): void {
-    const forbidden = [
-      "write",
-      "delete",
-      "post",
-      "put",
-      "patch",
-      "deploy",
-      "mutate",
-      "rollback",
-    ];
-    const opLower = operation.toLowerCase();
-    for (const word of forbidden) {
-      if (opLower.includes(word)) {
-        throw new AgentPermissionDeniedError(
-          `Agent credentials are strictly READ-ONLY. Action '${operation}' is disallowed.`,
-        );
-      }
+    if (!AgentTools.READ_ONLY_OPERATIONS.has(operation.toLowerCase())) {
+      throw new AgentPermissionDeniedError(
+        `Agent credentials are strictly READ-ONLY. Action '${operation}' is disallowed.`,
+      );
     }
   }
 
@@ -227,8 +233,9 @@ export class AgentTools {
     if (!res.ok) {
       throw new Error(`code_search failed with status ${res.status}`);
     }
-    const data = (await res.json()) as Array<any>;
-    return data.slice(0, top_k);
+    const data = (await res.json()) as any;
+    const list = Array.isArray(data) ? data : data?.results || [];
+    return list.slice(0, top_k);
   }
 
   // 5. code_read
@@ -253,8 +260,11 @@ export class AgentTools {
 
     const url = new URL(`${this.codeIndexUrl}/read`);
     url.searchParams.set("path", args.path);
+    url.searchParams.set("filePath", args.path);
     url.searchParams.set("start_line", String(startLine));
+    url.searchParams.set("startLine", String(startLine));
     url.searchParams.set("end_line", String(maxEndLine));
+    url.searchParams.set("endLine", String(maxEndLine));
 
     const res = await withTimeout(
       fetch(url.toString()),
@@ -285,6 +295,7 @@ export class AgentTools {
 
     const url = new URL(`${this.codeIndexUrl}/blame`);
     url.searchParams.set("path", args.path);
+    url.searchParams.set("filePath", args.path);
     url.searchParams.set("line", String(args.line));
 
     const res = await withTimeout(
@@ -327,8 +338,9 @@ export class AgentTools {
     if (!res.ok) {
       throw new Error(`runbook_search failed with status ${res.status}`);
     }
-    const data = (await res.json()) as Array<any>;
-    return data.slice(0, top_k);
+    const data = (await res.json()) as any;
+    const list = Array.isArray(data) ? data : data?.results || [];
+    return list.slice(0, top_k);
   }
 
   // 8. deploys_recent
@@ -339,27 +351,45 @@ export class AgentTools {
     this.assertReadOnly("deploys_recent");
     const windowMs = parseWindowToMs(args.window ?? "2h");
     const cutoff = Date.now() - windowMs;
+    const results: ChangeEvent[] = [];
 
-    const url = new URL(`${this.changeFeedUrl}/events`);
-    url.searchParams.set("type", "deploy");
-    if (args.service) {
-      url.searchParams.set("service", args.service);
+    try {
+      const url = new URL(`${this.changeFeedUrl}/events`);
+      url.searchParams.set("type", "deploy");
+      if (args.service) {
+        url.searchParams.set("service", args.service);
+      }
+      url.searchParams.set("limit", "10"); // capped at 10
+
+      const res = await withTimeout(
+        fetch(url.toString()),
+        this.defaultTimeoutMs,
+        "deploys_recent",
+      );
+
+      if (res.ok) {
+        const events = (await res.json()) as ChangeEvent[];
+        const filtered = events.filter(
+          (e) => new Date(e.ts).getTime() >= cutoff,
+        );
+        results.push(...filtered);
+      }
+    } catch {
+      // Fall through to in-memory fallback
     }
-    url.searchParams.set("limit", "10"); // capped at 10
 
-    const res = await withTimeout(
-      fetch(url.toString()),
-      this.defaultTimeoutMs,
-      "deploys_recent",
-    );
-
-    if (!res.ok) {
-      throw new Error(`deploys_recent failed with status ${res.status}`);
+    if (results.length === 0 && this.changeEvents.length > 0) {
+      results.push(
+        ...this.changeEvents.filter(
+          (e) =>
+            e.type === "deploy" &&
+            (!args.service || e.service === args.service) &&
+            new Date(e.ts).getTime() >= cutoff,
+        ),
+      );
     }
-    const events = (await res.json()) as ChangeEvent[];
-    return events
-      .filter((e) => new Date(e.ts).getTime() >= cutoff)
-      .slice(0, 10);
+
+    return results.slice(0, 10);
   }
 
   // 9. incidents_similar

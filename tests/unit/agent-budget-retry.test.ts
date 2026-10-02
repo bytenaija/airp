@@ -78,7 +78,45 @@ describe("Investigation Agent Runtime: Budgets, Retries, and Read-Only Guards", 
     expect(incident.status).toBe("diagnosed");
   });
 
-  it("Acceptance Criterion: Read-only credential guard denies any write attempt", async () => {
+  it("Acceptance Criterion: Malformed model output recovers when retry succeeds", async () => {
+    const incident = createSampleIncident();
+
+    // First attempt is malformed, second attempt (retry 1) succeeds
+    const runtime = new InvestigationAgentRuntime({
+      mockLLMResponses: [
+        {
+          type: "malformed",
+          rawText: "Invalid JSON response",
+        },
+        {
+          type: "conclude",
+          diagnosis: {
+            root_cause: "Recovered root cause on retry",
+            confidence: 0.8,
+            fixability: "code_fixable",
+          },
+        },
+      ],
+    });
+
+    const diagnosis = await runtime.investigate(incident);
+
+    expect(diagnosis.confidence).toBe(0.8);
+    expect(diagnosis.fixability).toBe("code_fixable");
+    expect(diagnosis.root_cause).toBe("Recovered root cause on retry");
+
+    const recoveredEvent = incident.timeline.find(
+      (e) => e.action === "model_output_recovered",
+    );
+    expect(recoveredEvent).toBeDefined();
+
+    const exhaustedEvent = incident.timeline.find(
+      (e) => e.action === "model_output_exhausted",
+    );
+    expect(exhaustedEvent).toBeUndefined();
+  });
+
+  it("Acceptance Criterion: Read-only credential guard denies any write attempt and permits deploys_recent", async () => {
     const tools = new AgentTools();
 
     // Assert that attempting any write/mutate through agent tool interface throws AgentPermissionDeniedError
@@ -102,6 +140,37 @@ describe("Investigation Agent Runtime: Budgets, Retries, and Read-Only Guards", 
     expect(() => tools.assertReadOnly("logs_query")).not.toThrow();
     expect(() => tools.assertReadOnly("metrics_query")).not.toThrow();
     expect(() => tools.assertReadOnly("code_read")).not.toThrow();
+    expect(() => tools.assertReadOnly("deploys_recent")).not.toThrow();
+  });
+
+  it("enforces token budget per severity", async () => {
+    const incident = createSampleIncident();
+    incident.severity = "SEV3"; // 40k budget
+
+    const runtime = new InvestigationAgentRuntime({
+      budgets: {
+        tokenBudgets: { SEV3: 1000 }, // lower limit to test budget exhaustion
+      },
+      mockLLMResponses: [
+        {
+          type: "tool_call",
+          toolName: "metrics_query",
+          toolArgs: { metric: "checkout_error_rate" },
+          usage: { promptTokens: 600, completionTokens: 500, totalTokens: 1100 },
+        },
+      ],
+    });
+
+    const diagnosis = await runtime.investigate(incident);
+    expect(diagnosis.confidence).toBe(0);
+    expect(diagnosis.fixability).toBe("human_only");
+    expect(diagnosis.root_cause).toContain("token budget (1000) exceeded");
+
+    const exhaustedEvent = incident.timeline.find(
+      (e) => e.action === "budget_exhausted",
+    );
+    expect(exhaustedEvent).toBeDefined();
+    expect(exhaustedEvent?.detail).toContain("Exceeded token budget");
   });
 
   it("enforces max tool calls budget (<= 25 tool calls)", async () => {

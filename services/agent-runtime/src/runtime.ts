@@ -11,7 +11,11 @@ import {
   type LLMClientConfig,
   IncidentCostTracker,
 } from "@airp/common";
-import { AgentTools, type AgentToolsOptions } from "./tools/index.js";
+import {
+  AgentTools,
+  type AgentToolsOptions,
+  withTimeout,
+} from "./tools/index.js";
 import { HypothesisManager, CANONICAL_WEIGHTS } from "./hypotheses.js";
 
 export interface AgentBudgetConfig {
@@ -44,13 +48,24 @@ export interface RuntimeOptions {
   llmClient?: LLMClient;
   llmConfig?: LLMClientConfig;
   promptsDir?: string;
+  useDeterministicPolicy?: boolean;
   mockLLMResponses?: Array<{
     type: "tool_call" | "conclude" | "malformed";
     toolName?: string;
     toolArgs?: any;
     diagnosis?: Partial<Diagnosis>;
     rawText?: string;
+    usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   }>;
+}
+
+interface InvestigationContext {
+  discoveredDeploys: any[];
+  errorPattern?: string;
+  implicatedService?: string;
+  codeHits: Array<{ path: string; lineStart: number; lineEnd: number }>;
+  toolHistory: Array<{ tool: string; args: any; observation: string }>;
+  llmUnavailable?: boolean;
 }
 
 export class InvestigationAgentRuntime {
@@ -59,6 +74,7 @@ export class InvestigationAgentRuntime {
   private readonly tools: AgentTools;
   private readonly llmClient: LLMClient;
   private readonly promptsDir: string;
+  private readonly useDeterministicPolicy: boolean;
   private readonly mockLLMResponses?: Array<any>;
 
   constructor(options: RuntimeOptions = {}) {
@@ -78,6 +94,7 @@ export class InvestigationAgentRuntime {
     this.promptsDir =
       options.promptsDir ||
       path.resolve(process.cwd(), "agent", "prompts", "v1");
+    this.useDeterministicPolicy = options.useDeterministicPolicy ?? false;
     this.mockLLMResponses = options.mockLLMResponses
       ? [...options.mockLLMResponses]
       : undefined;
@@ -167,7 +184,16 @@ export class InvestigationAgentRuntime {
   /**
    * Runs the ReAct investigation loop over the IncidentRecord.
    */
-  async investigate(incident: IncidentRecord): Promise<Diagnosis> {
+  /**
+   * Runs the ReAct investigation loop over the IncidentRecord.
+   */
+  async investigate(
+    incident: IncidentRecord,
+    options?: { confidenceThreshold?: number },
+  ): Promise<Diagnosis> {
+    const confidenceThreshold =
+      options?.confidenceThreshold ?? this.confidenceThreshold;
+
     // 1. Transition incident status to 'investigating'
     if (incident.status !== "open") {
       validateStatusTransition(incident.status, "investigating");
@@ -198,6 +224,43 @@ export class InvestigationAgentRuntime {
       "plan_formulated",
       `Initial hypothesis priors: ${JSON.stringify(priors)}`,
     );
+
+    // If change events are pre-enriched, pass them to tools
+    if (incident.enrichment?.recent_changes) {
+      this.tools.setChangeEvents(incident.enrichment.recent_changes);
+    }
+
+    const context: InvestigationContext = {
+      discoveredDeploys: incident.enrichment?.recent_changes
+        ? [...incident.enrichment.recent_changes]
+        : [],
+      errorPattern: undefined,
+      implicatedService: undefined,
+      codeHits: [],
+      toolHistory: [],
+    };
+
+    // Extract error patterns and implicated services from alerts/signals
+    const summaries = incident.signals
+      .map(
+        (s) =>
+          s.detail ||
+          (s as any).annotations?.summary ||
+          (s as any).name ||
+          s.metric ||
+          "",
+      )
+      .filter(Boolean)
+      .join(" ");
+    const npeMatch = summaries.match(
+      /(NullPointerException|[A-Za-z]+Error|[A-Za-z]+Exception|5\d\d)/i,
+    );
+    if (npeMatch) {
+      context.errorPattern = npeMatch[1];
+    }
+    if (context.discoveredDeploys.length > 0) {
+      context.implicatedService = context.discoveredDeploys[0].service;
+    }
 
     // ReAct loop
     let investigating = true;
@@ -256,24 +319,46 @@ export class InvestigationAgentRuntime {
 
       // If confidence threshold is already reached and blame closed, or if simulated steps done
       if (
-        hypothesisManager.hasConfidenceThreshold(this.confidenceThreshold) &&
+        hypothesisManager.hasConfidenceThreshold(confidenceThreshold) &&
         toolCallCount >= 3
       ) {
         investigating = false;
         break;
       }
 
-      // Choose next step via mock or diagnostic policy
+      // Step selection: Mock responses > Deterministic policy > LLM-driven
       let nextStep: any;
       if (this.mockLLMResponses && this.mockLLMResponses.length > 0) {
         nextStep = this.mockLLMResponses.shift();
-      } else {
-        // Deterministic ReAct policy based on textbook §6.8
+      } else if (this.useDeterministicPolicy || context.llmUnavailable) {
         nextStep = this.determineNextStep(
           incident,
           toolCallCount,
           hypothesisManager,
+          context,
         );
+      } else {
+        try {
+          nextStep = await this.llmDrivenStep(
+            incident,
+            hypothesisManager,
+            context,
+          );
+        } catch (err: any) {
+          context.llmUnavailable = true;
+          // Graceful fallback to generic diagnostic policy when LLM provider is offline
+          this.appendTimeline(
+            incident,
+            "llm_step_fallback",
+            `LLM generation failed (${err.message}); falling back to generic diagnostic policy`,
+          );
+          nextStep = this.determineNextStep(
+            incident,
+            toolCallCount,
+            hypothesisManager,
+            context,
+          );
+        }
       }
 
       if (nextStep.type === "conclude") {
@@ -281,6 +366,7 @@ export class InvestigationAgentRuntime {
         const finalDiagnosis = await this.generateDiagnosisWithRetries(
           incident,
           hypothesisManager,
+          context,
           nextStep.diagnosis,
         );
         incident.status = "diagnosed";
@@ -294,7 +380,6 @@ export class InvestigationAgentRuntime {
 
       if (nextStep.type === "malformed") {
         investigating = false;
-        // Test retry on malformed output
         const retryResult = await this.handleMalformedWithRetries(
           incident,
           nextStep.rawText || "Invalid non-JSON response",
@@ -329,14 +414,51 @@ export class InvestigationAgentRuntime {
         `Observation from ${toolName}: ${sanitized.slice(0, 200)}`,
       );
 
-      // Record simulated token usage for LLM step
-      tokenTracker.recordUsage(
-        { promptTokens: 450, completionTokens: 90, totalTokens: 540 },
-        this.llmClient.provider,
-        this.llmClient.modelName,
-      );
+      // Record actual token usage if specified in mock/step
+      if (nextStep.usage) {
+        tokenTracker.recordUsage(
+          nextStep.usage,
+          this.llmClient.provider,
+          this.llmClient.modelName,
+        );
+      }
 
-      // Update hypotheses using Bayesian likelihood rules
+      // Update investigation context based on observation data
+      if (
+        toolName === "deploys_recent" &&
+        Array.isArray(observation) &&
+        observation.length > 0
+      ) {
+        context.discoveredDeploys = observation;
+        context.implicatedService = observation[0].service;
+      } else if (toolName === "logs_query" && Array.isArray(observation)) {
+        for (const log of observation) {
+          if (log.file && log.line) {
+            context.codeHits.unshift({
+              path: log.file,
+              lineStart: Number(log.line),
+              lineEnd: Number(log.line) + 20,
+            });
+            break;
+          }
+        }
+      } else if (toolName === "code_search" && Array.isArray(observation)) {
+        for (const hit of observation) {
+          context.codeHits.push({
+            path: hit.filePath || hit.path,
+            lineStart: hit.lineStart || hit.line || 1,
+            lineEnd: hit.lineEnd || (hit.lineStart ? hit.lineStart + 20 : 30),
+          });
+        }
+      }
+
+      context.toolHistory.push({
+        tool: toolName,
+        args: toolArgs,
+        observation: sanitized.slice(0, 100),
+      });
+
+      // Update hypotheses using grounded Bayesian likelihood rules
       this.updateHypothesesFromObservation(
         hypothesisManager,
         toolName,
@@ -356,6 +478,7 @@ export class InvestigationAgentRuntime {
     const finalDiagnosis = await this.generateDiagnosisWithRetries(
       incident,
       hypothesisManager,
+      context,
     );
 
     incident.status = "diagnosed";
@@ -366,6 +489,74 @@ export class InvestigationAgentRuntime {
     );
 
     return finalDiagnosis;
+  }
+
+  private async llmDrivenStep(
+    incident: IncidentRecord,
+    manager: HypothesisManager,
+    context: InvestigationContext,
+  ): Promise<{
+    type: "tool_call" | "conclude";
+    toolName?: string;
+    toolArgs?: any;
+    diagnosis?: Partial<Diagnosis>;
+  }> {
+    const systemPrompt =
+      this.loadPrompt("system") ||
+      "You are an automated investigation agent. Investigate the incident using read-only tools.";
+    const updatePrompt =
+      this.loadPrompt("update") ||
+      "Analyze current evidence and decide next tool call or conclude.";
+
+    const leading = manager.getLeadingHypothesis();
+    const prompt = `${updatePrompt}
+
+Incident Context:
+- ID: ${incident.id}
+- Title: ${incident.title}
+- Service: ${incident.signals[0]?.service || (incident as any).service || "unknown"}
+- Severity: ${incident.severity}
+- Signals: ${JSON.stringify(incident.signals)}
+- Enrichment: ${JSON.stringify(incident.enrichment)}
+
+Current Hypotheses:
+- Leading Class: ${leading.class}
+- Current Confidence: ${(leading.confidence * 100).toFixed(1)}%
+- Log-Odds: ${leading.currentLogOdds.toFixed(2)}
+- Collected Evidence: ${JSON.stringify(leading.evidence)}
+
+Tool Call History:
+${context.toolHistory
+  .map(
+    (h, idx) =>
+      `[${idx + 1}] ${h.tool}(${JSON.stringify(h.args)}) -> ${h.observation}`,
+  )
+  .join("\n")}
+
+Respond with the next tool to execute, or decide to conclude if confidence threshold is reached.`;
+
+    const result = await withTimeout(
+      this.llmClient.generateText({
+        system: systemPrompt,
+        prompt,
+        tools: this.tools.toAiSdkTools(),
+        maxSteps: 1,
+        temperature: 0.1,
+      }),
+      2000,
+      "llm_step",
+    );
+
+    if (result.toolCalls && result.toolCalls.length > 0) {
+      const tc = result.toolCalls[0];
+      return {
+        type: "tool_call",
+        toolName: tc.toolName,
+        toolArgs: tc.args,
+      };
+    }
+
+    return { type: "conclude" };
   }
 
   private async executeTool(toolName: string, args: any): Promise<any> {
@@ -397,15 +588,19 @@ export class InvestigationAgentRuntime {
     incident: IncidentRecord,
     stepIndex: number,
     _manager: HypothesisManager,
+    context: InvestigationContext,
   ): { type: "tool_call" | "conclude"; toolName?: string; toolArgs?: any } {
-    const primaryService = incident.signals[0]?.service || "checkout";
+    const primaryService =
+      incident.signals[0]?.service || (incident as any).service || "service";
+    const targetService = context.implicatedService || primaryService;
+    const errorPattern = context.errorPattern || "error";
 
     switch (stepIndex) {
       case 0:
         return {
           type: "tool_call",
           toolName: "deploys_recent",
-          toolArgs: { service: primaryService, window: "2h" },
+          toolArgs: { service: targetService, window: "2h" },
         };
       case 1:
         return {
@@ -422,8 +617,8 @@ export class InvestigationAgentRuntime {
           type: "tool_call",
           toolName: "logs_query",
           toolArgs: {
-            service: primaryService,
-            pattern: "NullPointerException",
+            service: targetService,
+            pattern: errorPattern,
             limit: 20,
           },
         };
@@ -432,7 +627,7 @@ export class InvestigationAgentRuntime {
           type: "tool_call",
           toolName: "traces_search",
           toolArgs: {
-            service: primaryService,
+            service: targetService,
             status: "error",
             limit: 10,
           },
@@ -442,35 +637,59 @@ export class InvestigationAgentRuntime {
           type: "tool_call",
           toolName: "code_search",
           toolArgs: {
-            query: "retry logic payments NullPointerException",
+            query: `${targetService} ${errorPattern}`,
             top_k: 5,
           },
         };
-      case 5:
+      case 5: {
+        const topHit = context.codeHits[0];
+        if (topHit) {
+          return {
+            type: "tool_call",
+            toolName: "code_read",
+            toolArgs: {
+              path: topHit.path,
+              start_line: topHit.lineStart,
+              end_line: topHit.lineEnd,
+            },
+          };
+        }
         return {
           type: "tool_call",
-          toolName: "code_read",
+          toolName: "runbook_search",
           toolArgs: {
-            path: "demo/src/payments.ts",
-            start_line: 25,
-            end_line: 55,
+            query: `${primaryService} ${errorPattern}`,
+            top_k: 3,
           },
         };
-      case 6:
+      }
+      case 6: {
+        const topHit = context.codeHits[0];
+        if (topHit) {
+          return {
+            type: "tool_call",
+            toolName: "code_blame",
+            toolArgs: {
+              path: topHit.path,
+              line: topHit.lineStart,
+            },
+          };
+        }
         return {
           type: "tool_call",
-          toolName: "code_blame",
+          toolName: "runbook_search",
           toolArgs: {
-            path: "demo/src/payments.ts",
-            line: 47,
+            query: `${primaryService} ${errorPattern}`,
+            top_k: 3,
           },
         };
+      }
       case 7:
         return {
           type: "tool_call",
           toolName: "runbook_search",
           toolArgs: {
-            query: "checkout errors payment retry",
+            query: `${primaryService} ${errorPattern}`,
             top_k: 3,
           },
         };
@@ -493,34 +712,128 @@ export class InvestigationAgentRuntime {
       const deploys = Array.isArray(observation) ? observation : [];
       if (deploys.length > 0) {
         manager.setImplicatedChange(deploys[0]);
+        manager.addEvidence("change_caused", {
+          tool: "deploys_recent",
+          query: JSON.stringify(args),
+          observation: `Found deployment revision ${deploys[0].revision} deployed at ${deploys[0].ts} by ${deploys[0].author || "unknown"}`,
+          supports: true,
+          weight: 1.0,
+        });
+      } else {
+        manager.addEvidence("change_caused", {
+          tool: "deploys_recent",
+          query: JSON.stringify(args),
+          observation: "No recent deployments found within the queried window",
+          supports: false,
+          weight: 2.0,
+        });
       }
     } else if (toolName === "metrics_query") {
-      // Metric step-change aligned to deploy
-      manager.addEvidence("change_caused", {
-        tool: "metrics_query",
-        query: args.metric || "checkout_error_rate",
-        observation: "Metric step change observed post-deploy",
-        supports: true,
-        weight: CANONICAL_WEIGHTS.METRIC_STEP_CHANGE_ALIGNED, // x4
-      });
+      const values = Array.isArray(observation?.values)
+        ? observation.values
+        : [];
+      if (values.length >= 2) {
+        const mid = Math.floor(values.length / 2);
+        const firstHalf = values.slice(0, mid);
+        const secondHalf = values.slice(mid);
+        const avgBefore =
+          firstHalf.reduce(
+            (sum: number, pt: any[]) => sum + (pt[1] || 0),
+            0,
+          ) / firstHalf.length;
+        const avgAfter =
+          secondHalf.reduce(
+            (sum: number, pt: any[]) => sum + (pt[1] || 0),
+            0,
+          ) / secondHalf.length;
+        if (avgAfter > avgBefore * 1.2 || avgAfter > avgBefore + 0.05) {
+          manager.addEvidence("change_caused", {
+            tool: "metrics_query",
+            query: args.metric || "metric",
+            observation: `Metric step change detected: error rate increased from ${avgBefore.toFixed(2)} to ${avgAfter.toFixed(2)} post-change`,
+            supports: true,
+            weight: CANONICAL_WEIGHTS.METRIC_STEP_CHANGE_ALIGNED, // x4
+          });
+        } else {
+          manager.addEvidence("change_caused", {
+            tool: "metrics_query",
+            query: args.metric || "metric",
+            observation: `Metric flat: rate ${avgBefore.toFixed(2)} -> ${avgAfter.toFixed(2)}, no step change detected`,
+            supports: false,
+            weight: CANONICAL_WEIGHTS.DISCONFIRMING_DIVISOR, // /2
+          });
+        }
+      }
     } else if (toolName === "logs_query") {
-      // New log signature post-incident-start
-      manager.addEvidence("change_caused", {
-        tool: "logs_query",
-        query: args.pattern || "NullPointerException",
-        observation: "New NullPointerException signature in retry path",
-        supports: true,
-        weight: CANONICAL_WEIGHTS.NEW_LOG_SIGNATURE, // x3
-      });
+      const entries = Array.isArray(observation) ? observation : [];
+      if (entries.length > 0) {
+        const pattern = (args.pattern || "").toLowerCase();
+        const matched = entries.filter((e: any) => {
+          const s = JSON.stringify(e).toLowerCase();
+          return (
+            e.level === "error" ||
+            (e.status && Number(e.status) >= 500) ||
+            (pattern && s.includes(pattern))
+          );
+        });
+        if (matched.length > 0) {
+          const sampleMsg =
+            matched[0].message ||
+            matched[0].error ||
+            matched[0].msg ||
+            pattern;
+          manager.addEvidence("change_caused", {
+            tool: "logs_query",
+            query: args.pattern || args.service,
+            observation: `Found ${matched.length} error log entries (sample: '${String(sampleMsg).slice(0, 80)}')`,
+            supports: true,
+            weight: CANONICAL_WEIGHTS.NEW_LOG_SIGNATURE, // x3
+          });
+        } else {
+          manager.addEvidence("change_caused", {
+            tool: "logs_query",
+            query: args.pattern || args.service,
+            observation: `Queried ${entries.length} log entries but none matched error pattern`,
+            supports: false,
+            weight: 2.0,
+          });
+        }
+      }
     } else if (toolName === "code_blame") {
-      // Commit blame maps failing line directly to recent change
-      manager.addEvidence("change_caused", {
-        tool: "code_blame",
-        query: `${args.path}:${args.line}`,
-        observation: `Blame attributes line ${args.line} to commit ${observation.commit || "recent"} by ${observation.author || "dev"}`,
-        supports: true,
-        weight: CANONICAL_WEIGHTS.BLAME_MATCH, // x4
-      });
+      if (observation?.commit) {
+        const implicated = manager.getLeadingHypothesis().implicatedChange;
+        const commitMatch = implicated
+          ? observation.commit
+              .toLowerCase()
+              .startsWith(implicated.revision.toLowerCase().replace(/^v/, "")) ||
+            implicated.revision
+              .toLowerCase()
+              .includes(observation.commit.toLowerCase().slice(0, 7)) ||
+            (implicated.author &&
+              observation.author &&
+              implicated.author
+                .toLowerCase()
+                .includes(observation.author.toLowerCase()))
+          : true;
+
+        if (commitMatch) {
+          manager.addEvidence("change_caused", {
+            tool: "code_blame",
+            query: `${args.path}:${args.line}`,
+            observation: `Git blame attributes ${args.path}:${args.line} to commit ${observation.commit} (${observation.author || "developer"}: ${observation.message || "recent commit"})`,
+            supports: true,
+            weight: CANONICAL_WEIGHTS.BLAME_MATCH, // x4
+          });
+        } else {
+          manager.addEvidence("change_caused", {
+            tool: "code_blame",
+            query: `${args.path}:${args.line}`,
+            observation: `Git blame for ${args.path}:${args.line} (commit ${observation.commit}) does not match deploy ${implicated?.revision}`,
+            supports: false,
+            weight: 2.0,
+          });
+        }
+      }
     }
   }
 
@@ -530,6 +843,7 @@ export class InvestigationAgentRuntime {
   private async generateDiagnosisWithRetries(
     incident: IncidentRecord,
     manager: HypothesisManager,
+    context?: InvestigationContext,
     overrideDiagnosis?: Partial<Diagnosis>,
   ): Promise<Diagnosis> {
     const leading = manager.getLeadingHypothesis();
@@ -544,39 +858,81 @@ export class InvestigationAgentRuntime {
     while (attempts <= maxRetries) {
       attempts++;
       try {
-        // If mock specified
         let rawDiagnosis: any = overrideDiagnosis;
-        if (
-          !rawDiagnosis &&
-          this.mockLLMResponses &&
-          this.mockLLMResponses.length > 0
-        ) {
-          const next = this.mockLLMResponses.shift();
-          if (next.type === "malformed") {
-            throw new Error(next.rawText || "Model returned invalid syntax");
+        if (!rawDiagnosis && this.mockLLMResponses) {
+          if (this.mockLLMResponses.length > 0) {
+            const next = this.mockLLMResponses.shift();
+            if (next.type === "malformed") {
+              throw new Error(next.rawText || "Model returned invalid syntax");
+            }
+            rawDiagnosis = next.diagnosis;
           }
-          rawDiagnosis = next.diagnosis;
+        } else if (
+          !rawDiagnosis &&
+          !this.useDeterministicPolicy &&
+          !context?.llmUnavailable
+        ) {
+          try {
+            const concludePrompt = this.loadPrompt("conclude");
+            const res = await withTimeout(
+              this.llmClient.generateText({
+                system: this.loadPrompt("system"),
+                prompt: `${concludePrompt}\n\nIncident: ${JSON.stringify(incident)}\nLeading Hypothesis: ${JSON.stringify(leading)}`,
+              }),
+              2000,
+              "conclude",
+            );
+            rawDiagnosis = JSON.parse(res.text);
+          } catch {
+            // Keep rawDiagnosis undefined to derive generic defaults from hypothesis
+          }
         }
+
+        // Build generic root cause from leading hypothesis & evidence
+        let defaultRootCause: string;
+        const svc =
+          incident.signals[0]?.service ||
+          (incident as any).service ||
+          "service";
+        if (leading.class === "change_caused" && recentDeploy) {
+          const blameEv = leading.evidence.find((e) => e.tool === "code_blame");
+          const blameLoc = blameEv ? ` at ${blameEv.query}` : "";
+          defaultRootCause = `Deployment ${recentDeploy.revision} by ${recentDeploy.author || "developer"}${blameLoc} caused ${incident.title || "service incident"}`;
+        } else if (leading.class === "dependency") {
+          defaultRootCause = `Downstream dependency failure affecting ${svc}`;
+        } else if (leading.class === "infra") {
+          defaultRootCause = `Infrastructure resource degradation affecting ${svc}`;
+        } else {
+          defaultRootCause = `Undetermined root cause for incident ${incident.id}; requires human investigation`;
+        }
+
+        const candidateConfidence =
+          rawDiagnosis?.confidence !== undefined
+            ? rawDiagnosis.confidence
+            : leading.confidence; // No artificial floor!
+
+        const candidateFixability =
+          rawDiagnosis?.fixability ||
+          (candidateConfidence >= this.confidenceThreshold &&
+          leading.class === "change_caused"
+            ? "code_fixable"
+            : candidateConfidence >= this.confidenceThreshold &&
+                (leading.class === "dependency" || leading.class === "infra")
+              ? "ops_actionable"
+              : "human_only");
 
         const candidateDiagnosis: Diagnosis = {
           id: rawDiagnosis?.id || crypto.randomUUID(),
           tenant_id: rawDiagnosis?.tenant_id || incident.tenant_id,
           incident_id: rawDiagnosis?.incident_id || incident.id,
-          root_cause:
-            rawDiagnosis?.root_cause ||
-            (recentDeploy
-              ? `Deploy ${recentDeploy.revision} introduced NullPointerException in payments/retry.ts:47`
-              : "NullPointerException in payment authorization retry path"),
-          confidence:
-            rawDiagnosis?.confidence !== undefined
-              ? rawDiagnosis.confidence
-              : Math.max(leading.confidence, 0.7),
+          root_cause: rawDiagnosis?.root_cause || defaultRootCause,
+          confidence: candidateConfidence,
           evidence: rawDiagnosis?.evidence || leading.evidence,
           implicated_change:
             rawDiagnosis?.implicated_change !== undefined
               ? rawDiagnosis.implicated_change
               : recentDeploy,
-          fixability: rawDiagnosis?.fixability || "code_fixable",
+          fixability: candidateFixability,
         };
 
         const validated = DiagnosisSchema.parse(candidateDiagnosis);
@@ -631,11 +987,57 @@ export class InvestigationAgentRuntime {
 
     const maxRetries = 2;
     for (let retry = 1; retry <= maxRetries; retry++) {
-      this.appendTimeline(
-        incident,
-        "model_output_retry",
-        `Malformed output retry ${retry}/${maxRetries}: Retry failed to produce valid schema`,
-      );
+      try {
+        let candidateRaw: any;
+        if (this.mockLLMResponses) {
+          if (this.mockLLMResponses.length > 0) {
+            const next = this.mockLLMResponses.shift();
+            if (next.type === "malformed") {
+              throw new Error(
+                next.rawText || "Model returned invalid syntax on retry",
+              );
+            }
+            candidateRaw = next.diagnosis;
+          } else {
+            throw new Error("Retry failed to produce valid schema");
+          }
+        } else if (!this.useDeterministicPolicy) {
+          const prompt = `Your previous output was malformed: ${initialError}. Provide a valid JSON Diagnosis adhering to the DiagnosisSchema for incident ${incident.id}.`;
+          const res = await this.llmClient.generateText({
+            system:
+              "You are an automated incident diagnosis agent. Output ONLY valid JSON matching the DiagnosisSchema.",
+            prompt,
+          });
+          candidateRaw = JSON.parse(res.text);
+        } else {
+          throw new Error("Retry failed to produce valid schema");
+        }
+
+        const candidate = DiagnosisSchema.parse({
+          id: candidateRaw?.id || crypto.randomUUID(),
+          tenant_id: candidateRaw?.tenant_id || incident.tenant_id,
+          incident_id: candidateRaw?.incident_id || incident.id,
+          root_cause:
+            candidateRaw?.root_cause || "Recovered diagnosis after retry",
+          confidence: candidateRaw?.confidence ?? 0.7,
+          evidence: candidateRaw?.evidence || evidence,
+          implicated_change: candidateRaw?.implicated_change || null,
+          fixability: candidateRaw?.fixability || "code_fixable",
+        });
+
+        this.appendTimeline(
+          incident,
+          "model_output_recovered",
+          `Model output successfully recovered on retry ${retry}/${maxRetries}`,
+        );
+        return candidate;
+      } catch (err: any) {
+        this.appendTimeline(
+          incident,
+          "model_output_retry",
+          `Malformed output retry ${retry}/${maxRetries}: ${err.message}`,
+        );
+      }
     }
 
     this.appendTimeline(

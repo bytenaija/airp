@@ -117,10 +117,23 @@ export class HypothesisManager {
   }
 
   private initializeHypotheses(): void {
+    const topo = this.incident.enrichment?.topology_slice || {};
+    const topoServices: string[] = [];
+    for (const [key, val] of Object.entries(topo)) {
+      topoServices.push(key);
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          if (typeof item === "string") topoServices.push(item);
+        }
+      } else if (typeof val === "string") {
+        topoServices.push(val);
+      }
+    }
+
     const affectedServices = [
       ...new Set([
         ...this.incident.signals.map((s) => s.service),
-        ...Object.keys(this.incident.enrichment?.topology_slice || {}),
+        ...topoServices,
       ]),
     ];
 

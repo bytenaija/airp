@@ -72,7 +72,10 @@ export function buildAgentRuntimeServer(
   });
 
   server.post("/investigate", async (req, reply) => {
-    const body = req.body as { incident?: any };
+    const body = req.body as {
+      incident?: any;
+      confidence_threshold?: number;
+    };
     if (!body || !body.incident) {
       return reply
         .status(400)
@@ -89,9 +92,12 @@ export function buildAgentRuntimeServer(
 
     const incident: IncidentRecord = parseResult.data;
     const startTime = Date.now();
+    const timelineStart = incident.timeline.length;
 
     try {
-      const diagnosis = await runtime.investigate(incident);
+      const diagnosis = await runtime.investigate(incident, {
+        confidenceThreshold: body.confidence_threshold,
+      });
       const elapsedSec = (Date.now() - startTime) / 1000;
 
       durationHistogram.observe({ severity: incident.severity }, elapsedSec);
@@ -102,8 +108,8 @@ export function buildAgentRuntimeServer(
         fixability: diagnosis.fixability,
       });
 
-      // Count tool calls in timeline
-      for (const event of incident.timeline) {
+      // Count tool calls in timeline added during this investigation
+      for (const event of incident.timeline.slice(timelineStart)) {
         if (event.action === "tool_call") {
           const match = event.detail?.match(/\]\s+([a-zA-Z0-9_]+)\(/);
           const tool = match ? match[1] : "unknown";

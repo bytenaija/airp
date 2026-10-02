@@ -40,9 +40,12 @@ export function getPricingRates(
     return { inputPerMillion: 0.0, outputPerMillion: 0.0 };
   }
   const lower = modelName.toLowerCase();
-  for (const [key, rates] of Object.entries(DEFAULT_PRICING)) {
+  const sortedKeys = Object.keys(DEFAULT_PRICING).sort(
+    (a, b) => b.length - a.length,
+  );
+  for (const key of sortedKeys) {
     if (lower.includes(key)) {
-      return rates;
+      return DEFAULT_PRICING[key];
     }
   }
   return { inputPerMillion: 1.0, outputPerMillion: 3.0 };
