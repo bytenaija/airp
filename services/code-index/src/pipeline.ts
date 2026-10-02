@@ -245,7 +245,11 @@ export class CodeIndexPipeline {
     // Delete existing chunks for this file
     await this.store.deleteFileChunks(repoName, relativePath);
 
-    const symbols = await this.parser.parseSymbols(repoName, relativePath, code);
+    const symbols = await this.parser.parseSymbols(
+      repoName,
+      relativePath,
+      code,
+    );
     const storedChunks: StoredChunk[] = [];
     for (const symbol of symbols) {
       const embedding = await this.embedder.embedText(symbol.searchableText);
@@ -442,9 +446,7 @@ export class CodeIndexPipeline {
       throw new Error(`Access denied: symlink escapes boundary: ${filePath}`);
     }
 
-    const relativePath = path
-      .relative(process.cwd(), real)
-      .replace(/\\/g, "/");
+    const relativePath = path.relative(process.cwd(), real).replace(/\\/g, "/");
 
     const raw = await this.git.raw([
       "blame",

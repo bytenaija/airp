@@ -49,7 +49,10 @@ export class AlertQueue {
     return createdAlerts;
   }
 
-  async fetchPendingAlerts(tenantId = "local", limit = 500): Promise<QueueAlert[]> {
+  async fetchPendingAlerts(
+    tenantId = "local",
+    limit = 500,
+  ): Promise<QueueAlert[]> {
     const rows: any[] = await this.prisma.ingestedAlert.findMany({
       where: {
         tenantId,
@@ -119,12 +122,17 @@ export class AlertQueue {
     return this.prisma.ingestedAlert.count({
       where: {
         incidentId,
-        ...(excludeAlertIds.length > 0 ? { id: { notIn: excludeAlertIds } } : {}),
+        ...(excludeAlertIds.length > 0
+          ? { id: { notIn: excludeAlertIds } }
+          : {}),
       },
     });
   }
 
-  async markProcessed(alertIds: string[], incidentId?: string | null): Promise<void> {
+  async markProcessed(
+    alertIds: string[],
+    incidentId?: string | null,
+  ): Promise<void> {
     if (alertIds.length === 0) return;
 
     await this.prisma.ingestedAlert.updateMany({

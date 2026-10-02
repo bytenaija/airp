@@ -25,7 +25,9 @@ export class IncidentNotFoundError extends Error {
 
 export class ConcurrentModificationError extends Error {
   constructor(id: string, currentStatus: string) {
-    super(`Incident ${id} was modified concurrently (expected status '${currentStatus}')`);
+    super(
+      `Incident ${id} was modified concurrently (expected status '${currentStatus}')`,
+    );
     this.name = "ConcurrentModificationError";
     Object.setPrototypeOf(this, ConcurrentModificationError.prototype);
   }

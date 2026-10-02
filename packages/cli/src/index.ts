@@ -43,7 +43,9 @@ program
     const rawCount = options.count;
     const count = Number(rawCount);
     if (!Number.isInteger(count) || count <= 0) {
-      console.error(`Error: --count must be a positive integer, got '${rawCount}'`);
+      console.error(
+        `Error: --count must be a positive integer, got '${rawCount}'`,
+      );
       process.exitCode = 1;
       return;
     }
@@ -110,7 +112,9 @@ program
 
       if (resolveSeconds !== undefined) {
         console.log(`Waiting ${resolveSeconds}s before resolving alert...`);
-        await new Promise((resolve) => setTimeout(resolve, resolveSeconds * 1000));
+        await new Promise((resolve) =>
+          setTimeout(resolve, resolveSeconds * 1000),
+        );
 
         const resolvePayload = {
           service: options.service,
@@ -393,6 +397,99 @@ program
         `Failed to connect to code-index service at ${url}:`,
         err.message,
       );
+      process.exitCode = 1;
+    }
+  });
+
+function getAgentRuntimeUrl(optionsUrl?: string): string {
+  return (
+    optionsUrl ||
+    process.env.AIRP_AGENT_RUNTIME_URL ||
+    "http://localhost:8007"
+  ).replace(/\/$/, "");
+}
+
+// Command: investigate
+program
+  .command("investigate <incident-id>")
+  .description(
+    "Autonomously investigate an incident using the ReAct agent runtime",
+  )
+  .option("--gateway <url>", "Gateway service URL")
+  .option("--agent-runtime <url>", "Agent runtime service URL")
+  .option(
+    "--confidence-threshold <number>",
+    "Confidence threshold to conclude (default: 0.7)",
+    "0.7",
+  )
+  .action(async (incidentId, options) => {
+    const gateway = getGatewayUrl(options.gateway);
+    const agentUrl = getAgentRuntimeUrl(options.agentRuntime);
+
+    try {
+      // 1. Fetch incident from gateway
+      const incRes = await fetch(`${gateway}/incidents/${incidentId}`);
+      if (!incRes.ok) {
+        const errText = await incRes.text();
+        console.error(
+          `Failed to fetch incident ${incidentId} (${incRes.status}): ${errText}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      const incident = (await incRes.json()) as any;
+      console.log("=".repeat(80));
+      console.log(`INVESTIGATING INCIDENT: ${incident.id}`);
+      console.log(`Title:    ${incident.title}`);
+      console.log(`Severity: ${incident.severity}`);
+      console.log(`Status:   ${incident.status}`);
+      console.log("=".repeat(80));
+
+      // 2. Post to agent-runtime service
+      const invRes = await fetch(`${agentUrl}/investigate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          incident,
+          confidence_threshold: options.confidenceThreshold
+            ? parseFloat(options.confidenceThreshold)
+            : undefined,
+        }),
+      });
+
+      if (!invRes.ok) {
+        const errText = await invRes.text();
+        console.error(`Investigation failed (${invRes.status}): ${errText}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = (await invRes.json()) as any;
+      const diag = result.diagnosis;
+
+      console.log("\nDIAGNOSIS COMPLETE:");
+      console.log("-".repeat(80));
+      console.log(`Root Cause:  ${diag.root_cause}`);
+      console.log(`Confidence:  ${(diag.confidence * 100).toFixed(1)}%`);
+      console.log(`Fixability:  ${diag.fixability}`);
+      if (diag.implicated_change) {
+        console.log(
+          `Implicated:  ${diag.implicated_change.type} ${diag.implicated_change.revision} (${diag.implicated_change.service})`,
+        );
+      }
+      console.log(`Evidence:    ${diag.evidence?.length || 0} items`);
+      for (const ev of diag.evidence || []) {
+        console.log(
+          `  - [${ev.tool}] ${typeof ev.query === "string" ? ev.query : JSON.stringify(ev.query)}: ${ev.observation}`,
+        );
+      }
+      console.log("-".repeat(80));
+      console.log(
+        `Timeline:    ${result.timeline?.length || 0} steps recorded`,
+      );
+    } catch (err: any) {
+      console.error("Investigation failed with error:", err.message);
       process.exitCode = 1;
     }
   });

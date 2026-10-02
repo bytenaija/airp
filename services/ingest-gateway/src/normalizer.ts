@@ -8,7 +8,11 @@ import {
   normalizeAlertSeverity,
 } from "@airp/common";
 
-function generateFingerprint(service: string, name: string, labels: Record<string, string>): string {
+function generateFingerprint(
+  service: string,
+  name: string,
+  labels: Record<string, string>,
+): string {
   const sortedLabels = Object.keys(labels)
     .sort()
     .reduce<Record<string, string>>((acc, key) => {
@@ -49,15 +53,25 @@ export function normalizeAlerts(payload: unknown): Alert[] {
     return webhook.alerts.map((item) => {
       const labels = item.labels || {};
       const service =
-        labels.service || labels.app || labels.job || labels.instance || "unknown";
-      const name = labels.alertname || item.annotations?.summary || "UnknownAlert";
+        labels.service ||
+        labels.app ||
+        labels.job ||
+        labels.instance ||
+        "unknown";
+      const name =
+        labels.alertname || item.annotations?.summary || "UnknownAlert";
       const status: AlertStatus =
-        item.status === "resolved" || (!item.status && webhook.status === "resolved")
+        item.status === "resolved" ||
+        (!item.status && webhook.status === "resolved")
           ? "resolved"
           : "firing";
       const severity = normalizeAlertSeverity(labels.severity);
-      const startsAt = normalizeTimestamp(item.startsAt) || new Date().toISOString();
-      const endsAt = status === "resolved" ? normalizeTimestamp(item.endsAt) || new Date().toISOString() : undefined;
+      const startsAt =
+        normalizeTimestamp(item.startsAt) || new Date().toISOString();
+      const endsAt =
+        status === "resolved"
+          ? normalizeTimestamp(item.endsAt) || new Date().toISOString()
+          : undefined;
       const fingerprint =
         item.fingerprint || generateFingerprint(service, name, labels);
 
@@ -94,9 +108,11 @@ function normalizeSingleGenericAlert(item: unknown): Alert {
   if (!labels.service) labels.service = parsed.service;
 
   const name = parsed.name || parsed.metric || "GenericAlert";
-  const status: AlertStatus = parsed.status === "resolved" ? "resolved" : "firing";
+  const status: AlertStatus =
+    parsed.status === "resolved" ? "resolved" : "firing";
   const severity = normalizeAlertSeverity(parsed.severity);
-  const startsAt = normalizeTimestamp(parsed.startsAt) || new Date().toISOString();
+  const startsAt =
+    normalizeTimestamp(parsed.startsAt) || new Date().toISOString();
   const endsAt =
     status === "resolved"
       ? normalizeTimestamp(parsed.endsAt) || new Date().toISOString()

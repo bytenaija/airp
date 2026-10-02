@@ -39,7 +39,11 @@ class PaymentService {
   }
 }
 `;
-    const chunks = await parser.parseSymbols("test-repo", "src/payment.ts", code);
+    const chunks = await parser.parseSymbols(
+      "test-repo",
+      "src/payment.ts",
+      code,
+    );
     const classChunk = chunks.find((c) => c.symbolName === "PaymentService");
     expect(classChunk).toBeDefined();
     expect(classChunk?.symbolType).toBe("class");
@@ -57,7 +61,11 @@ export const calculateDiscount = (price: number, discountPct: number) => {
   return price * (1 - discountPct / 100);
 };
 `;
-    const chunks = await parser.parseSymbols("test-repo", "src/discount.ts", code);
+    const chunks = await parser.parseSymbols(
+      "test-repo",
+      "src/discount.ts",
+      code,
+    );
     const chunk = chunks.find((c) => c.symbolName === "calculateDiscount");
     expect(chunk).toBeDefined();
     expect(chunk?.symbolType).toBe("function");
