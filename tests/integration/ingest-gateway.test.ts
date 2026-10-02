@@ -11,7 +11,8 @@ describe("Ingest Gateway HTTP Server Integration Tests", () => {
 
   beforeAll(async () => {
     process.env.DATABASE_URL =
-      process.env.DATABASE_URL || "postgresql://airp:airp_password@localhost:5432/airp";
+      process.env.DATABASE_URL ||
+      "postgresql://airp:airp_password@localhost:5432/airp";
     prisma = new PrismaClient({
       datasources: { db: { url: process.env.DATABASE_URL } },
     });
@@ -138,7 +139,8 @@ describe("Ingest Gateway HTTP Server Integration Tests", () => {
     expect(updated.status).toBe("investigating");
     expect(
       updated.timeline.some(
-        (t: any) => t.action === "status_changed" && t.actor === "agent-runtime",
+        (t: any) =>
+          t.action === "status_changed" && t.actor === "agent-runtime",
       ),
     ).toBe(true);
   });
@@ -149,7 +151,9 @@ describe("Ingest Gateway HTTP Server Integration Tests", () => {
       url: `/incidents?tenant_id=${testTenant}`,
     });
     // Find an incident that is open or investigating
-    const incident = listRes.json().incidents.find((i: any) => i.status === "investigating");
+    const incident = listRes
+      .json()
+      .incidents.find((i: any) => i.status === "investigating");
     expect(incident).toBeDefined();
 
     // Illegal: investigating -> resolved (skipping diagnosed & mitigating)
@@ -165,7 +169,9 @@ describe("Ingest Gateway HTTP Server Integration Tests", () => {
     expect(res.statusCode).toBe(422);
     const body = res.json();
     expect(body.error).toBe("IllegalStateTransitionError");
-    expect(body.message).toContain("cannot transition from 'investigating' to 'resolved'");
+    expect(body.message).toContain(
+      "cannot transition from 'investigating' to 'resolved'",
+    );
   });
 
   it("[Issue #20] POST /alerts with x-tenant-id stamps incident with request tenant and preserves tenant isolation", async () => {

@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import crypto from "node:crypto";
-import {
-  type IncidentRecord,
-  IllegalStateTransitionError,
-} from "@airp/common";
+import { type IncidentRecord, IllegalStateTransitionError } from "@airp/common";
 import {
   IncidentStore,
   TenantScopeError,
@@ -12,7 +9,8 @@ import {
 } from "../../services/ingest-gateway/src/incident-store.js";
 
 process.env.DATABASE_URL =
-  process.env.DATABASE_URL || "postgresql://airp:airp_password@localhost:5432/airp";
+  process.env.DATABASE_URL ||
+  "postgresql://airp:airp_password@localhost:5432/airp";
 
 describe("IncidentStore Database Integration Tests", () => {
   let prisma: PrismaClient;
@@ -89,7 +87,9 @@ describe("IncidentStore Database Integration Tests", () => {
   });
 
   it("enforces tenant_id requirement (throws TenantScopeError on empty tenant)", async () => {
-    await expect(store.getIncident("some-id", "")).rejects.toThrow(TenantScopeError);
+    await expect(store.getIncident("some-id", "")).rejects.toThrow(
+      TenantScopeError,
+    );
     await expect(store.listIncidents("   ")).rejects.toThrow(TenantScopeError);
   });
 

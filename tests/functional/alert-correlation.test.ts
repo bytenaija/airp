@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import crypto from "node:crypto";
-import {
-  type Alert,
-  TopologyGraph,
-} from "@airp/common";
+import { type Alert, TopologyGraph } from "@airp/common";
 import { Correlator } from "../../services/ingest-gateway/src/correlator.js";
 import { normalizeAlerts } from "../../services/ingest-gateway/src/normalizer.js";
 
@@ -129,8 +126,12 @@ describe("Alert Correlation Functional Acceptance Tests", () => {
     );
     expect(prunedStep).toBeDefined();
     expect(prunedStep?.actor).toBe("correlator");
-    expect(prunedStep?.detail).toContain("Pruned 15 alerts from downstream service 'payments'");
-    expect(prunedStep?.detail).toContain("downstream of 'checkout' per topology");
+    expect(prunedStep?.detail).toContain(
+      "Pruned 15 alerts from downstream service 'payments'",
+    );
+    expect(prunedStep?.detail).toContain(
+      "downstream of 'checkout' per topology",
+    );
   });
 
   it("Acceptance Criterion 2: Fire an alert then its resolve within 2 minutes -> no incident created", () => {
@@ -218,7 +219,9 @@ describe("Alert Correlation Functional Acceptance Tests", () => {
     expect(normalizedGeneric[0].service).toBe("payments");
     expect(normalizedGeneric[0].name).toBe("CardProcessingTimeout");
     expect(normalizedGeneric[0].severity).toBe("high");
-    expect(normalizedGeneric[0].annotations.message).toBe("Stripe API timeouts exceeding 3s");
+    expect(normalizedGeneric[0].annotations.message).toBe(
+      "Stripe API timeouts exceeding 3s",
+    );
   });
 
   it("Acceptance Criterion [Issue #22]: Downstream pruning upper bound - two service groups far apart in time produce 2 incidents without pruning", () => {

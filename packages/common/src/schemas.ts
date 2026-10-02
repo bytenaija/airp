@@ -153,7 +153,9 @@ export class IllegalStateTransitionError extends Error {
   readonly to: IncidentStatus;
 
   constructor(from: IncidentStatus, to: IncidentStatus) {
-    super(`Illegal incident status transition: cannot transition from '${from}' to '${to}'`);
+    super(
+      `Illegal incident status transition: cannot transition from '${from}' to '${to}'`,
+    );
     this.name = "IllegalStateTransitionError";
     this.from = from;
     this.to = to;
@@ -179,12 +181,15 @@ export function validateStatusTransition(
   }
 }
 
-export function normalizeSeverity(severity: string | undefined): IncidentSeverity {
+export function normalizeSeverity(
+  severity: string | undefined,
+): IncidentSeverity {
   if (!severity) return "SEV3";
   const s = severity.toUpperCase();
   if (s === "SEV1" || s === "CRITICAL" || s === "PAGE") return "SEV1";
   if (s === "SEV2" || s === "HIGH" || s === "ERROR") return "SEV2";
-  if (s === "SEV3" || s === "MEDIUM" || s === "WARN" || s === "WARNING") return "SEV3";
+  if (s === "SEV3" || s === "MEDIUM" || s === "WARN" || s === "WARNING")
+    return "SEV3";
   if (s === "SEV4" || s === "LOW" || s === "INFO") return "SEV4";
   return "SEV3";
 }

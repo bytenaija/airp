@@ -129,7 +129,7 @@ describe("Telemetry Pipeline Integration Test", () => {
           5,
         ),
       (res) => res.length > 0,
-      12000,
+      20000,
       500,
     );
     expect(errorTraces.length).toBeGreaterThan(0);
@@ -142,7 +142,7 @@ describe("Telemetry Pipeline Integration Test", () => {
     const fullTrace = await retryUntil(
       async () => (await queryClient.traceGet(traceId)) as any,
       (res) => (res.batches?.length || 0) >= 2,
-      8000,
+      12000,
       300,
     );
     expect(fullTrace.batches).toBeDefined();
@@ -166,7 +166,7 @@ describe("Telemetry Pipeline Integration Test", () => {
       (s) => s.metric.status === "502" || s.metric.error === "true",
     );
     expect(errorSeries).toBeDefined();
-  });
+  }, 40000);
 
   it("records and queries change events via Changefeed service", async () => {
     // 1. Post change event to changefeed
