@@ -7,7 +7,7 @@
     "changefeed": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "prisma generate && tsc -b",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"

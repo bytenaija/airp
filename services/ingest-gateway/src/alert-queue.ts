@@ -17,7 +17,7 @@ export class AlertQueue {
 
     const createdAlerts: Alert[] = [];
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       for (const alert of alerts) {
         const id = alert.id ?? crypto.randomUUID();
         await tx.ingestedAlert.create({
@@ -45,7 +45,7 @@ export class AlertQueue {
   }
 
   async fetchPendingAlerts(tenantId = "local", limit = 500): Promise<Alert[]> {
-    const rows = await this.prisma.ingestedAlert.findMany({
+    const rows: any[] = await this.prisma.ingestedAlert.findMany({
       where: {
         tenantId,
         processed: false,
@@ -54,7 +54,7 @@ export class AlertQueue {
       take: limit,
     });
 
-    return rows.map((r) =>
+    return rows.map((r: any) =>
       AlertSchema.parse({
         id: r.id,
         fingerprint: r.fingerprint,

@@ -62,7 +62,7 @@ export class IncidentStore {
     const tenantId = this.assertTenant(record.tenant_id);
 
     // Save incident and its timeline events in a transaction
-    const saved = await this.prisma.$transaction(async (tx) => {
+    const saved: any = await this.prisma.$transaction(async (tx: any) => {
       const incident = await tx.incident.create({
         data: {
           id: record.id,
@@ -146,7 +146,7 @@ export class IncidentStore {
       take: filter?.limit ?? 100,
     });
 
-    return records.map((r) => this.formatRecord(r));
+    return records.map((r: any) => this.formatRecord(r));
   }
 
   /**
@@ -162,7 +162,7 @@ export class IncidentStore {
   ): Promise<IncidentRecord> {
     const tenantId = this.assertTenant(options.tenantId);
 
-    const existing = await this.prisma.incident.findFirst({
+    const existing: any = await this.prisma.incident.findFirst({
       where: { id, tenantId },
     });
 
@@ -181,7 +181,7 @@ export class IncidentStore {
       options.detail ??
       `Status changed from '${currentStatus}' to '${newStatus}'`;
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       await tx.incident.update({
         where: { id },
         data: { status: newStatus },
