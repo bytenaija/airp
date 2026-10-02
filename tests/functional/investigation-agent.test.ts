@@ -158,9 +158,89 @@ describe("Epic 4 Acceptance Criteria: Investigation Agent Runtime", () => {
       AgentPermissionDeniedError,
     );
 
-    // 6. Run the Investigation Agent Runtime
+    // 6. Run the Investigation Agent Runtime with an injected stub LLMClient
+    // at the generateText boundary to prove the LLM-driven path executes without fallback
+    let generateTextCallCount = 0;
+    const stubLLMClient = {
+      provider: "ollama" as const,
+      modelName: "llama3.2",
+      tracker: undefined as any,
+      setTracker(t: any) {
+        this.tracker = t;
+      },
+      getTracker() {
+        return this.tracker;
+      },
+      async generateText(options: any) {
+        generateTextCallCount++;
+        // If conclude prompt was sent (no tools passed) or concluding step
+        if (!options.tools || options.prompt?.includes("Investigation Conclusion")) {
+          const res = {
+            text: JSON.stringify({
+              root_cause:
+                "NullPointerException in demo/src/payments.ts:47 introduced by deploy v2.14.3",
+              confidence: 0.92,
+              fixability: "code_fixable",
+            }),
+            toolCalls: [],
+            usage: {
+              promptTokens: 450,
+              completionTokens: 80,
+              totalTokens: 530,
+            },
+          };
+          if (this.tracker) {
+            this.tracker.recordUsage(res.usage, "ollama", "llama3.2");
+          }
+          return res as any;
+        }
+
+        let toolCalls: any[] = [];
+        if (generateTextCallCount === 1) {
+          toolCalls = [
+            {
+              toolName: "deploys_recent",
+              args: { service: "payments", window: "2h" },
+            },
+          ];
+        } else if (generateTextCallCount === 2) {
+          toolCalls = [
+            {
+              toolName: "code_search",
+              args: { query: "NullPointerException payments retry", top_k: 3 },
+            },
+          ];
+        } else if (generateTextCallCount === 3) {
+          toolCalls = [
+            {
+              toolName: "code_blame",
+              args: { path: "demo/src/payments.ts", line: 47 },
+            },
+          ];
+        } else {
+          // After 3 tool calls, decide to conclude
+          toolCalls = [];
+        }
+
+        const res = {
+          text: "",
+          toolCalls,
+          usage: {
+            promptTokens: 300,
+            completionTokens: 40,
+            totalTokens: 340,
+          },
+        };
+        if (this.tracker) {
+          this.tracker.recordUsage(res.usage, "ollama", "llama3.2");
+        }
+        return res as any;
+      },
+    } as any;
+
     const runtime = new InvestigationAgentRuntime({
       tools,
+      llmClient: stubLLMClient,
       budgets: {
         maxToolCalls: 25,
       },
@@ -170,6 +250,12 @@ describe("Epic 4 Acceptance Criteria: Investigation Agent Runtime", () => {
     const diagnosis = await runtime.investigate(incident);
 
     // 7. Verify Acceptance Criterion:
+    // - Proves the LLM branch executes (no fallback event)
+    expect(generateTextCallCount).toBeGreaterThanOrEqual(4);
+    expect(
+      incident.timeline.some((e) => e.action === "llm_step_fallback"),
+    ).toBe(false);
+
     // - Schema-validated Diagnosis
     expect(() => DiagnosisSchema.parse(diagnosis)).not.toThrow();
 
@@ -218,9 +304,76 @@ describe("Epic 4 Acceptance Criteria: Investigation Agent Runtime", () => {
     await payServer.close();
   }, 30000);
 
+  it("Acceptance Criterion 1 (Offline fallback): degrades gracefully to generic diagnostic policy when LLM provider is offline", async () => {
+    const incident: IncidentRecord = {
+      id: crypto.randomUUID(),
+      tenant_id: "local",
+      title: "Checkout 502 Outage",
+      severity: "SEV2",
+      status: "open",
+      started_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+      detected_at: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
+      signals: [
+        {
+          type: "metric",
+          service: "checkout",
+          metric: "checkout_error_rate",
+        },
+      ],
+      enrichment: {
+        topology_slice: { checkout: ["payments"] },
+        recent_changes: [
+          {
+            type: "deploy",
+            service: "payments",
+            revision: "v2.14.3",
+            ts: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+            author: "dev@example.com",
+          },
+        ],
+      },
+      timeline: [],
+    };
+
+    const offlineClient = {
+      provider: "ollama" as const,
+      modelName: "llama3.2",
+      setTracker() {},
+      getTracker() {
+        return undefined;
+      },
+      async generateText() {
+        throw new Error("Connection refused: http://localhost:11434");
+      },
+    } as any;
+
+    const runtime = new InvestigationAgentRuntime({
+      llmClient: offlineClient,
+      budgets: { maxToolCalls: 25 },
+      confidenceThreshold: 0.7,
+    });
+
+    const diagnosis = await runtime.investigate(incident);
+
+    // Assert that the offline fallback was triggered and logged to timeline
+    const fallbackEvent = incident.timeline.find(
+      (e) => e.action === "llm_step_fallback",
+    );
+    expect(fallbackEvent).toBeDefined();
+    expect(fallbackEvent?.detail).toContain(
+      "falling back to generic diagnostic policy",
+    );
+
+    // The generic policy still produces a valid diagnosis
+    expect(() => DiagnosisSchema.parse(diagnosis)).not.toThrow();
+    expect(diagnosis.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(diagnosis.implicated_change?.revision).toBe("v2.14.3");
+    expect(incident.status).toBe("diagnosed");
+  });
+
   it("Acceptance Criterion 4: Works with LLM_PROVIDER=ollama (fully local), document tested model", async () => {
     // Document tested model: llama3.2 (and qwen2.5-coder:7b)
-    const testedModel = "llama3.2";
+    const testedModel = process.env.LLM_MODEL || "llama3.2";
 
     const prevProvider = process.env.LLM_PROVIDER;
     const prevModel = process.env.LLM_MODEL;
@@ -237,19 +390,61 @@ describe("Epic 4 Acceptance Criteria: Investigation Agent Runtime", () => {
       expect(client.provider).toBe("ollama");
       expect(client.modelName).toBe(testedModel);
 
-      // Verify token tracking and local cost rate ($0.00 for local models)
       const tracker = new IncidentCostTracker("incident-ollama-test");
-      tracker.recordUsage(
-        { promptTokens: 1200, completionTokens: 350, totalTokens: 1550 },
-        "ollama",
-        testedModel,
-      );
+      client.setTracker(tracker);
 
-      const summary = tracker.getSummary();
-      expect(summary.promptTokens).toBe(1200);
-      expect(summary.completionTokens).toBe(350);
-      expect(summary.totalTokens).toBe(1550);
-      expect(summary.estimatedCostUsd).toBe(0.0); // 100% local, no cloud cost
+      // Check if real local Ollama is reachable and has the model available
+      let ollamaLive = false;
+      try {
+        const pingRes = await fetch("http://localhost:11434/api/tags", {
+          signal: AbortSignal.timeout(1500),
+        });
+        if (pingRes.ok) {
+          const tags = (await pingRes.json()) as any;
+          const hasModel = (tags.models || []).some(
+            (m: any) =>
+              m.name === testedModel ||
+              m.name.startsWith(`${testedModel}:`) ||
+              m.model === testedModel,
+          );
+          if (hasModel) {
+            ollamaLive = true;
+          }
+        }
+      } catch {
+        ollamaLive = false;
+      }
+
+      if (ollamaLive) {
+        // Real local Ollama is running and has the model: actually invoke generateText
+        const result = await client.generateText({
+          prompt: "Respond with the single word: OK",
+          maxTokens: 10,
+        });
+
+        expect(result.text).toBeDefined();
+        expect(result.text.length).toBeGreaterThan(0);
+
+        // Usage is recorded directly from the returned result.usage via client.setTracker
+        const summary = tracker.getSummary();
+        expect(summary.totalTokens).toBeGreaterThan(0);
+        expect(summary.estimatedCostUsd).toBe(0.0); // 100% local, zero cost
+      } else {
+        console.warn(
+          `[AC4] No running Ollama server with '${testedModel}' detected on http://localhost:11434. ` +
+            `Skipping live model inference in this environment. Tested model documented: ${testedModel}.`,
+        );
+
+        // Verify that tracker accurately accounts for local provider at $0.00/MTok
+        tracker.recordUsage(
+          { promptTokens: 120, completionTokens: 35, totalTokens: 155 },
+          "ollama",
+          testedModel,
+        );
+        const summary = tracker.getSummary();
+        expect(summary.totalTokens).toBe(155);
+        expect(summary.estimatedCostUsd).toBe(0.0);
+      }
     } finally {
       if (prevProvider !== undefined) process.env.LLM_PROVIDER = prevProvider;
       else delete process.env.LLM_PROVIDER;
