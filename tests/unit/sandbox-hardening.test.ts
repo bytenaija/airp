@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { execFileSync } from "node:child_process";
 import {
   validatePinnedImageDigest,
   buildDockerRunArgs,
@@ -149,6 +150,17 @@ describe("Patch Pipeline - Sandbox Hardening & Isolation", () => {
   describe.skipIf(!dockerAvailable)(
     "Red-Team Fixtures Containment (Docker Sandbox Boundary)",
     () => {
+      beforeAll(() => {
+        try {
+          execFileSync("docker", ["pull", DEFAULT_PINNED_IMAGE], {
+            stdio: "ignore",
+            timeout: 120000,
+          });
+        } catch {
+          // If pull fails (e.g. offline), continue with local cache
+        }
+      }, 120000);
+
       it("Red-Team Fixture 1 (Exfiltration): network egress is blocked at kernel level (ENETUNREACH)", async () => {
         // Attempts raw TCP socket connection to a public IP address (not a fake .invalid domain)
         const exfiltrationScript =
@@ -161,7 +173,7 @@ describe("Patch Pipeline - Sandbox Hardening & Isolation", () => {
           config: {
             enableDocker: true,
             network: "none",
-            timeoutMs: 5000,
+            timeoutMs: 15000,
           },
         });
 
@@ -183,7 +195,7 @@ describe("Patch Pipeline - Sandbox Hardening & Isolation", () => {
           testCommand: destructionScript,
           config: {
             enableDocker: true,
-            timeoutMs: 5000,
+            timeoutMs: 15000,
           },
         });
 
@@ -215,7 +227,7 @@ describe("Patch Pipeline - Sandbox Hardening & Isolation", () => {
           config: {
             enableDocker: true,
             pidsLimit: 20,
-            timeoutMs: 5000,
+            timeoutMs: 15000,
           },
         });
 
