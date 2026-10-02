@@ -138,7 +138,8 @@ export function handleCheckout(req: Request, res: Response) {
       testCommand:
         "node -e \"const fs = require('fs'); const content = fs.readFileSync('demo/checkout/index.ts', 'utf8'); if (!content.includes('if (!items')) process.exit(1);\"",
       sandboxConfig: {
-        enableDocker: false, // In test environment, use local hardened process containment
+        enableDocker: false,
+        allowInsecureDevExecution: true, // Explicit opt-in for fast offline unit test execution; not presented as a security boundary
         timeoutMs: 5000,
       },
     });
@@ -222,6 +223,10 @@ export function handleCheckout(req: Request, res: Response) {
       suspect,
       isDeliberatelyUnfixable: true,
       maxAttempts: 4,
+      sandboxConfig: {
+        allowInsecureDevExecution: true,
+        timeoutMs: 2000,
+      },
     });
 
     // Pipeline must NOT succeed and must NOT open a PR
@@ -298,7 +303,11 @@ export function dispatchNotification(recipients: string[] | null): boolean {
       suspect,
       testCommand:
         "node -e \"const fs = require('fs'); const content = fs.readFileSync('services/notification-dispatcher/dispatcher.ts', 'utf8'); if (!content.includes('if (!recipients)')) process.exit(1);\"",
-      sandboxConfig: { enableDocker: false, timeoutMs: 5000 },
+      sandboxConfig: {
+        enableDocker: false,
+        allowInsecureDevExecution: true, // Explicit opt-in for fast offline unit test execution; not presented as a security boundary
+        timeoutMs: 5000,
+      },
     });
 
     expect(result.success).toBe(true);

@@ -13,6 +13,12 @@ export interface SandboxConfig {
   network?: string; // default "none" (default deny)
   user?: string; // default "1000:1000" (non-root)
   enableDocker?: boolean;
+  /**
+   * Explicit opt-in for insecure local execution (trusted dev iteration / fast unit tests only).
+   * THIS IS NOT A SECURITY BOUNDARY. Must be explicitly set to true to bypass
+   * the fail-closed Docker requirement in non-containerized environments.
+   */
+  allowInsecureDevExecution?: boolean;
 }
 
 export interface SandboxExecutionParams {
@@ -39,7 +45,7 @@ export interface SandboxResult {
 // Canonical pinned image digest from textbook §21.3 (no floating tags allowed)
 export const DEFAULT_PINNED_IMAGE =
   process.env.SANDBOX_IMAGE_DIGEST ||
-  "node:20.14.0-alpine3.20@sha256:7e066a2b84eb430d85ec5ee1ebaa8b56f8f0ab77a66b93dc4470bc5525bc8e83";
+  "node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293";
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024; // 100 KB log cap
@@ -53,6 +59,18 @@ export function validatePinnedImageDigest(image: string): void {
     throw new Error(
       `Security violation: Sandbox image '${image}' is not pinned with a sha256 digest. Floating tags are strictly prohibited.`,
     );
+  }
+}
+
+/**
+ * Checks whether Docker is available and responsive on the host.
+ */
+export function isDockerAvailable(): boolean {
+  try {
+    execFileSync("docker", ["info"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -107,8 +125,8 @@ export function buildDockerRunArgs(
 
 /**
  * Executes validation within an isolated sandbox.
- * Runs in Docker if available; otherwise runs with process-level isolation enforcing
- * the exact same timeouts, resource caps, and security containment.
+ * FAILS CLOSED: Refuses to execute untrusted code without Docker container isolation
+ * unless explicit allowInsecureDevExecution: true opt-in is provided.
  */
 export async function runInSandbox(
   params: SandboxExecutionParams,
@@ -120,6 +138,26 @@ export async function runInSandbox(
 
   const repoSnapshot = path.resolve(params.repoSnapshotDir);
   const scratchDir = path.resolve(params.scratchDir);
+
+  const dockerAvailable = isDockerAvailable();
+  const wantsDocker = config.enableDocker ?? true;
+  const canUseDocker = wantsDocker && dockerAvailable;
+
+  // FAIL CLOSED: When Docker is unavailable or disabled, refuse to execute untrusted patches
+  // unless explicitly opted into insecure local dev mode.
+  if (!canUseDocker) {
+    if (!config.allowInsecureDevExecution) {
+      return {
+        success: false,
+        exitCode: 126,
+        logs: "Security error: Hardened Docker sandbox is required for executing untrusted patches. Docker is unavailable or disabled, and insecure local execution is not explicitly permitted (allowInsecureDevExecution: true). Refusing to execute on host without container isolation.",
+        executionTimeMs: Date.now() - startTime,
+        timedOut: false,
+        securityChecksPassed: false,
+        failureReason: "docker_unavailable_fail_closed",
+      };
+    }
+  }
 
   if (!fs.existsSync(scratchDir)) {
     fs.mkdirSync(scratchDir, { recursive: true });
@@ -150,18 +188,13 @@ export async function runInSandbox(
         logs: `Failed to apply diff: ${err.message}\n${err.stderr?.toString() || ""}`,
         executionTimeMs: Date.now() - startTime,
         timedOut: false,
-        securityChecksPassed: true,
+        securityChecksPassed: canUseDocker,
         failureReason: "patch_apply_failed",
       };
     }
   }
 
-  // Check if Docker should and can be used
-  const useDocker =
-    config.enableDocker ??
-    (process.env.USE_DOCKER_SANDBOX === "true" || checkDockerAvailable());
-
-  if (useDocker) {
+  if (canUseDocker) {
     return executeDockerSandbox(
       params,
       repoSnapshot,
@@ -170,21 +203,13 @@ export async function runInSandbox(
       maxOutputBytes,
     );
   } else {
-    return executeLocalProcessSandbox(
+    // Explicit opt-in path: insecure local dev execution (NOT a security boundary)
+    return executeInsecureLocalProcess(
       params,
       scratchDir,
       timeoutMs,
       maxOutputBytes,
     );
-  }
-}
-
-function checkDockerAvailable(): boolean {
-  try {
-    execFileSync("docker", ["info"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -266,14 +291,12 @@ async function executeDockerSandbox(
 }
 
 /**
- * Hardened process-level sandbox for local execution and unit tests.
- * Enforces:
- * - Read-only protection check on repo snapshot
- * - Environment sanitization (NO API keys, incident store credentials, or secrets)
- * - PIDs and process containment
- * - Timeout and capped output limits
+ * Insecure process runner for trusted developer iteration and unit tests.
+ * WARNING: THIS IS NOT A SECURITY BOUNDARY.
+ * It provides NO container isolation, NO filesystem jail, and NO network namespace separation.
+ * Only permitted when allowInsecureDevExecution is explicitly set to true.
  */
-async function executeLocalProcessSandbox(
+async function executeInsecureLocalProcess(
   params: SandboxExecutionParams,
   scratchDir: string,
   timeoutMs: number,
@@ -298,21 +321,12 @@ async function executeLocalProcessSandbox(
     PATH: process.env.PATH || "/usr/bin:/bin:/usr/local/bin",
     HOME: scratchDir,
     NODE_ENV: "test",
-    // Network isolation enforcement: block outbound proxy if network is none
-    ...(params.config?.network === "none" || !params.config?.network
-      ? {
-          http_proxy: "http://127.0.0.1:0",
-          https_proxy: "http://127.0.0.1:0",
-          all_proxy: "http://127.0.0.1:0",
-          HTTP_PROXY: "http://127.0.0.1:0",
-          HTTPS_PROXY: "http://127.0.0.1:0",
-        }
-      : {}),
     ...(params.env || {}),
   };
 
   return new Promise((resolve) => {
-    let outputBuffer = "";
+    let outputBuffer =
+      "[WARNING: INSECURE LOCAL EXECUTION MODE ENABLED (allowInsecureDevExecution: true) - THIS IS NOT A SECURITY BOUNDARY]\n";
     let isTimedOut = false;
 
     const child = spawn("sh", ["-c", testCmd], {
@@ -335,8 +349,7 @@ async function executeLocalProcessSandbox(
           // Process may have already exited
         }
       }
-      outputBuffer +=
-        "\n[KILLED: Process tree terminated safely by sandbox timeout / resource limit]\n";
+      outputBuffer += "\n[KILLED: Process tree terminated safely by timeout]\n";
     }, timeoutMs);
 
     const onData = (chunk: Buffer) => {
@@ -364,7 +377,7 @@ async function executeLocalProcessSandbox(
         logs: outputBuffer,
         executionTimeMs,
         timedOut: isTimedOut,
-        securityChecksPassed: true,
+        securityChecksPassed: false, // NOT a security boundary
         failureReason: isTimedOut
           ? "timeout"
           : code !== 0
