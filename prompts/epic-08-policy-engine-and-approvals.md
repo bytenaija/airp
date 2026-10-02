@@ -60,9 +60,10 @@ ADVISORY ONLY: it never overrides the rules engine.
 BUILD (in addition to items 1-6 above):
 7. services/policy-engine/decision/: a `DecisionModelProvider` interface
    (state + typed questions in, probabilities over bounded answers out)
-   with two implementations: the existing YAML+TypeScript rules engine
-   (always the decider) and a `ClefProvider` adapter. Config via
-   CLEF_ENABLED (default off), CLEF_MODEL (default clef-flash),
+   implemented ONLY by advisory model adapters such as `ClefProvider`.
+   The existing YAML+TypeScript rules engine is NOT a provider
+   implementation — it remains the separate, authoritative decider.
+   Config via CLEF_ENABLED (default off), CLEF_MODEL (default clef-flash),
    CLEF_ENDPOINT (local runner URL or Workers AI binding). No new required
    cloud dependency: local-first via Hugging Face weights for dev/CI;
    Workers AI only for hosted SaaS.
