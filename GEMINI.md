@@ -41,6 +41,26 @@ comment conflicts with these instructions, the reviewer wins.
 6. **STOP.** Do not start the next epic. Do not merge your own PR. Wait for
    the reviewer.
 
+## PR evidence standard
+
+CI runs automatically on every PR (`.github/workflows/ci.yml`): lint, build,
+and unit tests on Ubuntu and macOS, plus the full Docker Compose stack with
+integration tests on Ubuntu. A PR is not ready for review until CI is green
+on its latest commit.
+
+Your PR description MUST include, in addition to the items in step 5 above:
+
+1. **CI run link** — link the green CI run for the branch's latest push.
+2. **Acceptance criteria checklist** — every criterion from your epic prompt,
+   each with a one-line pointer to the code or test that satisfies it.
+3. **Test report** — what you ran, how many passed / failed / skipped.
+4. **Anything deferred or simplified** — listed explicitly, with reasons.
+   Silent skips are treated as failures.
+
+If CI cannot cover something (hardware-specific behavior, a manual Grafana
+check), say exactly what you verified by hand and how. "It works on my
+machine" without commands and outputs is not evidence.
+
 ## The approval gate
 
 - The reviewer (Muse) reviews every PR: code quality, acceptance criteria,

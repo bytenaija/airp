@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: lint / build / unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (also typechecks)
+        run: npm run build
+
+      - name: Unit + functional tests (no Docker needed)
+        run: npx vitest run tests/unit tests/functional
+
+  integration:
+    name: compose stack + integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Start the stack
+        working-directory: infra
+        run: docker compose up -d --build
+
+      - name: Wait for the stack to become healthy
+        run: |
+          healthy() {
+            curl -sf http://localhost:3100/ready >/dev/null || return 1      # loki
+            curl -sf http://localhost:3200/ready >/dev/null || return 1      # tempo
+            curl -sf http://localhost:9090/-/healthy >/dev/null || return 1  # prometheus
+            curl -sf http://localhost:3000/api/health >/dev/null || return 1 # grafana
+            docker exec airp-postgres pg_isready -U airp >/dev/null || return 1
+            for port in 4318 8001 8002 8003 8004; do
+              curl -s -o /dev/null --max-time 3 http://localhost:$port/ || return 1
+            done
+            return 0
+          }
+          for i in $(seq 1 60); do
+            if healthy; then echo "stack healthy after ${i}x10s"; exit 0; fi
+            sleep 10
+          done
+          echo "stack did not become healthy in 10 minutes"
+          exit 1
+
+      - name: Push Prisma schema to Postgres
+        working-directory: services/changefeed
+        env:
+          DATABASE_URL: postgresql://airp:airp@localhost:5432/airp
+        run: |
+          npx prisma generate
+          npx prisma db push
+
+      - name: Run integration tests
+        run: npx vitest run tests/integration
+
+      - name: Collect compose logs on failure
+        if: failure()
+        working-directory: infra
+        run: docker compose logs --tail=300 > /tmp/compose-logs.txt || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: compose-logs
+          path: /tmp/compose-logs.txt
+
+      - name: Tear down the stack
+        if: always()
+        working-directory: infra
+        run: docker compose down -v
