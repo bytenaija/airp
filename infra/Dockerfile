@@ -6,19 +6,25 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY packages/common/package*.json ./packages/common/
+COPY packages/cli/package*.json ./packages/cli/
 COPY services/changefeed/package*.json ./services/changefeed/
+COPY services/ingest-gateway/package*.json ./services/ingest-gateway/
 COPY demo/package*.json ./demo/
 
 RUN npm install
 
 COPY tsconfig.json ./
+COPY infra/topology.yaml ./infra/topology.yaml
 COPY packages/common ./packages/common
+COPY packages/cli ./packages/cli
 COPY services/changefeed ./services/changefeed
+COPY services/ingest-gateway ./services/ingest-gateway
 COPY demo ./demo
 
 RUN npm run build
 RUN cd services/changefeed && npx prisma generate
+RUN cd services/ingest-gateway && npx prisma generate
 
-EXPOSE 8001 8002 8003 8004
+EXPOSE 8001 8002 8003 8004 8005
 
 CMD ["node", "demo/dist/index.js"]

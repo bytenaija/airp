@@ -158,6 +158,26 @@ services:
       postgres:
         condition: service_healthy
 
+  ingest-gateway:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-ingest-gateway
+    restart: unless-stopped
+    command: ["node", "services/ingest-gateway/dist/server.js"]
+    ports:
+      - "8005:8005"
+    environment:
+      - NODE_ENV=production
+      - PORT=8005
+      - DATABASE_URL=postgresql://airp:airp_password@postgres:5432/airp
+      - TOPOLOGY_PATH=/app/infra/topology.yaml
+    volumes:
+      - ./topology.yaml:/app/infra/topology.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   prometheus_data:
@@ -165,3 +185,4 @@ volumes:
   tempo_data:
   grafana_data:
   app_logs:
+

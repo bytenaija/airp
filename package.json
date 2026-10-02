@@ -9,6 +9,9 @@
     "services/*",
     "demo"
   ],
+  "bin": {
+    "airp": "./packages/cli/dist/index.js"
+  },
   "scripts": {
     "build": "npm run --workspaces --if-present build",
     "test": "vitest run",
@@ -17,10 +20,13 @@
     "format": "prettier --write \"**/*.{ts,json,yaml,yml}\""
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.14.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.0",
+    "fast-check": "^4.10.2",
+    "js-yaml": "^5.4.2",
     "prettier": "^3.3.0",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"

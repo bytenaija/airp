@@ -1,19 +1,20 @@
 {
-  "name": "@airp/common",
+  "name": "@airp/cli",
   "version": "0.1.0",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "bin": {
+    "airp": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run"
+    "start": "node dist/index.js"
   },
   "dependencies": {
-    "js-yaml": "^4.1.0",
-    "zod": "^3.23.8"
+    "@airp/common": "*",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.14.0",
     "typescript": "^5.4.5"
   }
