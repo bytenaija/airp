@@ -501,6 +501,10 @@ export class HybridKnowledgeStore {
     return this.inMemoryChunks.get(id);
   }
 
+  public getAllChunks(): StoredChunk[] {
+    return Array.from(this.inMemoryChunks.values());
+  }
+
   public async close(): Promise<void> {
     if (this.pgPool) {
       await this.pgPool.end();

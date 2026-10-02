@@ -9,7 +9,7 @@ describe("TreeSitterCodeParser", () => {
     await parser.init();
   });
 
-  it("extracts function declarations with start and end lines", () => {
+  it("extracts function declarations with start and end lines", async () => {
     const code = `
 // Greets a user by name
 function greet(name: string): string {
@@ -17,7 +17,7 @@ function greet(name: string): string {
   return msg;
 }
 `;
-    const chunks = parser.parseSymbols("test-repo", "src/greet.ts", code);
+    const chunks = await parser.parseSymbols("test-repo", "src/greet.ts", code);
     expect(chunks.length).toBeGreaterThanOrEqual(1);
     const chunk = chunks.find((c) => c.symbolName === "greet");
     expect(chunk).toBeDefined();
@@ -28,7 +28,7 @@ function greet(name: string): string {
     expect(chunk?.content).toContain("function greet(name: string)");
   });
 
-  it("extracts class declarations and methods", () => {
+  it("extracts class declarations and methods", async () => {
     const code = `
 class PaymentService {
   constructor(private apiKey: string) {}
@@ -39,7 +39,7 @@ class PaymentService {
   }
 }
 `;
-    const chunks = parser.parseSymbols("test-repo", "src/payment.ts", code);
+    const chunks = await parser.parseSymbols("test-repo", "src/payment.ts", code);
     const classChunk = chunks.find((c) => c.symbolName === "PaymentService");
     expect(classChunk).toBeDefined();
     expect(classChunk?.symbolType).toBe("class");
@@ -50,21 +50,21 @@ class PaymentService {
     expect(methodChunk?.docstring).toContain("Authorizes card transaction");
   });
 
-  it("extracts arrow functions assigned to const variables", () => {
+  it("extracts arrow functions assigned to const variables", async () => {
     const code = `
 // Calculates discounted price
 export const calculateDiscount = (price: number, discountPct: number) => {
   return price * (1 - discountPct / 100);
 };
 `;
-    const chunks = parser.parseSymbols("test-repo", "src/discount.ts", code);
+    const chunks = await parser.parseSymbols("test-repo", "src/discount.ts", code);
     const chunk = chunks.find((c) => c.symbolName === "calculateDiscount");
     expect(chunk).toBeDefined();
     expect(chunk?.symbolType).toBe("function");
     expect(chunk?.docstring).toContain("Calculates discounted price");
   });
 
-  it("extracts interfaces and type aliases", () => {
+  it("extracts interfaces and type aliases", async () => {
     const code = `
 interface OrderConfig {
   timeoutMs: number;
@@ -73,7 +73,7 @@ interface OrderConfig {
 
 type OrderStatus = "pending" | "confirmed" | "failed";
 `;
-    const chunks = parser.parseSymbols("test-repo", "src/types.ts", code);
+    const chunks = await parser.parseSymbols("test-repo", "src/types.ts", code);
     const iface = chunks.find((c) => c.symbolName === "OrderConfig");
     expect(iface).toBeDefined();
     expect(iface?.symbolType).toBe("interface");

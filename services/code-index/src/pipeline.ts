@@ -82,8 +82,12 @@ export class CodeIndexPipeline {
     return this.store;
   }
 
+  public getParser(): TreeSitterCodeParser {
+    return this.parser;
+  }
+
   /**
-   * Recursively finds all code files (.ts, .js, .tsx, .jsx) in directory.
+   * Recursively finds all code and text files in directory.
    */
   public findCodeFiles(dir: string, baseDir = dir): string[] {
     const results: string[] = [];
@@ -97,19 +101,51 @@ export class CodeIndexPipeline {
           entry.name === "node_modules" ||
           entry.name === "dist" ||
           entry.name === ".git" ||
-          entry.name === "coverage"
+          entry.name === "coverage" ||
+          entry.name === "build" ||
+          entry.name === ".next" ||
+          entry.name === ".turbo" ||
+          entry.name === "vendor"
         ) {
           continue;
         }
         results.push(...this.findCodeFiles(fullPath, baseDir));
       } else if (entry.isFile()) {
-        const ext = path.extname(entry.name);
+        const ext = path.extname(entry.name).toLowerCase();
         if (
-          [".ts", ".js", ".tsx", ".jsx"].includes(ext) &&
-          !entry.name.endsWith(".d.ts")
+          entry.name.endsWith(".d.ts") ||
+          entry.name.endsWith(".map") ||
+          entry.name.endsWith(".lock") ||
+          entry.name === "package-lock.json" ||
+          entry.name === "pnpm-lock.yaml" ||
+          entry.name === "yarn.lock" ||
+          [
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".ico",
+            ".webp",
+            ".pdf",
+            ".wasm",
+            ".zip",
+            ".tar",
+            ".gz",
+            ".bin",
+            ".exe",
+            ".so",
+            ".dylib",
+            ".woff",
+            ".woff2",
+            ".ttf",
+            ".eot",
+            ".mp4",
+            ".mp3",
+          ].includes(ext)
         ) {
-          results.push(fullPath);
+          continue;
         }
+        results.push(fullPath);
       }
     }
     return results;
@@ -149,7 +185,7 @@ export class CodeIndexPipeline {
         .relative(process.cwd(), file)
         .replace(/\\/g, "/");
       const code = fs.readFileSync(file, "utf8");
-      const symbols = this.parser.parseSymbols(
+      const symbols = await this.parser.parseSymbols(
         resolvedRepoName,
         relativePath,
         code,
@@ -208,7 +244,7 @@ export class CodeIndexPipeline {
     // Delete existing chunks for this file
     await this.store.deleteFileChunks(repoName, relativePath);
 
-    const symbols = this.parser.parseSymbols(repoName, relativePath, code);
+    const symbols = await this.parser.parseSymbols(repoName, relativePath, code);
     const storedChunks: StoredChunk[] = [];
     for (const symbol of symbols) {
       const embedding = await this.embedder.embedText(symbol.searchableText);
