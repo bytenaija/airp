@@ -95,9 +95,12 @@ export class HybridKnowledgeStore {
             "SELECT 1 FROM pg_extension WHERE extname = 'vector';",
           );
           if (extRes.rowCount && extRes.rowCount > 0) {
-            // Ensure tables exist
+            // Ensure tables exist in dedicated code_index schema to avoid Prisma public schema conflict
             await client.query(`
-              CREATE TABLE IF NOT EXISTS code_chunks (
+              CREATE SCHEMA IF NOT EXISTS code_index;
+              DROP TABLE IF EXISTS public.code_chunks CASCADE;
+              DROP TABLE IF EXISTS public.runbook_chunks CASCADE;
+              CREATE TABLE IF NOT EXISTS code_index.code_chunks (
                 id TEXT PRIMARY KEY,
                 repo TEXT NOT NULL,
                 file_path TEXT NOT NULL,
@@ -112,10 +115,10 @@ export class HybridKnowledgeStore {
                 embedding vector(384),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
               );
-              CREATE INDEX IF NOT EXISTS idx_code_chunks_repo ON code_chunks(repo);
-              CREATE INDEX IF NOT EXISTS idx_code_chunks_file ON code_chunks(file_path);
+              CREATE INDEX IF NOT EXISTS idx_code_chunks_repo ON code_index.code_chunks(repo);
+              CREATE INDEX IF NOT EXISTS idx_code_chunks_file ON code_index.code_chunks(file_path);
 
-              CREATE TABLE IF NOT EXISTS runbook_chunks (
+              CREATE TABLE IF NOT EXISTS code_index.runbook_chunks (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 file_path TEXT NOT NULL,
@@ -195,7 +198,7 @@ export class HybridKnowledgeStore {
           const vectorStr = `[${chunk.embedding.join(",")}]`;
           await client.query(
             `
-            INSERT INTO code_chunks (
+            INSERT INTO code_index.code_chunks (
               id, repo, file_path, symbol_name, symbol_type,
               start_line, end_line, content, docstring,
               searchable_text, commit_hash, embedding, updated_at
@@ -253,7 +256,7 @@ export class HybridKnowledgeStore {
 
     if (this.pgvectorAvailable && this.pgPool) {
       await this.pgPool.query(
-        "DELETE FROM code_chunks WHERE repo = $1 AND file_path = $2",
+        "DELETE FROM code_index.code_chunks WHERE repo = $1 AND file_path = $2",
         [repo, filePath],
       );
     }
@@ -274,7 +277,7 @@ export class HybridKnowledgeStore {
           const vectorStr = `[${rb.embedding.join(",")}]`;
           await client.query(
             `
-            INSERT INTO runbook_chunks (
+            INSERT INTO code_index.runbook_chunks (
               id, title, file_path, section_heading, content,
               searchable_text, embedding, updated_at
             ) VALUES (
@@ -336,7 +339,7 @@ export class HybridKnowledgeStore {
       const vectorStr = `[${queryEmb.join(",")}]`;
       let sql = `
         SELECT id, 1 - (embedding <=> $1::vector) as similarity
-        FROM code_chunks
+        FROM code_index.code_chunks
       `;
       const params: any[] = [vectorStr];
       if (repoFilter) {
@@ -457,7 +460,7 @@ export class HybridKnowledgeStore {
       const res = await this.pgPool.query(
         `
         SELECT id, 1 - (embedding <=> $1::vector) as similarity
-        FROM runbook_chunks
+        FROM code_index.runbook_chunks
         ORDER BY embedding <=> $1::vector LIMIT $2;
       `,
         [vectorStr, topK * 2],
