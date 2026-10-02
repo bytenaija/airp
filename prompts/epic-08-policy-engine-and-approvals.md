@@ -50,3 +50,41 @@ ACCEPTANCE CRITERIA:
 - Separation of duties enforced: requester cannot clear their own breaker
   (test).
 - docs/adr/002-policy-as-data.md records why rules are YAML+TypeScript.
+
+## Clef decision-model integration (added 2026-10-02)
+
+Clef/Clef-flash are Apache 2.0 open-weight decision models (state + typed
+questions -> probabilities over bounded answers). In this epic Clef is
+ADVISORY ONLY: it never overrides the rules engine.
+
+BUILD (in addition to items 1-6 above):
+7. services/policy-engine/decision/: a `DecisionModelProvider` interface
+   (state + typed questions in, probabilities over bounded answers out)
+   implemented ONLY by advisory model adapters such as `ClefProvider`.
+   The existing YAML+TypeScript rules engine is NOT a provider
+   implementation — it remains the separate, authoritative decider.
+   Config via CLEF_ENABLED (default off), CLEF_MODEL (default clef-flash),
+   CLEF_ENDPOINT (local runner URL or Workers AI binding). No new required
+   cloud dependency: local-first via Hugging Face weights for dev/CI;
+   Workers AI only for hosted SaaS.
+8. Wire the Clef provider into POST /evaluate as an advisory signal:
+   response gains `advisory: { model, version, assessments: [{ question,
+   probabilities }] }`; every assessment is written to the insert-only
+   audit log next to the rules verdict and reasons[].
+9. Approval triage: classify incoming approval requests
+   (routine vs needs-careful-review) to order the human queue. Advisory only.
+10. Guardrails (enforced in code, not just docs): the rules-engine verdict
+    must be identical with Clef on or off; if Clef is unreachable,
+    evaluation proceeds without advisory and logs the degradation — it never
+    blocks or flips a verdict; no approval is granted or denied solely on a
+    model score.
+
+ACCEPTANCE CRITERIA (in addition to the above):
+- With Clef enabled, /evaluate returns advisory probabilities and they
+  appear in the audit log; with Clef disabled, evaluation works unchanged
+  (test both).
+- A test asserts the rules-engine verdict is identical whether Clef is
+  enabled or disabled — the model can never override policy.
+- No approval is granted or denied solely on a model score (test: stub Clef
+  returning 0.99 approve on an ineligible plan → still requires both human
+  approvals).
