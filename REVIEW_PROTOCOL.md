@@ -24,6 +24,11 @@ The reviewer runs scheduled checks (roughly every 5 minutes) that:
    - The PR description meets the evidence standard (GEMINI.md): CI run
      link, acceptance-criteria checklist with code/test pointers, test
      report, explicit deferrals.
+   - Every actionable comment from automated reviewers (e.g. CodeRabbit)
+     and every prior reviewer comment on the PR is addressed: fixed, or
+     explicitly deferred with a written reason on the PR. Unaddressed
+     actionable comments block approval — the reviewer verifies this
+     before merging, not after.
    - The code matches the epic prompt's BUILD steps.
    - Tests exist; cross-check the reported results against the CI run, then
      spot-check by reading the diff. Re-running is the builder's job, but

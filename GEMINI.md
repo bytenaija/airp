@@ -61,6 +61,14 @@ If CI cannot cover something (hardware-specific behavior, a manual Grafana
 check), say exactly what you verified by hand and how. "It works on my
 machine" without commands and outputs is not evidence.
 
+## Review comments
+
+Every actionable comment from automated reviewers (e.g. CodeRabbit) and from
+the human reviewer must be addressed before your PR can be approved: fix the
+issue, or reply on the PR explaining why it is deferred, with a reason. A PR
+with unaddressed actionable comments will not be merged, no matter how green
+CI is.
+
 ## The approval gate
 
 - The reviewer (Muse) reviews every PR: code quality, acceptance criteria,
