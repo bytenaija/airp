@@ -75,12 +75,10 @@ jobs:
           exit 1
 
       - name: Push Prisma schema to Postgres
-        working-directory: services/changefeed
-        env:
-          DATABASE_URL: postgresql://airp:airp@localhost:5432/airp
-        run: |
-          npx prisma generate
-          npx prisma db push
+        # Run inside the changefeed container so it uses the compose stack's
+        # own DATABASE_URL instead of a hardcoded guess.
+        working-directory: infra
+        run: docker compose exec -T changefeed npx prisma db push
 
       - name: Run integration tests
         run: npx vitest run tests/integration
