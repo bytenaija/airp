@@ -7,7 +7,6 @@ import {
   type AlertSeverity,
   type AlertStatus,
 } from "@airp/common";
-import { z } from "zod";
 
 function generateFingerprint(service: string, name: string, labels: Record<string, string>): string {
   const sortedLabels = Object.keys(labels)

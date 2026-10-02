@@ -62,7 +62,7 @@ jobs:
             curl -sf http://localhost:9090/-/healthy >/dev/null || return 1  # prometheus
             curl -sf http://localhost:3000/api/health >/dev/null || return 1 # grafana
             docker exec airp-postgres pg_isready -U airp >/dev/null || return 1
-            for port in 4318 8001 8002 8003 8004; do
+            for port in 4318 8001 8002 8003 8004 8005; do
               curl -s -o /dev/null --max-time 3 http://localhost:$port/ || return 1
             done
             return 0
