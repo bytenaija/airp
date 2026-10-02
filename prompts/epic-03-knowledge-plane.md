@@ -8,9 +8,14 @@ ALREADY BUILT: Epics 1–2.
 
 BUILD:
 1. services/code-index/pipeline.ts: takes a local git repo path (use demo/
-   as the first indexed repo), parses TypeScript/JavaScript with web-tree-sitter
-   (WASM build, no native compilation), chunks by top-level symbol
-   (function/class), embeds chunks with transformers.js
+   as the first indexed repo), parses source files with web-tree-sitter
+   (WASM build, no native compilation) through a language registry that maps
+   file extensions to tree-sitter WASM grammars. TypeScript/JavaScript are
+   the first entries, not the only ones: the registry must accept any
+   language with a tree-sitter grammar (Python, Go, Ruby, Java, C#, Rust,
+   etc.). Files with no registered grammar fall back to line-window chunking
+   and are never silently skipped. Chunks are top-level symbols
+   (function/class/method), embeds chunks with transformers.js
    (Xenova/all-MiniLM-L6-v2, CPU, runs in Node), stores in a hybrid index:
    BM25 (a BM25 npm package such as wink-bm25-text-search) + vector (pgvector
    in Postgres; fall back to brute-force cosine in-memory if pgvector is
@@ -30,5 +35,9 @@ ACCEPTANCE CRITERIA:
 - code_blame on an injected-fault line returns the correct commit/author.
 - After committing a change to demo/, it is searchable within 10 minutes
    (test with a shortened poll interval).
+- Multi-language: indexing a fixture repo containing TypeScript, Python, and
+   Go files yields symbol chunks for all three languages, and code_search
+   finds symbols across languages. No language is hardcoded as the only
+   supported one.
 - Retrieval precision measured on 20 hand-labeled queries, logged to
    evals/code_retrieval_baseline.json (this becomes the Epic 12 baseline).
