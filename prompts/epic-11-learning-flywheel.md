@@ -55,4 +55,5 @@ ACCEPTANCE CRITERIA (in addition to the above):
 - `airp flywheel export --format clef-jsonl` produces valid JSONL with all
   5 records and a schema version (test).
 - Unpublished runbook drafts and unreviewed outcomes are excluded from
-  training exports (test: draft present → absent from export).
+  training exports (test: a draft AND an unreviewed outcome present → both
+  absent from export).
