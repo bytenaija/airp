@@ -194,7 +194,9 @@ export function normalizeSeverity(
   return "SEV3";
 }
 
-export function normalizeAlertSeverity(severity: string | undefined): AlertSeverity {
+export function normalizeAlertSeverity(
+  severity: string | undefined,
+): AlertSeverity {
   const norm = normalizeSeverity(severity);
   switch (norm) {
     case "SEV1":
@@ -210,3 +212,32 @@ export function normalizeAlertSeverity(severity: string | undefined): AlertSever
   }
 }
 
+// --- Diagnosis & Remediation Routing ---
+export const FixabilitySchema = z.enum([
+  "code_fixable",
+  "ops_actionable",
+  "human_only",
+]);
+export type Fixability = z.infer<typeof FixabilitySchema>;
+
+export const EvidenceItemSchema = z.object({
+  tool: z.string().min(1),
+  query: z.union([z.string(), z.record(z.unknown())]),
+  observation: z.unknown(),
+  supports: z.boolean(),
+  weight: z.number().optional(),
+  rationale: z.string().optional(),
+});
+export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
+
+export const DiagnosisSchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().default("local"),
+  incident_id: z.string().uuid(),
+  root_cause: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  evidence: z.array(EvidenceItemSchema).default([]),
+  implicated_change: ChangeEventSchema.nullable().optional(),
+  fixability: FixabilitySchema,
+});
+export type Diagnosis = z.infer<typeof DiagnosisSchema>;

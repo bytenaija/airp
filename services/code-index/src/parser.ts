@@ -10,12 +10,7 @@ export interface CodeSymbolChunk {
   filePath: string;
   symbolName: string;
   symbolType:
-    | "function"
-    | "class"
-    | "method"
-    | "interface"
-    | "type"
-    | "variable";
+    "function" | "class" | "method" | "interface" | "type" | "variable";
   startLine: number;
   endLine: number;
   content: string;
@@ -64,8 +59,7 @@ function extractTsJsSymbols(node: Parser.SyntaxNode): SymbolCandidate | null {
         if (
           nameNode &&
           valueNode &&
-          (valueNode.type === "arrow_function" ||
-            valueNode.type === "function")
+          (valueNode.type === "arrow_function" || valueNode.type === "function")
         ) {
           return { name: nameNode.text, type: "function", node };
         }

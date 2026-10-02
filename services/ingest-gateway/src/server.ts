@@ -25,7 +25,9 @@ export interface GatewayServerOptions {
   tenantId?: string;
 }
 
-export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyInstance {
+export function buildGatewayServer(
+  options: GatewayServerOptions = {},
+): FastifyInstance {
   const fastify = Fastify({ logger: false });
 
   const prisma = options.prisma ?? new PrismaClient();
@@ -64,7 +66,10 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
 
   async function executeCorrelation(tenantId: string) {
     const pendingAlerts = await alertQueue.fetchPendingAlerts(tenantId);
-    const recentFiring = await alertQueue.fetchRecentFiringAlerts(tenantId, 15 * 60 * 1000);
+    const recentFiring = await alertQueue.fetchRecentFiringAlerts(
+      tenantId,
+      15 * 60 * 1000,
+    );
 
     const alertMap = new Map<string, QueueAlert>();
     for (const a of recentFiring) {
@@ -83,7 +88,11 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
       };
     }
 
-    const correlation = correlator.correlate(alertsToCorrelate, new Date(), tenantId);
+    const correlation = correlator.correlate(
+      alertsToCorrelate,
+      new Date(),
+      tenantId,
+    );
 
     // Flap suppression handling across requests
     const suppressedIds = correlation.suppressedAlerts
@@ -100,7 +109,10 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
       }
 
       for (const incId of incidentsToCheck) {
-        const remaining = await alertQueue.countActiveAlertsForIncident(incId, suppressedIds);
+        const remaining = await alertQueue.countActiveAlertsForIncident(
+          incId,
+          suppressedIds,
+        );
         if (remaining === 0) {
           await incidentStore.deleteIncident(incId, tenantId);
         }
@@ -124,7 +136,9 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
       } else {
         const saved = await incidentStore.createIncident(inc);
         createdIncidents.push(saved);
-        const alertIds = group.alerts.map((a) => a.id).filter(Boolean) as string[];
+        const alertIds = group.alerts
+          .map((a) => a.id)
+          .filter(Boolean) as string[];
         await alertQueue.markProcessed(alertIds, saved.id);
       }
     }
@@ -144,11 +158,7 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
         (req.headers["x-tenant-id"] as string) || defaultTenantId;
 
       // 1. Push to internal Postgres-backed queue
-      await alertQueue.pushAlerts(
-        normalizedAlerts,
-        tenantId,
-        req.body,
-      );
+      await alertQueue.pushAlerts(normalizedAlerts, tenantId, req.body);
 
       // 2. Correlate alerts in queue across pending window
       const result = await executeCorrelation(tenantId);
@@ -163,14 +173,15 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
     } catch (err) {
       req.log.error(err);
       const msg = err instanceof Error ? err.message : String(err);
-      return reply.status(400).send({ error: "Alert ingestion error", message: msg });
+      return reply
+        .status(400)
+        .send({ error: "Alert ingestion error", message: msg });
     }
   });
 
   // Trigger manual correlation run
   fastify.post("/correlate", async (req, reply) => {
-    const tenantId =
-      (req.headers["x-tenant-id"] as string) || defaultTenantId;
+    const tenantId = (req.headers["x-tenant-id"] as string) || defaultTenantId;
     const result = await executeCorrelation(tenantId);
 
     return reply.send({
@@ -186,7 +197,9 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
   fastify.get("/incidents", async (req, reply) => {
     const query = req.query as Record<string, string>;
     const tenantId =
-      query.tenant_id || (req.headers["x-tenant-id"] as string) || defaultTenantId;
+      query.tenant_id ||
+      (req.headers["x-tenant-id"] as string) ||
+      defaultTenantId;
     const status = query.status as IncidentStatus | undefined;
 
     try {
@@ -205,7 +218,9 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
     const { id } = req.params as { id: string };
     const query = req.query as Record<string, string>;
     const tenantId =
-      query.tenant_id || (req.headers["x-tenant-id"] as string) || defaultTenantId;
+      query.tenant_id ||
+      (req.headers["x-tenant-id"] as string) ||
+      defaultTenantId;
 
     try {
       const inc = await incidentStore.getIncident(id, tenantId);
@@ -238,10 +253,14 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
       tenant_id?: string;
     };
     const tenantId =
-      body.tenant_id || (req.headers["x-tenant-id"] as string) || defaultTenantId;
+      body.tenant_id ||
+      (req.headers["x-tenant-id"] as string) ||
+      defaultTenantId;
 
     if (!body.status) {
-      return reply.status(400).send({ error: "Missing 'status' in request body" });
+      return reply
+        .status(400)
+        .send({ error: "Missing 'status' in request body" });
     }
 
     try {

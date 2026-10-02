@@ -7,7 +7,10 @@ describe("Acceptance Criterion: Multi-language Code Search & Extensible Registry
   beforeAll(async () => {
     pipeline = new CodeIndexPipeline();
     await pipeline.init();
-    await pipeline.indexRepository("tests/fixtures/multi-lang-repo", "fixture-repo");
+    await pipeline.indexRepository(
+      "tests/fixtures/multi-lang-repo",
+      "fixture-repo",
+    );
   }, 30000);
 
   it("yields symbol chunks for TypeScript, Python, and Go, plus line-window fallback for unregistered files", async () => {
@@ -26,12 +29,16 @@ describe("Acceptance Criterion: Multi-language Code Search & Extensible Registry
 
     // Python symbols
     expect(pyChunks.length).toBeGreaterThan(0);
-    expect(pyChunks.some((c) => c.symbolName === "validate_payment_token")).toBe(true);
+    expect(
+      pyChunks.some((c) => c.symbolName === "validate_payment_token"),
+    ).toBe(true);
     expect(pyChunks.some((c) => c.symbolName === "FraudDetector")).toBe(true);
 
     // Go symbols
     expect(goChunks.length).toBeGreaterThan(0);
-    expect(goChunks.some((c) => c.symbolName === "AuthenticateUser")).toBe(true);
+    expect(goChunks.some((c) => c.symbolName === "AuthenticateUser")).toBe(
+      true,
+    );
     expect(goChunks.some((c) => c.symbolName === "SessionManager")).toBe(true);
 
     // Unregistered grammar file falls back to line-window chunking (never skipped)

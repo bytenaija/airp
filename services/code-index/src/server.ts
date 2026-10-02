@@ -109,7 +109,12 @@ export function buildCodeIndexServer(options?: ServerOptions): {
       ".map",
     ];
     const base = path.basename(filePath);
-    if (base.endsWith(".d.ts") || base.endsWith(".map") || base.endsWith(".lock")) return false;
+    if (
+      base.endsWith(".d.ts") ||
+      base.endsWith(".map") ||
+      base.endsWith(".lock")
+    )
+      return false;
     const ext = path.extname(filePath).toLowerCase();
     return !ignoredExtensions.includes(ext);
   };
@@ -179,7 +184,10 @@ export function buildCodeIndexServer(options?: ServerOptions): {
         indexRunsCounter.inc({ trigger: "poll_incremental" });
         lastIndexedCommit = currentCommit;
         lastIndexedTime = Date.now();
-      } else if (currentCommit === "unknown" && fs.existsSync(resolvedRepoPath)) {
+      } else if (
+        currentCommit === "unknown" &&
+        fs.existsSync(resolvedRepoPath)
+      ) {
         // Fallback: mtime scan when Git metadata is unavailable
         const currentFiles = new Set(pipeline.findCodeFiles(resolvedRepoPath));
         let changesDetected = 0;
@@ -189,7 +197,11 @@ export function buildCodeIndexServer(options?: ServerOptions): {
             const currentMtime = fs.statSync(file).mtimeMs;
             const previousMtime = fileMtimeMap.get(file);
             if (previousMtime === undefined || currentMtime > previousMtime) {
-              await pipeline.indexFile(path.basename(repoPath), file, "unknown");
+              await pipeline.indexFile(
+                path.basename(repoPath),
+                file,
+                "unknown",
+              );
               fileMtimeMap.set(file, currentMtime);
               changesDetected++;
             }
@@ -203,7 +215,9 @@ export function buildCodeIndexServer(options?: ServerOptions): {
             const relativePath = path
               .relative(process.cwd(), trackedFile)
               .replace(/\\/g, "/");
-            await pipeline.getStore().deleteFileChunks(path.basename(repoPath), relativePath);
+            await pipeline
+              .getStore()
+              .deleteFileChunks(path.basename(repoPath), relativePath);
             fileMtimeMap.delete(trackedFile);
             changesDetected++;
           }
@@ -318,11 +332,14 @@ export function buildCodeIndexServer(options?: ServerOptions): {
     }
 
     const isUnderAllowedRoot = allowedRoots.some(
-      (root) => candidatePath === root || candidatePath.startsWith(root + path.sep),
+      (root) =>
+        candidatePath === root || candidatePath.startsWith(root + path.sep),
     );
 
     if (!isUnderAllowedRoot) {
-      throw new Error("Access denied: path escapes allowed repository boundary");
+      throw new Error(
+        "Access denied: path escapes allowed repository boundary",
+      );
     }
 
     if (fs.existsSync(candidatePath)) {
@@ -331,7 +348,9 @@ export function buildCodeIndexServer(options?: ServerOptions): {
         (root) => real === root || real.startsWith(root + path.sep),
       );
       if (!realUnderRoot) {
-        throw new Error("Access denied: symlink escapes allowed repository boundary");
+        throw new Error(
+          "Access denied: symlink escapes allowed repository boundary",
+        );
       }
       return candidatePath;
     }

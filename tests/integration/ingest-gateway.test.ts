@@ -211,7 +211,9 @@ describe("Ingest Gateway HTTP Server Integration Tests", () => {
     });
     expect(defaultList.statusCode).toBe(200);
     expect(
-      defaultList.json().incidents.some((inc: any) => inc.id === data.incidents[0].id),
+      defaultList
+        .json()
+        .incidents.some((inc: any) => inc.id === data.incidents[0].id),
     ).toBe(false);
 
     // Cleanup acme tenant

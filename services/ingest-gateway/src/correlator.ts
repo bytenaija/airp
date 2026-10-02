@@ -93,7 +93,8 @@ export class Correlator {
     }
 
     // Step 1: Detect and suppress flapping alerts
-    const { activeAlerts, suppressedAlerts } = this.filterFlappingAlerts(alerts);
+    const { activeAlerts, suppressedAlerts } =
+      this.filterFlappingAlerts(alerts);
 
     if (activeAlerts.length === 0) {
       return { incidents: [], suppressedAlerts, groupedCount: 0 };
@@ -106,10 +107,12 @@ export class Correlator {
     const survivingGroups = this.pruneDownstreamSymptoms(groups);
 
     // Step 4: Emit IncidentRecord per surviving group
-    const correlatedGroups: CorrelatedGroupResult[] = survivingGroups.map((group) => ({
-      incident: this.buildIncidentRecord(group, evaluatedAt, tenantId),
-      alerts: [...group.rootAlerts, ...group.prunedDownstreamAlerts],
-    }));
+    const correlatedGroups: CorrelatedGroupResult[] = survivingGroups.map(
+      (group) => ({
+        incident: this.buildIncidentRecord(group, evaluatedAt, tenantId),
+        alerts: [...group.rootAlerts, ...group.prunedDownstreamAlerts],
+      }),
+    );
 
     return {
       incidents: correlatedGroups.map((g) => g.incident),
@@ -141,7 +144,8 @@ export class Correlator {
     for (const [, fpAlerts] of byFingerprint.entries()) {
       // Sort chronologically by startsAt
       fpAlerts.sort(
-        (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+        (a, b) =>
+          new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
       );
 
       // Check self-contained resolved alerts (alert.endsAt set within flap threshold)
@@ -277,7 +281,8 @@ export class Correlator {
         if (isDownstream) {
           // Candidate starts at or after parent group within reasonable horizon and within the parent window
           if (
-            candidateGroup.earliestStart >= parentGroup.earliestStart - 60_000 &&
+            candidateGroup.earliestStart >=
+              parentGroup.earliestStart - 60_000 &&
             candidateGroup.earliestStart <= parentGroup.windowEnd
           ) {
             // Prune candidate into parent

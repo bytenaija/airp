@@ -202,6 +202,29 @@ services:
       postgres:
         condition: service_healthy
 
+  agent-runtime:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-agent-runtime
+    restart: unless-stopped
+    command: ["node", "services/agent-runtime/dist/server.js"]
+    ports:
+      - "8007:8007"
+    environment:
+      - NODE_ENV=production
+      - PORT=8007
+      - LOKI_URL=http://loki:3100
+      - PROMETHEUS_URL=http://prometheus:9090
+      - TEMPO_URL=http://tempo:3200
+      - CODE_INDEX_URL=http://code-index:8006
+      - CHANGEFEED_URL=http://changefeed:8004
+      - LLM_PROVIDER=ollama
+    depends_on:
+      - code-index
+      - changefeed
+      - ingest-gateway
+
 volumes:
   postgres_data:
   prometheus_data:

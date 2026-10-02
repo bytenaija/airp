@@ -253,10 +253,17 @@ describe("Alert Correlation Functional Acceptance Tests", () => {
       },
     ];
 
-    const result = correlator.correlate(alerts, new Date(tLate.getTime() + 60_000));
+    const result = correlator.correlate(
+      alerts,
+      new Date(tLate.getTime() + 60_000),
+    );
     // Must produce 2 incidents, not 1
     expect(result.incidents.length).toBe(2);
-    expect(result.incidents.some((inc) => inc.title.includes("checkout"))).toBe(true);
-    expect(result.incidents.some((inc) => inc.title.includes("payments"))).toBe(true);
+    expect(result.incidents.some((inc) => inc.title.includes("checkout"))).toBe(
+      true,
+    );
+    expect(result.incidents.some((inc) => inc.title.includes("payments"))).toBe(
+      true,
+    );
   });
 });
