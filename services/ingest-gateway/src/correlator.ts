@@ -17,10 +17,16 @@ export interface CorrelatorOptions {
   tenantId?: string;
 }
 
+export interface CorrelatedGroupResult {
+  incident: IncidentRecord;
+  alerts: Alert[];
+}
+
 export interface CorrelationResult {
   incidents: IncidentRecord[];
   suppressedAlerts: Alert[];
   groupedCount: number;
+  groups?: CorrelatedGroupResult[];
 }
 
 interface ServiceWindowGroup {
@@ -77,7 +83,11 @@ export class Correlator {
    * 3. Prunes downstream symptoms using the topology graph.
    * 4. Emits one IncidentRecord per surviving group with an append-only timeline.
    */
-  correlate(alerts: Alert[], evaluatedAt: Date = new Date()): CorrelationResult {
+  correlate(
+    alerts: Alert[],
+    evaluatedAt: Date = new Date(),
+    tenantId?: string,
+  ): CorrelationResult {
     if (alerts.length === 0) {
       return { incidents: [], suppressedAlerts: [], groupedCount: 0 };
     }
@@ -96,14 +106,16 @@ export class Correlator {
     const survivingGroups = this.pruneDownstreamSymptoms(groups);
 
     // Step 4: Emit IncidentRecord per surviving group
-    const incidents = survivingGroups.map((group) =>
-      this.buildIncidentRecord(group, evaluatedAt),
-    );
+    const correlatedGroups: CorrelatedGroupResult[] = survivingGroups.map((group) => ({
+      incident: this.buildIncidentRecord(group, evaluatedAt, tenantId),
+      alerts: [...group.rootAlerts, ...group.prunedDownstreamAlerts],
+    }));
 
     return {
-      incidents,
+      incidents: correlatedGroups.map((g) => g.incident),
       suppressedAlerts,
       groupedCount: survivingGroups.length,
+      groups: correlatedGroups,
     };
   }
 
@@ -263,8 +275,11 @@ export class Correlator {
         );
 
         if (isDownstream) {
-          // Candidate starts at or after parent group within reasonable horizon
-          if (candidateGroup.earliestStart >= parentGroup.earliestStart - 60_000) {
+          // Candidate starts at or after parent group within reasonable horizon and within the parent window
+          if (
+            candidateGroup.earliestStart >= parentGroup.earliestStart - 60_000 &&
+            candidateGroup.earliestStart <= parentGroup.windowEnd
+          ) {
             // Prune candidate into parent
             parentGroup.prunedDownstreamAlerts.push(
               ...candidateGroup.rootAlerts,
@@ -289,6 +304,7 @@ export class Correlator {
   private buildIncidentRecord(
     group: ServiceWindowGroup,
     evaluatedAt: Date,
+    tenantId?: string,
   ): IncidentRecord {
     const incidentId = crypto.randomUUID();
     const startedAt = new Date(group.earliestStart).toISOString();
@@ -359,7 +375,7 @@ export class Correlator {
 
     return {
       id: incidentId,
-      tenant_id: this.tenantId,
+      tenant_id: tenantId ?? this.tenantId,
       title,
       severity: group.highestSeverity,
       status: "open",

@@ -26,10 +26,30 @@ program
   .option("--status <status>", "Alert status (firing, resolved)", "firing")
   .option("--resolve-in <seconds>", "Automatically fire resolve event after N seconds")
   .option("--count <number>", "Number of alerts to fire", "1")
+  .option("--tenant <tenant>", "Tenant ID", "local")
   .option("--gateway <url>", "Gateway URL")
   .action(async (options) => {
     const gateway = getGatewayUrl(options.gateway);
-    const count = parseInt(options.count, 10) || 1;
+    const rawCount = options.count;
+    const count = Number(rawCount);
+    if (!Number.isInteger(count) || count <= 0) {
+      console.error(`Error: --count must be a positive integer, got '${rawCount}'`);
+      process.exitCode = 1;
+      return;
+    }
+
+    let resolveSeconds: number | undefined;
+    if (options.resolveIn !== undefined) {
+      const rawResolve = options.resolveIn;
+      resolveSeconds = Number(rawResolve);
+      if (isNaN(resolveSeconds) || resolveSeconds <= 0) {
+        console.error(
+          `Error: --resolve-in must be a positive number, got '${rawResolve}'`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
 
     try {
       for (let i = 0; i < count; i++) {
@@ -49,7 +69,10 @@ program
 
         const res = await fetch(`${gateway}/alerts`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-id": options.tenant,
+          },
           body: JSON.stringify(payload),
         });
 
@@ -67,10 +90,9 @@ program
         }
       }
 
-      if (options.resolveIn) {
-        const seconds = parseInt(options.resolveIn, 10);
-        console.log(`Waiting ${seconds}s before resolving alert...`);
-        await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      if (resolveSeconds !== undefined) {
+        console.log(`Waiting ${resolveSeconds}s before resolving alert...`);
+        await new Promise((resolve) => setTimeout(resolve, resolveSeconds * 1000));
 
         const resolvePayload = {
           service: options.service,
@@ -88,7 +110,10 @@ program
 
         const res = await fetch(`${gateway}/alerts`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-id": options.tenant,
+          },
           body: JSON.stringify(resolvePayload),
         });
 

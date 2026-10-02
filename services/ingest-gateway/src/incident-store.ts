@@ -23,6 +23,14 @@ export class IncidentNotFoundError extends Error {
   }
 }
 
+export class ConcurrentModificationError extends Error {
+  constructor(id: string, currentStatus: string) {
+    super(`Incident ${id} was modified concurrently (expected status '${currentStatus}')`);
+    this.name = "ConcurrentModificationError";
+    Object.setPrototypeOf(this, ConcurrentModificationError.prototype);
+  }
+}
+
 export interface TransitionOptions {
   tenantId: string;
   actor?: string;
@@ -182,10 +190,18 @@ export class IncidentStore {
       `Status changed from '${currentStatus}' to '${newStatus}'`;
 
     await this.prisma.$transaction(async (tx: any) => {
-      await tx.incident.update({
-        where: { id },
+      const updateResult = await tx.incident.updateMany({
+        where: {
+          id,
+          tenantId,
+          status: currentStatus,
+        },
         data: { status: newStatus },
       });
+
+      if (updateResult.count === 0) {
+        throw new ConcurrentModificationError(id, currentStatus);
+      }
 
       await tx.incidentTimelineEvent.create({
         data: {
@@ -236,6 +252,24 @@ export class IncidentStore {
     const updated = await this.getIncident(id, validTenantId);
     if (!updated) throw new IncidentNotFoundError(id);
     return updated;
+  }
+
+  /**
+   * Deletes an incident by ID within a tenant scope.
+   * Cascade-deletes associated timeline events.
+   * Returns true if deleted, false if not found.
+   */
+  async deleteIncident(id: string, tenantId: string): Promise<boolean> {
+    const validTenantId = this.assertTenant(tenantId);
+    const existing = await this.prisma.incident.findFirst({
+      where: { id, tenantId: validTenantId },
+    });
+    if (!existing) return false;
+
+    await this.prisma.incident.delete({
+      where: { id },
+    });
+    return true;
   }
 
   private formatRecord(record: {

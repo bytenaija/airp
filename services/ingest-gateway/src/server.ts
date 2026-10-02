@@ -9,8 +9,13 @@ import {
 } from "@airp/common";
 import { normalizeAlerts } from "./normalizer.js";
 import { Correlator } from "./correlator.js";
-import { IncidentStore, TenantScopeError, IncidentNotFoundError } from "./incident-store.js";
-import { AlertQueue } from "./alert-queue.js";
+import {
+  IncidentStore,
+  TenantScopeError,
+  IncidentNotFoundError,
+  ConcurrentModificationError,
+} from "./incident-store.js";
+import { AlertQueue, type QueueAlert } from "./alert-queue.js";
 
 export interface GatewayServerOptions {
   port?: number;
@@ -57,6 +62,80 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
     return { status: "ok", service: "ingest-gateway" };
   });
 
+  async function executeCorrelation(tenantId: string) {
+    const pendingAlerts = await alertQueue.fetchPendingAlerts(tenantId);
+    const recentFiring = await alertQueue.fetchRecentFiringAlerts(tenantId, 15 * 60 * 1000);
+
+    const alertMap = new Map<string, QueueAlert>();
+    for (const a of recentFiring) {
+      if (a.id) alertMap.set(a.id, a);
+    }
+    for (const a of pendingAlerts) {
+      if (a.id) alertMap.set(a.id, a);
+    }
+    const alertsToCorrelate = Array.from(alertMap.values());
+
+    if (alertsToCorrelate.length === 0) {
+      return {
+        suppressedCount: 0,
+        createdIncidents: [],
+        pendingCount: 0,
+      };
+    }
+
+    const correlation = correlator.correlate(alertsToCorrelate, new Date(), tenantId);
+
+    // Flap suppression handling across requests
+    const suppressedIds = correlation.suppressedAlerts
+      .map((a) => a.id)
+      .filter(Boolean) as string[];
+
+    if (suppressedIds.length > 0) {
+      await alertQueue.markProcessed(suppressedIds, null);
+
+      const incidentsToCheck = new Set<string>();
+      for (const a of correlation.suppressedAlerts) {
+        const incId = (a as any).incidentId;
+        if (incId) incidentsToCheck.add(incId);
+      }
+
+      for (const incId of incidentsToCheck) {
+        const remaining = await alertQueue.countActiveAlertsForIncident(incId, suppressedIds);
+        if (remaining === 0) {
+          await incidentStore.deleteIncident(incId, tenantId);
+        }
+      }
+    }
+
+    const createdIncidents = [];
+    for (const group of correlation.groups ?? []) {
+      const inc = group.incident;
+      const existingIncidentId = group.alerts
+        .map((a: any) => a.incidentId)
+        .find((id) => Boolean(id));
+
+      if (existingIncidentId) {
+        const unlinkedIds = group.alerts
+          .filter((a: any) => !a.incidentId && a.id)
+          .map((a) => a.id!);
+        if (unlinkedIds.length > 0) {
+          await alertQueue.markProcessed(unlinkedIds, existingIncidentId);
+        }
+      } else {
+        const saved = await incidentStore.createIncident(inc);
+        createdIncidents.push(saved);
+        const alertIds = group.alerts.map((a) => a.id).filter(Boolean) as string[];
+        await alertQueue.markProcessed(alertIds, saved.id);
+      }
+    }
+
+    return {
+      suppressedCount: correlation.suppressedAlerts.length,
+      createdIncidents,
+      pendingCount: pendingAlerts.length,
+    };
+  }
+
   // Ingest alerts endpoint
   fastify.post("/alerts", async (req, reply) => {
     try {
@@ -65,32 +144,21 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
         (req.headers["x-tenant-id"] as string) || defaultTenantId;
 
       // 1. Push to internal Postgres-backed queue
-      const queuedAlerts = await alertQueue.pushAlerts(
+      await alertQueue.pushAlerts(
         normalizedAlerts,
         tenantId,
         req.body,
       );
 
-      // 2. Correlate alerts in queue
-      const correlation = correlator.correlate(queuedAlerts);
-
-      const createdIncidents = [];
-      for (const inc of correlation.incidents) {
-        const saved = await incidentStore.createIncident(inc);
-        createdIncidents.push(saved);
-      }
-
-      // Mark processed alerts
-      const processedIds = queuedAlerts.map((a) => a.id).filter(Boolean) as string[];
-      const firstIncidentId = createdIncidents[0]?.id;
-      await alertQueue.markProcessed(processedIds, firstIncidentId);
+      // 2. Correlate alerts in queue across pending window
+      const result = await executeCorrelation(tenantId);
 
       return reply.status(202).send({
         status: "accepted",
         receivedCount: normalizedAlerts.length,
-        suppressedCount: correlation.suppressedAlerts.length,
-        incidentsCreated: createdIncidents.length,
-        incidents: createdIncidents,
+        suppressedCount: result.suppressedCount,
+        incidentsCreated: result.createdIncidents.length,
+        incidents: result.createdIncidents,
       });
     } catch (err) {
       req.log.error(err);
@@ -103,33 +171,14 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
   fastify.post("/correlate", async (req, reply) => {
     const tenantId =
       (req.headers["x-tenant-id"] as string) || defaultTenantId;
-    const pending = await alertQueue.fetchPendingAlerts(tenantId);
-    if (pending.length === 0) {
-      return reply.send({
-        status: "ok",
-        pendingCount: 0,
-        incidentsCreated: 0,
-        incidents: [],
-      });
-    }
-
-    const correlation = correlator.correlate(pending);
-    const createdIncidents = [];
-    for (const inc of correlation.incidents) {
-      const saved = await incidentStore.createIncident(inc);
-      createdIncidents.push(saved);
-    }
-
-    const processedIds = pending.map((a) => a.id).filter(Boolean) as string[];
-    const firstIncidentId = createdIncidents[0]?.id;
-    await alertQueue.markProcessed(processedIds, firstIncidentId);
+    const result = await executeCorrelation(tenantId);
 
     return reply.send({
       status: "ok",
-      pendingCount: pending.length,
-      suppressedCount: correlation.suppressedAlerts.length,
-      incidentsCreated: createdIncidents.length,
-      incidents: createdIncidents,
+      pendingCount: result.pendingCount,
+      suppressedCount: result.suppressedCount,
+      incidentsCreated: result.createdIncidents.length,
+      incidents: result.createdIncidents,
     });
   });
 
@@ -209,6 +258,12 @@ export function buildGatewayServer(options: GatewayServerOptions = {}): FastifyI
           message: err.message,
           from: err.from,
           to: err.to,
+        });
+      }
+      if (err instanceof ConcurrentModificationError) {
+        return reply.status(409).send({
+          error: "ConcurrentModificationError",
+          message: err.message,
         });
       }
       if (err instanceof IncidentNotFoundError) {

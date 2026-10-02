@@ -4,8 +4,8 @@ import {
   AlertSchema,
   AlertManagerWebhookSchema,
   GenericAlertSchema,
-  type AlertSeverity,
   type AlertStatus,
+  normalizeAlertSeverity,
 } from "@airp/common";
 
 function generateFingerprint(service: string, name: string, labels: Record<string, string>): string {
@@ -55,7 +55,7 @@ export function normalizeAlerts(payload: unknown): Alert[] {
         item.status === "resolved" || (!item.status && webhook.status === "resolved")
           ? "resolved"
           : "firing";
-      const severity = (labels.severity as AlertSeverity) || "warning";
+      const severity = normalizeAlertSeverity(labels.severity);
       const startsAt = normalizeTimestamp(item.startsAt) || new Date().toISOString();
       const endsAt = status === "resolved" ? normalizeTimestamp(item.endsAt) || new Date().toISOString() : undefined;
       const fingerprint =
@@ -95,7 +95,7 @@ function normalizeSingleGenericAlert(item: unknown): Alert {
 
   const name = parsed.name || parsed.metric || "GenericAlert";
   const status: AlertStatus = parsed.status === "resolved" ? "resolved" : "firing";
-  const severity = (parsed.severity as AlertSeverity) || "warning";
+  const severity = normalizeAlertSeverity(parsed.severity);
   const startsAt = normalizeTimestamp(parsed.startsAt) || new Date().toISOString();
   const endsAt =
     status === "resolved"
