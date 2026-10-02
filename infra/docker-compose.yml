@@ -178,6 +178,30 @@ services:
       postgres:
         condition: service_healthy
 
+  code-index:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-code-index
+    restart: unless-stopped
+    command: ["node", "services/code-index/dist/server.js"]
+    ports:
+      - "8006:8006"
+    environment:
+      - NODE_ENV=production
+      - PORT=8006
+      - DATABASE_URL=postgresql://airp:airp_password@postgres:5432/airp
+      - TOPOLOGY_PATH=/app/infra/topology.yaml
+      - OWNERSHIP_PATH=/app/infra/ownership.yaml
+      - REPO_PATH=/app/demo
+      - RUNBOOKS_PATH=/app/docs/runbooks
+    volumes:
+      - ./topology.yaml:/app/infra/topology.yaml:ro
+      - ./ownership.yaml:/app/infra/ownership.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   prometheus_data:
@@ -185,4 +209,3 @@ volumes:
   tempo_data:
   grafana_data:
   app_logs:
-

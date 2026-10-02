@@ -111,7 +111,10 @@ export class IncidentStore {
    * Retrieves an incident by ID within a tenant scope.
    * Returns null if not found or if belonging to another tenant (enforcing tenant isolation).
    */
-  async getIncident(id: string, tenantId: string): Promise<IncidentRecord | null> {
+  async getIncident(
+    id: string,
+    tenantId: string,
+  ): Promise<IncidentRecord | null> {
     const validTenantId = this.assertTenant(tenantId);
 
     const record = await this.prisma.incident.findFirst({

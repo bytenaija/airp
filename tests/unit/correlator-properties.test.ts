@@ -32,9 +32,25 @@ describe("Correlator Property-Based Tests (fast-check)", () => {
     .integer({ min: 0, max: 7200 })
     .map((offsetSec) => new Date(baseEpoch + offsetSec * 1000).toISOString());
 
-  const serviceArb = fc.constantFrom("checkout", "payments", "fraud-check", "auth", "inventory");
-  const severityArb = fc.constantFrom<AlertSeverity>("critical", "high", "warning", "info");
-  const alertNameArb = fc.constantFrom("HighErrorRate", "HighLatency", "ConnectionTimeout", "5xxSpike");
+  const serviceArb = fc.constantFrom(
+    "checkout",
+    "payments",
+    "fraud-check",
+    "auth",
+    "inventory",
+  );
+  const severityArb = fc.constantFrom<AlertSeverity>(
+    "critical",
+    "high",
+    "warning",
+    "info",
+  );
+  const alertNameArb = fc.constantFrom(
+    "HighErrorRate",
+    "HighLatency",
+    "ConnectionTimeout",
+    "5xxSpike",
+  );
 
   // Generator for firing alerts
   const alertArb: fc.Arbitrary<Alert> = fc
@@ -63,41 +79,48 @@ describe("Correlator Property-Based Tests (fast-check)", () => {
   it("Property 1: No alert is lost (Conservation of alerts)", () => {
     // Every alert is accounted for: either in an incident's signals (root or downstream) or in suppressedAlerts
     fc.assert(
-      fc.property(fc.array(alertArb, { minLength: 0, maxLength: 60 }), (alerts) => {
-        const result = correlator.correlate(alerts);
+      fc.property(
+        fc.array(alertArb, { minLength: 0, maxLength: 60 }),
+        (alerts) => {
+          const result = correlator.correlate(alerts);
 
-        const totalSignalsInIncidents = result.incidents.reduce(
-          (sum, inc) => sum + inc.signals.length,
-          0,
-        );
-        const totalSuppressed = result.suppressedAlerts.length;
+          const totalSignalsInIncidents = result.incidents.reduce(
+            (sum, inc) => sum + inc.signals.length,
+            0,
+          );
+          const totalSuppressed = result.suppressedAlerts.length;
 
-        expect(totalSignalsInIncidents + totalSuppressed).toBe(alerts.length);
-      }),
+          expect(totalSignalsInIncidents + totalSuppressed).toBe(alerts.length);
+        },
+      ),
       { numRuns: 100 },
     );
   });
 
   it("Property 2: No duplicate incidents for the same service and tumbling window", () => {
     fc.assert(
-      fc.property(fc.array(alertArb, { minLength: 1, maxLength: 80 }), (alerts) => {
-        const result = correlator.correlate(alerts);
+      fc.property(
+        fc.array(alertArb, { minLength: 1, maxLength: 80 }),
+        (alerts) => {
+          const result = correlator.correlate(alerts);
 
-        const seenKeys = new Set<string>();
-        for (const inc of result.incidents) {
-          // Identify the root service from the title or first root signal
-          const rootSignal = inc.signals.find((s) => s.type === "alert");
-          expect(rootSignal).toBeDefined();
-          const rootService = rootSignal!.service;
+          const seenKeys = new Set<string>();
+          for (const inc of result.incidents) {
+            // Identify the root service from the title or first root signal
+            const rootSignal = inc.signals.find((s) => s.type === "alert");
+            expect(rootSignal).toBeDefined();
+            const rootService = rootSignal!.service;
 
-          const startedTime = new Date(inc.started_at).getTime();
-          const windowStart = Math.floor(startedTime / (15 * 60 * 1000)) * (15 * 60 * 1000);
-          const key = `${rootService}::${windowStart}`;
+            const startedTime = new Date(inc.started_at).getTime();
+            const windowStart =
+              Math.floor(startedTime / (15 * 60 * 1000)) * (15 * 60 * 1000);
+            const key = `${rootService}::${windowStart}`;
 
-          expect(seenKeys.has(key)).toBe(false);
-          seenKeys.add(key);
-        }
-      }),
+            expect(seenKeys.has(key)).toBe(false);
+            seenKeys.add(key);
+          }
+        },
+      ),
       { numRuns: 100 },
     );
   });
@@ -143,17 +166,24 @@ describe("Correlator Property-Based Tests (fast-check)", () => {
 
           // Exactly 1 incident should be emitted (for checkout)
           expect(result.incidents.length).toBe(1);
-          expect(result.incidents[0].signals.some((s) => s.service === "checkout" && s.type === "alert")).toBe(true);
+          expect(
+            result.incidents[0].signals.some(
+              (s) => s.service === "checkout" && s.type === "alert",
+            ),
+          ).toBe(true);
           // Payments alert must be pruned as a downstream symptom
           expect(
             result.incidents[0].signals.some(
-              (s) => s.service === "payments" && s.type === "downstream_symptom",
+              (s) =>
+                s.service === "payments" && s.type === "downstream_symptom",
             ),
           ).toBe(true);
 
           // Payments should NOT have a separate incident
           const separatePaymentsInc = result.incidents.find(
-            (inc) => inc.signals[0]?.service === "payments" && inc.signals[0]?.type === "alert",
+            (inc) =>
+              inc.signals[0]?.service === "payments" &&
+              inc.signals[0]?.type === "alert",
           );
           expect(separatePaymentsInc).toBeUndefined();
         },

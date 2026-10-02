@@ -9,10 +9,18 @@ import {
 describe("Incident Lifecycle State Machine & Common Utilities (Unit)", () => {
   describe("validateStatusTransition", () => {
     it("allows legal forward transitions (open -> investigating -> diagnosed -> mitigating -> resolved)", () => {
-      expect(() => validateStatusTransition("open", "investigating")).not.toThrow();
-      expect(() => validateStatusTransition("investigating", "diagnosed")).not.toThrow();
-      expect(() => validateStatusTransition("diagnosed", "mitigating")).not.toThrow();
-      expect(() => validateStatusTransition("mitigating", "resolved")).not.toThrow();
+      expect(() =>
+        validateStatusTransition("open", "investigating"),
+      ).not.toThrow();
+      expect(() =>
+        validateStatusTransition("investigating", "diagnosed"),
+      ).not.toThrow();
+      expect(() =>
+        validateStatusTransition("diagnosed", "mitigating"),
+      ).not.toThrow();
+      expect(() =>
+        validateStatusTransition("mitigating", "resolved"),
+      ).not.toThrow();
     });
 
     it("allows explicit reopen transition (resolved -> open)", () => {
@@ -48,15 +56,15 @@ describe("Incident Lifecycle State Machine & Common Utilities (Unit)", () => {
     });
 
     it("rejects investigating -> resolved skipping diagnosed & mitigating", () => {
-      expect(() => validateStatusTransition("investigating", "resolved")).toThrow(
-        IllegalStateTransitionError,
-      );
+      expect(() =>
+        validateStatusTransition("investigating", "resolved"),
+      ).toThrow(IllegalStateTransitionError);
     });
 
     it("rejects backward transitions without reopen", () => {
-      expect(() => validateStatusTransition("diagnosed", "investigating")).toThrow(
-        IllegalStateTransitionError,
-      );
+      expect(() =>
+        validateStatusTransition("diagnosed", "investigating"),
+      ).toThrow(IllegalStateTransitionError);
       expect(() => validateStatusTransition("mitigating", "diagnosed")).toThrow(
         IllegalStateTransitionError,
       );
@@ -104,7 +112,10 @@ describe("Incident Lifecycle State Machine & Common Utilities (Unit)", () => {
       expect(graph.isDownstream("fraud-check", "payments")).toBe(true);
       expect(graph.isDownstream("checkout", "payments")).toBe(false);
       expect(graph.isDownstream("checkout", "checkout")).toBe(false);
-      expect(graph.getAllDownstream("checkout")).toEqual(["payments", "fraud-check"]);
+      expect(graph.getAllDownstream("checkout")).toEqual([
+        "payments",
+        "fraud-check",
+      ]);
     });
   });
 });

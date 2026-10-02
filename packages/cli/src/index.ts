@@ -19,12 +19,22 @@ function getGatewayUrl(optionsUrl?: string): string {
 program
   .command("fire-alert")
   .description("Inject a synthetic alert into the ingest gateway")
-  .requiredOption("--service <service>", "Service name (e.g. checkout, payments)")
-  .option("--severity <severity>", "Alert severity (critical, high, warning, info)", "critical")
+  .requiredOption(
+    "--service <service>",
+    "Service name (e.g. checkout, payments)",
+  )
+  .option(
+    "--severity <severity>",
+    "Alert severity (critical, high, warning, info)",
+    "critical",
+  )
   .option("--name <name>", "Alert name", "SyntheticAlert")
   .option("--metric <metric>", "Associated metric")
   .option("--status <status>", "Alert status (firing, resolved)", "firing")
-  .option("--resolve-in <seconds>", "Automatically fire resolve event after N seconds")
+  .option(
+    "--resolve-in <seconds>",
+    "Automatically fire resolve event after N seconds",
+  )
   .option("--count <number>", "Number of alerts to fire", "1")
   .option("--tenant <tenant>", "Tenant ID", "local")
   .option("--gateway <url>", "Gateway URL")
@@ -84,9 +94,17 @@ program
         }
 
         const data = (await res.json()) as any;
-        console.log(`Alert fired for service '${options.service}' [${i + 1}/${count}]`);
-        if (data.incidentsCreated > 0 && data.incidents && data.incidents.length > 0) {
-          console.log(`-> Incident created: ${data.incidents[0].id} (severity: ${data.incidents[0].severity})`);
+        console.log(
+          `Alert fired for service '${options.service}' [${i + 1}/${count}]`,
+        );
+        if (
+          data.incidentsCreated > 0 &&
+          data.incidents &&
+          data.incidents.length > 0
+        ) {
+          console.log(
+            `-> Incident created: ${data.incidents[0].id} (severity: ${data.incidents[0].severity})`,
+          );
         }
       }
 
@@ -140,7 +158,10 @@ const incidentsCmd = program
 incidentsCmd
   .command("list")
   .description("List incident records")
-  .option("--status <status>", "Filter by status (open, investigating, diagnosed, mitigating, resolved)")
+  .option(
+    "--status <status>",
+    "Filter by status (open, investigating, diagnosed, mitigating, resolved)",
+  )
   .option("--tenant <tenant>", "Tenant ID", "local")
   .option("--gateway <url>", "Gateway URL")
   .action(async (options) => {
@@ -167,12 +188,12 @@ incidentsCmd
       console.log(`Found ${data.count} incident(s):`);
       console.log("-".repeat(80));
       console.log(
-        `${"ID".padEnd(38)} | ${"SEV".padEnd(5)} | ${"STATUS".padEnd(13)} | ${"TITLE"}`
+        `${"ID".padEnd(38)} | ${"SEV".padEnd(5)} | ${"STATUS".padEnd(13)} | ${"TITLE"}`,
       );
       console.log("-".repeat(80));
       for (const inc of data.incidents) {
         console.log(
-          `${inc.id.padEnd(38)} | ${inc.severity.padEnd(5)} | ${inc.status.padEnd(13)} | ${inc.title}`
+          `${inc.id.padEnd(38)} | ${inc.severity.padEnd(5)} | ${inc.status.padEnd(13)} | ${inc.title}`,
         );
       }
     } catch (err: any) {
@@ -213,11 +234,13 @@ incidentsCmd
       console.log(`\nSignals (${inc.signals?.length ?? 0}):`);
       for (const s of inc.signals ?? []) {
         console.log(
-          `  - [${s.type}] service=${s.service} metric=${s.metric || "N/A"} severity=${s.severity || "N/A"}`
+          `  - [${s.type}] service=${s.service} metric=${s.metric || "N/A"} severity=${s.severity || "N/A"}`,
         );
       }
       console.log(`\nEnrichment:`);
-      console.log(`  Topology: ${JSON.stringify(inc.enrichment?.topology_slice ?? {})}`);
+      console.log(
+        `  Topology: ${JSON.stringify(inc.enrichment?.topology_slice ?? {})}`,
+      );
       console.log(`\nTimeline (${inc.timeline?.length ?? 0} events):`);
       for (const t of inc.timeline ?? []) {
         console.log(`  [${t.ts}] [${t.actor}] ${t.action}: ${t.detail || ""}`);
@@ -225,6 +248,151 @@ incidentsCmd
       console.log("=".repeat(80));
     } catch (err: any) {
       console.error(`Failed to show incident from ${gateway}:`, err.message);
+      process.exitCode = 1;
+    }
+  });
+
+function getCodeIndexUrl(optionsUrl?: string): string {
+  return (
+    optionsUrl || process.env.AIRP_CODE_INDEX_URL || "http://localhost:8006"
+  );
+}
+
+// Command: code-search
+program
+  .command("code-search <query>")
+  .description("Search codebase using hybrid retrieval (BM25 + vector)")
+  .option("--top <number>", "Number of results to return", "5")
+  .option("--repo <repo>", "Filter by repository name")
+  .option("--code-index <url>", "Code index service URL")
+  .action(async (query, options) => {
+    const url = getCodeIndexUrl(options.codeIndex);
+    const topK = parseInt(options.top, 10) || 5;
+
+    try {
+      const res = await fetch(`${url}/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, topK, repo: options.repo }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Search error (${res.status}): ${errText}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const data = (await res.json()) as any;
+      console.log(`Results for query: "${query}" (${data.count} hits):`);
+      console.log("-".repeat(80));
+      for (const [idx, hit] of (data.results || []).entries()) {
+        console.log(
+          `#${idx + 1} ${hit.symbolName} [${hit.symbolType}] - ${hit.filePath}:${hit.startLine}-${hit.endLine}`,
+        );
+        console.log(
+          `   Score: ${hit.score.toFixed(4)} (BM25: ${hit.bm25Score.toFixed(3)}, Vector: ${hit.vectorScore.toFixed(3)})`,
+        );
+        if (hit.docstring) {
+          console.log(`   Doc: ${hit.docstring.replace(/\n/g, " ")}`);
+        }
+        console.log("-".repeat(80));
+      }
+    } catch (err: any) {
+      console.error(
+        `Failed to connect to code-index service at ${url}:`,
+        err.message,
+      );
+      process.exitCode = 1;
+    }
+  });
+
+// Command: code-blame
+program
+  .command("code-blame <path> <line>")
+  .description("Git blame for a specific line of code")
+  .option("--code-index <url>", "Code index service URL")
+  .action(async (filePath, lineStr, options) => {
+    const url = getCodeIndexUrl(options.codeIndex);
+    const line = parseInt(lineStr, 10);
+
+    try {
+      const searchParams = new URLSearchParams({
+        path: filePath,
+        line: String(line),
+      });
+      const res = await fetch(`${url}/blame?${searchParams.toString()}`);
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Blame error (${res.status}): ${errText}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const b = (await res.json()) as any;
+      console.log("=".repeat(80));
+      console.log(`BLAME: ${b.filePath}:${b.line}`);
+      console.log("=".repeat(80));
+      console.log(`Commit:   ${b.commit}`);
+      console.log(`Author:   ${b.author} <${b.authorEmail || "unknown"}>`);
+      console.log(`Date:     ${b.date}`);
+      console.log(`Summary:  ${b.summary}`);
+      console.log(`Content:  ${b.content}`);
+      console.log("=".repeat(80));
+    } catch (err: any) {
+      console.error(
+        `Failed to connect to code-index service at ${url}:`,
+        err.message,
+      );
+      process.exitCode = 1;
+    }
+  });
+
+// Command: runbook-search
+program
+  .command("runbook-search <symptoms>")
+  .description("Search runbooks by observed symptoms")
+  .option("--top <number>", "Number of runbooks to return", "3")
+  .option("--code-index <url>", "Code index service URL")
+  .action(async (symptoms, options) => {
+    const url = getCodeIndexUrl(options.codeIndex);
+    const topK = parseInt(options.top, 10) || 3;
+
+    try {
+      const res = await fetch(`${url}/runbooks/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symptoms, topK }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Runbook search error (${res.status}): ${errText}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const data = (await res.json()) as any;
+      console.log(
+        `Runbook results for symptoms: "${symptoms}" (${data.count} hits):`,
+      );
+      console.log("-".repeat(80));
+      for (const [idx, hit] of (data.results || []).entries()) {
+        console.log(
+          `#${idx + 1} ${hit.title} -> ${hit.sectionHeading} (${hit.filePath})`,
+        );
+        console.log(`   Score: ${hit.score.toFixed(4)}`);
+        console.log(
+          `   Content preview: ${hit.content.slice(0, 150).replace(/\n/g, " ")}...`,
+        );
+        console.log("-".repeat(80));
+      }
+    } catch (err: any) {
+      console.error(
+        `Failed to connect to code-index service at ${url}:`,
+        err.message,
+      );
       process.exitCode = 1;
     }
   });
