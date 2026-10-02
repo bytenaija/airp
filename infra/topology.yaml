@@ -1,0 +1,10 @@
+version: "1"
+services:
+  checkout:
+    downstream:
+      - payments
+  payments:
+    downstream:
+      - fraud-check
+  fraud-check:
+    downstream: []
