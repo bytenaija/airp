@@ -188,3 +188,20 @@ export function normalizeSeverity(severity: string | undefined): IncidentSeverit
   if (s === "SEV4" || s === "LOW" || s === "INFO") return "SEV4";
   return "SEV3";
 }
+
+export function normalizeAlertSeverity(severity: string | undefined): AlertSeverity {
+  const norm = normalizeSeverity(severity);
+  switch (norm) {
+    case "SEV1":
+      return "critical";
+    case "SEV2":
+      return "high";
+    case "SEV3":
+      return "warning";
+    case "SEV4":
+      return "info";
+    default:
+      return "warning";
+  }
+}
+

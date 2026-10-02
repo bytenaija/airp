@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import crypto from "node:crypto";
 import {
@@ -8,6 +8,7 @@ import {
 import {
   IncidentStore,
   TenantScopeError,
+  ConcurrentModificationError,
 } from "../../services/ingest-gateway/src/incident-store.js";
 
 process.env.DATABASE_URL =
@@ -181,5 +182,76 @@ describe("IncidentStore Database Integration Tests", () => {
     // Incident status remains open
     const current = await store.getIncident(id, testTenant);
     expect(current?.status).toBe("open");
+  });
+
+  it("[Issue #24] throws ConcurrentModificationError on concurrent status conflict (atomic CAS)", async () => {
+    const id = crypto.randomUUID();
+    const input: IncidentRecord = {
+      id,
+      tenant_id: testTenant,
+      title: "Test concurrent CAS transition",
+      severity: "SEV2",
+      status: "open",
+      started_at: new Date().toISOString(),
+      detected_at: new Date().toISOString(),
+      signals: [],
+      enrichment: {},
+      timeline: [],
+    };
+    await store.createIncident(input);
+
+    // Simulate concurrent modification where another process transitioned the status
+    // causing the conditional updateMany to match 0 rows
+    vi.spyOn(prisma, "$transaction").mockImplementationOnce(async (fn: any) => {
+      const mockTx = {
+        incident: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        incidentTimelineEvent: {
+          create: vi.fn(),
+        },
+      };
+      return fn(mockTx);
+    });
+
+    await expect(
+      store.transitionStatus(id, "investigating", { tenantId: testTenant }),
+    ).rejects.toThrow(ConcurrentModificationError);
+  });
+
+  it("deletes an incident and cascade-deletes timeline events", async () => {
+    const id = crypto.randomUUID();
+    const input: IncidentRecord = {
+      id,
+      tenant_id: testTenant,
+      title: "Test delete incident",
+      severity: "SEV3",
+      status: "open",
+      started_at: new Date().toISOString(),
+      detected_at: new Date().toISOString(),
+      signals: [],
+      enrichment: {},
+      timeline: [
+        {
+          ts: new Date().toISOString(),
+          actor: "system",
+          action: "test",
+          detail: "timeline detail",
+        },
+      ],
+    };
+    await store.createIncident(input);
+
+    const deleted = await store.deleteIncident(id, testTenant);
+    expect(deleted).toBe(true);
+
+    const fetched = await store.getIncident(id, testTenant);
+    expect(fetched).toBeNull();
+
+    // Verify timeline events also deleted
+    const events = await prisma.incidentTimelineEvent.findMany({
+      where: { incidentId: id },
+    });
+    expect(events.length).toBe(0);
   });
 });

@@ -220,4 +220,40 @@ describe("Alert Correlation Functional Acceptance Tests", () => {
     expect(normalizedGeneric[0].severity).toBe("high");
     expect(normalizedGeneric[0].annotations.message).toBe("Stripe API timeouts exceeding 3s");
   });
+
+  it("Acceptance Criterion [Issue #22]: Downstream pruning upper bound - two service groups far apart in time produce 2 incidents without pruning", () => {
+    const t0 = new Date("2026-10-02T10:00:00.000Z");
+    const tLate = new Date("2026-10-02T12:00:00.000Z"); // 2 hours later
+
+    const alerts: Alert[] = [
+      {
+        id: crypto.randomUUID(),
+        fingerprint: "checkout:high_error",
+        name: "HighErrorRate",
+        service: "checkout",
+        severity: "critical",
+        status: "firing",
+        startsAt: t0.toISOString(),
+        labels: { service: "checkout" },
+        annotations: {},
+      },
+      {
+        id: crypto.randomUUID(),
+        fingerprint: "payments:timeout",
+        name: "PaymentTimeout",
+        service: "payments", // downstream of checkout in topology
+        severity: "high",
+        status: "firing",
+        startsAt: tLate.toISOString(), // 2 hours later, outside checkout's 15m window
+        labels: { service: "payments" },
+        annotations: {},
+      },
+    ];
+
+    const result = correlator.correlate(alerts, new Date(tLate.getTime() + 60_000));
+    // Must produce 2 incidents, not 1
+    expect(result.incidents.length).toBe(2);
+    expect(result.incidents.some((inc) => inc.title.includes("checkout"))).toBe(true);
+    expect(result.incidents.some((inc) => inc.title.includes("payments"))).toBe(true);
+  });
 });
