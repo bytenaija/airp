@@ -169,6 +169,17 @@ describe("Epic 7 Acceptance Criterion 1: Action Execution & Reversibility", () =
         await nonDemoServer.close();
       }
     });
+
+    it("returns 400 Bad Request when POST /admin/flags contains no valid boolean updates", async () => {
+      const res = await fetch(`${checkoutBaseUrl}/admin/flags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invalidField: "not_a_boolean" }),
+      });
+      expect(res.status).toBe(400);
+      const data = (await res.json()) as any;
+      expect(data.error).toContain("Bad Request");
+    });
   });
 
   // -------------------------------------------------------------

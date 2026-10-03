@@ -95,6 +95,16 @@ export class ScaleAction extends ReversibleAction {
         `Current replicas and target replicas are both ${this.currentReplicas}. Scale action is a no-op.`,
       );
     }
+    if (!this.executor && !this.onScale) {
+      return {
+        canApply: false,
+        description: this.describe(),
+        diffOrPlan: "",
+        warnings: [
+          "ScaleAction has no execution backend configured (neither executor nor onScale callback is provided).",
+        ],
+      };
+    }
 
     const diffOrPlan = [
       `[Scaling Plan for ${this.targetService}]`,
@@ -114,6 +124,12 @@ export class ScaleAction extends ReversibleAction {
   protected async executeApply(): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
+    if (!this.onScale && !this.executor) {
+      throw new Error(
+        `Cannot execute ScaleAction on '${this.targetService}': no execution backend configured (neither executor nor onScale callback provided).`,
+      );
+    }
+
     let output: unknown = null;
 
     if (this.onScale) {
@@ -151,6 +167,12 @@ export class ScaleAction extends ReversibleAction {
   protected async executeRevert(): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
+    if (!this.onScale && !this.executor) {
+      throw new Error(
+        `Cannot execute ScaleAction revert on '${this.targetService}': no execution backend configured (neither executor nor onScale callback provided).`,
+      );
+    }
+
     let output: unknown = null;
 
     if (this.onScale) {

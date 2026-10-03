@@ -18,6 +18,9 @@ export interface PlannerOptions {
   serviceFlagUrls?: Record<string, string>;
   servicePorts?: Record<string, number>;
   defaultFlagEndpointTemplate?: string;
+  serviceReplicas?: Record<string, number>;
+  currentReplicas?: number;
+  targetReplicas?: number;
   throwOnMissingParams?: boolean;
   onRollback?: (service: string, targetVersion: string) => Promise<void> | void;
   onScale?: (service: string, targetReplicas: number) => Promise<void> | void;
@@ -228,6 +231,100 @@ function extractFlagKey(diagnosis: Diagnosis): string | null {
   return null;
 }
 
+function extractFlagValue(
+  diagnosis: Diagnosis,
+): boolean | null {
+  const change = diagnosis.implicated_change;
+  const metadata = (change?.metadata as Record<string, unknown>) || {};
+
+  if (typeof metadata.value === "boolean") {
+    return metadata.value;
+  }
+  if (typeof metadata.current_value === "boolean") {
+    return metadata.current_value;
+  }
+  if (typeof metadata.currentValue === "boolean") {
+    return metadata.currentValue;
+  }
+
+  for (const item of diagnosis.evidence) {
+    const obs = item.observation as any;
+    if (obs && typeof obs === "object") {
+      if (typeof obs.value === "boolean") {
+        return obs.value;
+      }
+      if (typeof obs.currentValue === "boolean") {
+        return obs.currentValue;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractReplicaCounts(
+  service: string,
+  diagnosis: Diagnosis,
+  options: PlannerOptions,
+): { currentReplicas: number | null; targetReplicas: number | null } {
+  let currentReplicas: number | null = null;
+  let targetReplicas: number | null = null;
+
+  if (typeof options.currentReplicas === "number" && options.currentReplicas > 0) {
+    currentReplicas = options.currentReplicas;
+  } else if (
+    options.serviceReplicas &&
+    typeof options.serviceReplicas[service] === "number" &&
+    options.serviceReplicas[service] > 0
+  ) {
+    currentReplicas = options.serviceReplicas[service];
+  }
+
+  if (typeof options.targetReplicas === "number" && options.targetReplicas > 0) {
+    targetReplicas = options.targetReplicas;
+  }
+
+  // Look in diagnosis metadata/evidence if not provided in options
+  if (currentReplicas === null) {
+    const change = diagnosis.implicated_change;
+    const metadata = (change?.metadata as Record<string, unknown>) || {};
+    if (typeof metadata.current_replicas === "number" && metadata.current_replicas > 0) {
+      currentReplicas = metadata.current_replicas;
+    } else if (typeof metadata.replicas === "number" && metadata.replicas > 0) {
+      currentReplicas = metadata.replicas;
+    }
+  }
+
+  if (currentReplicas === null) {
+    for (const item of diagnosis.evidence) {
+      const obs = item.observation as any;
+      if (obs && typeof obs === "object") {
+        if (typeof obs.current_replicas === "number" && obs.current_replicas > 0) {
+          currentReplicas = obs.current_replicas;
+          break;
+        }
+        if (typeof obs.replicas === "number" && obs.replicas > 0) {
+          currentReplicas = obs.replicas;
+          break;
+        }
+      }
+    }
+  }
+
+  if (targetReplicas === null && currentReplicas !== null) {
+    const change = diagnosis.implicated_change;
+    const metadata = (change?.metadata as Record<string, unknown>) || {};
+    if (typeof metadata.target_replicas === "number" && metadata.target_replicas > 0) {
+      targetReplicas = metadata.target_replicas;
+    } else {
+      // Scale up relative to current capacity
+      targetReplicas = Math.max(currentReplicas + 2, currentReplicas * 2);
+    }
+  }
+
+  return { currentReplicas, targetReplicas };
+}
+
 function handleMissingParam(
   message: string,
   options: PlannerOptions,
@@ -245,8 +342,8 @@ function handleMissingParam(
  * - Chooses ScaleAction if evidence is saturation.
  *
  * Refuses (returns null or throws if throwOnMissingParams=true) when required
- * parameters (service, rollback versions, flag key/url) cannot be determined,
- * avoiding dangerous parameter fabrication.
+ * parameters (service, rollback versions, flag key/url/value, current replicas)
+ * or execution backends cannot be determined, avoiding dangerous parameter fabrication.
  */
 export function planOpsAction(
   diagnosis: Diagnosis,
@@ -275,6 +372,13 @@ export function planOpsAction(
       );
     }
 
+    if (!options.executor && !options.onRollback) {
+      return handleMissingParam(
+        `RollbackAction requires an execution backend (options.executor or options.onRollback), but none was provided.`,
+        options,
+      );
+    }
+
     const rollbackParams: RollbackActionParams = {
       service,
       currentVersion,
@@ -297,14 +401,22 @@ export function planOpsAction(
       );
     }
 
+    const currentValue = extractFlagValue(diagnosis);
+    if (typeof currentValue !== "boolean") {
+      return handleMissingParam(
+        `FlagToggleAction requires the current flag value, but none was provided in the diagnosis.`,
+        options,
+      );
+    }
+
     const change = diagnosis.implicated_change;
     const metadata = (change?.metadata as Record<string, unknown>) || {};
-    const currentValue =
-      typeof metadata.value === "boolean" ? metadata.value : true;
     const targetValue =
       typeof metadata.target_value === "boolean"
         ? metadata.target_value
-        : !currentValue;
+        : typeof metadata.targetValue === "boolean"
+          ? metadata.targetValue
+          : !currentValue;
 
     const flagUrl = resolveFlagUrl(service, options, metadata);
     if (!flagUrl) {
@@ -328,10 +440,30 @@ export function planOpsAction(
 
   // 3. Check for Saturation Scenario -> ScaleAction
   if (isSaturationScenario(diagnosis)) {
+    const { currentReplicas, targetReplicas } = extractReplicaCounts(
+      service,
+      diagnosis,
+      options,
+    );
+
+    if (currentReplicas === null || currentReplicas <= 0) {
+      return handleMissingParam(
+        `ScaleAction requires the current replica count for service '${service}', but none was provided in options or diagnosis evidence.`,
+        options,
+      );
+    }
+
+    if (!options.executor && !options.onScale) {
+      return handleMissingParam(
+        `ScaleAction requires an execution backend (options.executor or options.onScale), but none was provided.`,
+        options,
+      );
+    }
+
     const scaleParams: ScaleActionParams = {
       service,
-      currentReplicas: 1,
-      targetReplicas: 3,
+      currentReplicas,
+      targetReplicas: targetReplicas ?? currentReplicas + 2,
       composeFilePath: options.composeFilePath,
       executor: options.executor,
       onScale: options.onScale,

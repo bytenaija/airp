@@ -255,4 +255,84 @@ describe("Epic 7 Acceptance Criterion 3: Confirmation Flag Guard & Framework Bas
     expect(loggedEvents.length).toBe(1);
     expect(loggedEvents[0].action).toBe("revert:mock_ops");
   });
+
+  describe("Dry-Run Validation Guard in Framework", () => {
+    class FailingDryRunOpsAction extends MockGenericOpsAction {
+      constructor(service: string, private failApply: boolean, private failRevert: boolean) {
+        super(service, false);
+      }
+
+      override computeInverse(): ReversibleAction {
+        return new FailingDryRunOpsAction(this.targetService, this.failRevert, this.failApply);
+      }
+
+      override async dryRun(): Promise<DryRunResult> {
+        if (this.failApply) {
+          return {
+            canApply: false,
+            description: this.describe(),
+            diffOrPlan: "",
+            warnings: ["Resource is locked or unavailable"],
+          };
+        }
+        return super.dryRun();
+      }
+    }
+
+    it("apply throws and refuses execution when dryRun returns canApply=false even with confirmation", async () => {
+      const action = new FailingDryRunOpsAction("inventory-service", true, false);
+
+      await expect(action.apply({ iUnderstand: true })).rejects.toThrow(
+        /Action validation failed for mock_ops on service 'inventory-service': Resource is locked or unavailable/,
+      );
+      expect(action.applied).toBe(false);
+    });
+
+    it("revert throws and refuses execution when inverse dryRun returns canApply=false even with confirmation", async () => {
+      const action = new FailingDryRunOpsAction("inventory-service", false, true);
+
+      // Apply should succeed
+      const applyRes = await action.apply({ iUnderstand: true });
+      expect(applyRes.success).toBe(true);
+      expect(action.applied).toBe(true);
+
+      // Revert should fail validation because inverse dryRun fails
+      await expect(action.revert({ iUnderstand: true })).rejects.toThrow(
+        /Revert validation failed for mock_ops on service 'inventory-service': Resource is locked or unavailable/,
+      );
+      expect(action.applied).toBe(true);
+    });
+
+    it("RollbackAction dryRun returns canApply=false and apply throws when no execution backend is configured", async () => {
+      const rollback = new RollbackAction({
+        service: "payments",
+        currentVersion: "v2.0.0",
+        previousVersion: "v1.9.0",
+      });
+
+      const dryRun = await rollback.dryRun();
+      expect(dryRun.canApply).toBe(false);
+      expect(dryRun.warnings.some((w) => w.toLowerCase().includes("no execution backend configured"))).toBe(true);
+
+      await expect(rollback.apply({ iUnderstand: true })).rejects.toThrow(
+        /Action validation failed for rollback on service 'payments'/,
+      );
+    });
+
+    it("ScaleAction dryRun returns canApply=false and apply throws when no execution backend is configured", async () => {
+      const scale = new ScaleAction({
+        service: "payments",
+        currentReplicas: 1,
+        targetReplicas: 3,
+      });
+
+      const dryRun = await scale.dryRun();
+      expect(dryRun.canApply).toBe(false);
+      expect(dryRun.warnings.some((w) => w.toLowerCase().includes("no execution backend configured"))).toBe(true);
+
+      await expect(scale.apply({ iUnderstand: true })).rejects.toThrow(
+        /Action validation failed for scale on service 'payments'/,
+      );
+    });
+  });
 });

@@ -39,7 +39,9 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
       ],
     };
 
-    const action = planOpsAction(deployDiagnosis);
+    const action = planOpsAction(deployDiagnosis, {
+      onRollback: () => {},
+    });
     expect(action).toBeInstanceOf(RollbackAction);
 
     const rollback = action as RollbackAction;
@@ -116,7 +118,10 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
       ],
     };
 
-    const action = planOpsAction(saturationDiagnosis);
+    const action = planOpsAction(saturationDiagnosis, {
+      serviceReplicas: { payments: 1 },
+      onScale: () => {},
+    });
     expect(action).toBeInstanceOf(ScaleAction);
 
     const scaleAction = action as ScaleAction;
@@ -170,7 +175,9 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
       evidence: [],
     };
 
-    const rollback = planOpsAction(nonDemoDeploy) as RollbackAction;
+    const rollback = planOpsAction(nonDemoDeploy, {
+      onRollback: () => {},
+    }) as RollbackAction;
     expect(rollback).toBeInstanceOf(RollbackAction);
     expect(rollback.targetService).toBe("inventory-worker");
     expect(rollback.currentVersion).toBe("v4.1.0");
@@ -222,7 +229,10 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
       ],
     };
 
-    const scale = planOpsAction(nonDemoScale) as ScaleAction;
+    const scale = planOpsAction(nonDemoScale, {
+      serviceReplicas: { "notification-dispatcher": 1 },
+      onScale: () => {},
+    }) as ScaleAction;
     expect(scale).toBeInstanceOf(ScaleAction);
     expect(scale.targetService).toBe("notification-dispatcher");
     expect(scale.targetReplicas).toBe(3);
@@ -354,6 +364,140 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
       expect(() =>
         planOpsAction(flagWithoutUrl, { throwOnMissingParams: true }),
       ).toThrow(/requires a flag administration endpoint URL/);
+    });
+
+    it("refuses to plan and does NOT fabricate flag value (no defaulting to true) when value is missing", () => {
+      const flagWithoutValue: Diagnosis = {
+        id: "a1234567-89ab-cdef-0123-456789abcdef",
+        tenant_id: "local",
+        incident_id: "b1234567-89ab-cdef-0123-456789abcdef",
+        root_cause: "Flag error",
+        confidence: 0.88,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "checkout",
+          revision: "beta_checkout",
+          ts: "2026-10-02T14:00:00Z",
+          metadata: { flag: "beta_checkout" }, // no value or currentValue
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(flagWithoutValue, {
+        servicePorts: { checkout: 8001 },
+      });
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(flagWithoutValue, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(flagWithoutValue, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(/requires the current flag value/);
+    });
+
+    it("refuses to plan and does NOT fabricate currentReplicas (no defaulting to 1) when replicas missing", () => {
+      const saturationWithoutReplicas: Diagnosis = {
+        id: "a2345678-89ab-cdef-0123-456789abcdef",
+        tenant_id: "local",
+        incident_id: "b2345678-89ab-cdef-0123-456789abcdef",
+        root_cause: "High CPU saturation",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        evidence: [
+          {
+            tool: "prometheus",
+            query: "cpu",
+            observation: { service: "payments", cpu_percent: 99 },
+            supports: true,
+          },
+        ],
+      };
+
+      // No serviceReplicas or currentReplicas in options, none in diagnosis
+      const action = planOpsAction(saturationWithoutReplicas, {
+        onScale: () => {},
+      });
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(saturationWithoutReplicas, {
+          throwOnMissingParams: true,
+          onScale: () => {},
+        }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(saturationWithoutReplicas, {
+          throwOnMissingParams: true,
+          onScale: () => {},
+        }),
+      ).toThrow(/requires the current replica count for service 'payments'/);
+    });
+
+    it("refuses to plan RollbackAction when no execution backend is configured", () => {
+      const deployDiagnosis: Diagnosis = {
+        id: "a1111111-1111-4111-8111-111111111111",
+        tenant_id: "local",
+        incident_id: "b2222222-2222-4222-8222-222222222222",
+        root_cause: "Deploy regression",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "deploy",
+          service: "checkout",
+          revision: "v2.0.0",
+          metadata: { previous_revision: "v1.9.0" },
+        },
+        evidence: [],
+      };
+
+      // No executor and no onRollback
+      const action = planOpsAction(deployDiagnosis);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(deployDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(deployDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(/requires an execution backend/);
+    });
+
+    it("refuses to plan ScaleAction when no execution backend is configured", () => {
+      const saturationDiagnosis: Diagnosis = {
+        id: "a3333333-3333-4333-8333-333333333333",
+        tenant_id: "local",
+        incident_id: "b4444444-4444-4444-8444-444444444444",
+        root_cause: "Saturation",
+        confidence: 0.85,
+        fixability: "ops_actionable",
+        evidence: [
+          {
+            tool: "prometheus",
+            query: "cpu",
+            observation: { service: "payments", cpu_percent: 98, current_replicas: 2 },
+            supports: true,
+          },
+        ],
+      };
+
+      // Current replicas present, but no executor and no onScale
+      const action = planOpsAction(saturationDiagnosis);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(saturationDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(saturationDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(/requires an execution backend/);
     });
   });
 });

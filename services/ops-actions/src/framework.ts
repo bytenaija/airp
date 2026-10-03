@@ -143,6 +143,18 @@ export abstract class ReversibleAction {
       );
     }
 
+    // Validate action readiness via dryRun()
+    const dryRunResult = await this.dryRun();
+    if (!dryRunResult.canApply) {
+      const reason =
+        dryRunResult.warnings.length > 0
+          ? dryRunResult.warnings.join("; ")
+          : "Action cannot be applied in its current configuration.";
+      throw new Error(
+        `Action validation failed for ${this.actionType} on service '${this.targetService}': ${reason}`,
+      );
+    }
+
     // Guarantee inverse is precomputed prior to applying changes
     const precomputedInverse = this.inverse;
 
@@ -180,6 +192,18 @@ export abstract class ReversibleAction {
     if (isDryRunFirstRequired() && !hasExplicitConfirmation(options)) {
       throw new DevConfirmationRequiredError(
         `Ops action execution rejected for revert of ${this.actionType} on service '${this.targetService}': in local dev (DRY_RUN_FIRST), revert() requires explicit confirmation (--i-understand or { iUnderstand: true }).`,
+      );
+    }
+
+    // Validate inverse action readiness via dryRun()
+    const inverseDryRun = await this.inverse.dryRun();
+    if (!inverseDryRun.canApply) {
+      const reason =
+        inverseDryRun.warnings.length > 0
+          ? inverseDryRun.warnings.join("; ")
+          : "Inverse action cannot be applied in its current configuration.";
+      throw new Error(
+        `Revert validation failed for ${this.actionType} on service '${this.targetService}': ${reason}`,
       );
     }
 

@@ -8,6 +8,7 @@ import {
 export type CommandExecutor = (
   cmd: string,
   args: string[],
+  options?: { env?: Record<string, string> },
 ) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
 export interface RollbackActionParams {
@@ -15,6 +16,7 @@ export interface RollbackActionParams {
   currentVersion: string;
   previousVersion: string;
   composeFilePath?: string;
+  versionEnvVar?: string;
   executor?: CommandExecutor;
   onRollback?: (service: string, targetVersion: string) => Promise<void> | void;
 }
@@ -25,6 +27,7 @@ export class RollbackAction extends ReversibleAction {
   readonly currentVersion: string;
   readonly previousVersion: string;
   readonly composeFilePath: string;
+  readonly versionEnvVar: string;
   private readonly executor?: CommandExecutor;
   private readonly onRollback?: (
     service: string,
@@ -37,6 +40,9 @@ export class RollbackAction extends ReversibleAction {
     this.currentVersion = params.currentVersion;
     this.previousVersion = params.previousVersion;
     this.composeFilePath = params.composeFilePath || "infra/docker-compose.yml";
+    this.versionEnvVar =
+      params.versionEnvVar ||
+      `${params.service.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_IMAGE_TAG`;
     this.executor = params.executor;
     this.onRollback = params.onRollback;
   }
@@ -47,6 +53,7 @@ export class RollbackAction extends ReversibleAction {
       currentVersion: this.previousVersion,
       previousVersion: this.currentVersion,
       composeFilePath: this.composeFilePath,
+      versionEnvVar: this.versionEnvVar,
       executor: this.executor,
       onRollback: this.onRollback,
     });
@@ -64,6 +71,7 @@ export class RollbackAction extends ReversibleAction {
         currentVersion: this.currentVersion,
         targetVersion: this.previousVersion,
         composeFilePath: this.composeFilePath,
+        versionEnvVar: this.versionEnvVar,
       },
       inverseSummary: `Roll forward service '${this.targetService}' from version '${this.previousVersion}' back to '${this.currentVersion}'`,
       inverseParameters: {
@@ -71,6 +79,7 @@ export class RollbackAction extends ReversibleAction {
         currentVersion: this.previousVersion,
         targetVersion: this.currentVersion,
         composeFilePath: this.composeFilePath,
+        versionEnvVar: this.versionEnvVar,
       },
     };
   }
@@ -98,12 +107,23 @@ export class RollbackAction extends ReversibleAction {
         `Current version and target rollback version are identical ('${this.currentVersion}').`,
       );
     }
+    if (!this.executor && !this.onRollback) {
+      return {
+        canApply: false,
+        description: this.describe(),
+        diffOrPlan: "",
+        warnings: [
+          "RollbackAction has no execution backend configured (neither executor nor onRollback callback is provided).",
+        ],
+      };
+    }
 
     const diffOrPlan = [
       `[Rollback Plan for ${this.targetService}]`,
       `- Current Image / Release: ${this.currentVersion}`,
       `+ Target Rollback Image:   ${this.previousVersion}`,
-      `Execution command: docker compose -f ${this.composeFilePath} up -d --no-deps ${this.targetService}`,
+      `Target Version Env:        ${this.versionEnvVar}=${this.previousVersion}`,
+      `Execution command: ${this.versionEnvVar}=${this.previousVersion} docker compose -f ${this.composeFilePath} up -d --no-deps ${this.targetService}`,
     ].join("\n");
 
     return {
@@ -117,6 +137,12 @@ export class RollbackAction extends ReversibleAction {
   protected async executeApply(): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
+    if (!this.onRollback && !this.executor) {
+      throw new Error(
+        `Cannot execute RollbackAction on '${this.targetService}': no execution backend configured (neither executor nor onRollback callback provided).`,
+      );
+    }
+
     let output: unknown = null;
 
     if (this.onRollback) {
@@ -124,15 +150,25 @@ export class RollbackAction extends ReversibleAction {
     }
 
     if (this.executor) {
-      const execResult = await this.executor("docker", [
-        "compose",
-        "-f",
-        this.composeFilePath,
-        "up",
-        "-d",
-        "--no-deps",
-        this.targetService,
-      ]);
+      const env = {
+        [this.versionEnvVar]: this.previousVersion,
+        SERVICE_VERSION: this.previousVersion,
+        TARGET_VERSION: this.previousVersion,
+      };
+
+      const execResult = await this.executor(
+        "docker",
+        [
+          "compose",
+          "-f",
+          this.composeFilePath,
+          "up",
+          "-d",
+          "--no-deps",
+          this.targetService,
+        ],
+        { env },
+      );
       if (execResult.exitCode !== 0) {
         throw new Error(
           `Rollback command failed with code ${execResult.exitCode}: ${execResult.stderr}`,
@@ -153,6 +189,12 @@ export class RollbackAction extends ReversibleAction {
   protected async executeRevert(): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
+    if (!this.onRollback && !this.executor) {
+      throw new Error(
+        `Cannot execute RollbackAction revert on '${this.targetService}': no execution backend configured (neither executor nor onRollback callback provided).`,
+      );
+    }
+
     let output: unknown = null;
 
     if (this.onRollback) {
@@ -160,15 +202,25 @@ export class RollbackAction extends ReversibleAction {
     }
 
     if (this.executor) {
-      const execResult = await this.executor("docker", [
-        "compose",
-        "-f",
-        this.composeFilePath,
-        "up",
-        "-d",
-        "--no-deps",
-        this.targetService,
-      ]);
+      const env = {
+        [this.versionEnvVar]: this.currentVersion,
+        SERVICE_VERSION: this.currentVersion,
+        TARGET_VERSION: this.currentVersion,
+      };
+
+      const execResult = await this.executor(
+        "docker",
+        [
+          "compose",
+          "-f",
+          this.composeFilePath,
+          "up",
+          "-d",
+          "--no-deps",
+          this.targetService,
+        ],
+        { env },
+      );
       if (execResult.exitCode !== 0) {
         throw new Error(
           `Revert rollback command failed with code ${execResult.exitCode}: ${execResult.stderr}`,
