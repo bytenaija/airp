@@ -17,10 +17,11 @@ export class FaultManager {
 
   private readonly enabled: boolean;
 
-  constructor() {
+  constructor(enabled?: boolean) {
     this.enabled =
-      process.env.FAULTS_ENABLED === "1" ||
-      process.env.FAULTS_ENABLED === "true";
+      enabled ??
+      (process.env.FAULTS_ENABLED === "1" ||
+        process.env.FAULTS_ENABLED === "true");
   }
 
   isEnabled(): boolean {

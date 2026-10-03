@@ -29,7 +29,7 @@ describe("Epic 7 Acceptance Criterion 1: Action Execution & Reversibility", () =
     mockPaymentsPort = pAddr.port;
 
     // 2. Start demo checkout server pointing to mock payments
-    const faultManager = new FaultManager();
+    const faultManager = new FaultManager(true);
     const flagsManager = new FlagsManager();
     const { server } = buildCheckoutServer(
       faultManager,

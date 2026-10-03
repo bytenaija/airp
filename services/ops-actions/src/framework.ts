@@ -24,6 +24,8 @@ export interface ActionResult {
   output?: unknown;
   inverseAction: ReversibleAction;
   timelineEvent?: TimelineEvent;
+  executionMode?: "verified_operational" | "simulated" | "hybrid";
+  loggingError?: string;
 }
 
 export interface ApplyOptions {
@@ -173,14 +175,20 @@ export abstract class ReversibleAction {
       }),
     };
 
+    let loggingError: string | undefined;
     if (options.timelineLogger) {
-      await options.timelineLogger(timelineEvent);
+      try {
+        await options.timelineLogger(timelineEvent);
+      } catch (logErr: any) {
+        loggingError = logErr?.message || String(logErr);
+      }
     }
 
     return {
       ...result,
       inverseAction: precomputedInverse,
       timelineEvent,
+      ...(loggingError ? { loggingError } : {}),
     };
   }
 
@@ -221,14 +229,20 @@ export abstract class ReversibleAction {
       }),
     };
 
+    let loggingError: string | undefined;
     if (options.timelineLogger) {
-      await options.timelineLogger(timelineEvent);
+      try {
+        await options.timelineLogger(timelineEvent);
+      } catch (logErr: any) {
+        loggingError = logErr?.message || String(logErr);
+      }
     }
 
     return {
       ...result,
       inverseAction: this,
       timelineEvent,
+      ...(loggingError ? { loggingError } : {}),
     };
   }
 }

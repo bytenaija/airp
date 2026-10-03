@@ -241,3 +241,54 @@ export const DiagnosisSchema = z.object({
   fixability: FixabilitySchema,
 });
 export type Diagnosis = z.infer<typeof DiagnosisSchema>;
+
+// --- Policy & Remediation Plan Schemas ---
+export const RemediationActionKindSchema = z.enum([
+  "patch",
+  "rollback",
+  "flag_toggle",
+  "scale",
+  "handoff",
+]);
+export type RemediationActionKind = z.infer<typeof RemediationActionKindSchema>;
+
+export const RemediationActionSchema = z.object({
+  kind: RemediationActionKindSchema,
+  payload: z.record(z.unknown()).default({}),
+  reversible: z.boolean().default(true),
+});
+export type RemediationAction = z.infer<typeof RemediationActionSchema>;
+
+export const PolicyDecisionSchema = z.object({
+  allowed: z.boolean(),
+  auto_merge_eligible: z.boolean(),
+  required_approvals: z.array(z.string()).default([]),
+  rule_version: z.string(),
+  reasons: z.array(z.string()).default([]),
+  advisory: z.unknown().optional(),
+});
+export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
+
+export const RemediationPlanSchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().default("local"),
+  incident_id: z.string().uuid(),
+  diagnosis_id: z.string().uuid().optional(),
+  service: z.string().min(1),
+  actions: z.array(RemediationActionSchema).default([]),
+  tests_green: z.boolean().default(true),
+  diff_lines: z.number().int().nonnegative().default(0),
+  confidence: z.number().min(0).max(1).optional(),
+  fixability: FixabilitySchema.optional().default("code_fixable"),
+  proactive: z.boolean().default(false),
+  data_classification: z
+    .enum(["public", "internal", "confidential", "restricted", "pii"])
+    .optional(),
+  clearance: z
+    .enum(["unclassified", "confidential", "secret", "top_secret"])
+    .optional(),
+  policy_decision: PolicyDecisionSchema.optional(),
+  rollback_plan: z.string().optional(),
+  created_at: z.string().datetime().optional(),
+});
+export type RemediationPlan = z.infer<typeof RemediationPlanSchema>;

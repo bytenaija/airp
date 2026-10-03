@@ -39,7 +39,7 @@ export function buildCheckoutServer(
         .send({ error: "Checkout service internal error (injected)" });
     }
 
-    if (flagsManager.get("new_payment_flow")) {
+    if (faultManager.isEnabled() && flagsManager.get("new_payment_flow")) {
       inst.logger.error(
         { flag: "new_payment_flow" },
         "Flag-gated experimental payment flow triggered failure in checkout",

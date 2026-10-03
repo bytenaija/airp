@@ -494,4 +494,78 @@ program
     }
   });
 
+// Command: approve
+program
+  .command("approve <planId>")
+  .description("Record an approval for a remediation plan")
+  .requiredOption(
+    "--by <role>",
+    "Approver role (e.g. code_owner, oncall, security_auditor)",
+  )
+  .option("--approver <identity>", "Approver user identity", "alice")
+  .option("--team <team>", "Approver team scope", "checkout-team")
+  .option("--token <token>", "JWT bearer token")
+  .option(
+    "--policy-engine <url>",
+    "Policy engine URL",
+    process.env.POLICY_ENGINE_URL || "http://localhost:8008",
+  )
+  .action(async (planId, options) => {
+    const policyUrl = options.policyEngine;
+    const approvalRole = options.by;
+    const approver = options.approver;
+    const team = options.team;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (options.token) {
+      headers.Authorization = `Bearer ${options.token}`;
+    } else {
+      // In local CLI without external OIDC, pass user claims for dev authentication
+      headers["x-user-claims"] = JSON.stringify({
+        sub: approver,
+        roles: ["approver"],
+        team,
+      });
+    }
+
+    try {
+      const res = await fetch(`${policyUrl}/plans/${planId}/approve`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          role: approvalRole,
+          approver,
+          team,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Approval failed (${res.status}): ${errText}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const data = (await res.json()) as any;
+      console.log(`\nAPPROVAL RECORDED for plan '${planId}':`);
+      console.log("-".repeat(60));
+      console.log(`Approver:          ${approver} (team: ${team})`);
+      console.log(`Role:              ${approvalRole}`);
+      console.log(`Plan Status:       ${data.status}`);
+      console.log(`Can Proceed:       ${data.canProceed ? "YES" : "NO"}`);
+      if (data.missingApprovals && data.missingApprovals.length > 0) {
+        console.log(`Waiting for:       ${data.missingApprovals.join(", ")}`);
+      } else {
+        console.log(`All required approvals satisfied! Ready for actuation.`);
+      }
+      console.log("-".repeat(60));
+    } catch (err: any) {
+      console.error(`Approval command error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
 program.parse(process.argv);

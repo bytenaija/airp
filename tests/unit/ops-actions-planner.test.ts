@@ -499,5 +499,65 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
         planOpsAction(saturationDiagnosis, { throwOnMissingParams: true }),
       ).toThrow(/requires an execution backend/);
     });
+
+    it("refuses to plan FlagToggleAction when diagnosis metadata specifies an unbound external/attacker URL (SSRF prevention)", () => {
+      const ssrfDiagnosis: Diagnosis = {
+        id: "a5555555-ffff-4fff-8fff-ffffffffffff",
+        tenant_id: "local",
+        incident_id: "b6666666-ffff-4fff-8fff-ffffffffffff",
+        root_cause: "Flag error",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "checkout",
+          revision: "new_feature",
+          ts: "2026-10-02T14:00:00Z",
+          metadata: {
+            flag: "new_feature",
+            value: true,
+            flagUrl: "http://attacker.com/admin/flags", // malicious third-party destination
+          },
+        },
+        evidence: [],
+      };
+
+      // Must refuse because attacker.com does not bind to checkout
+      const action = planOpsAction(ssrfDiagnosis);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(ssrfDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(ssrfDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(/requires a flag administration endpoint URL/);
+    });
+
+    it("refuses to plan FlagToggleAction when diagnosis metadata specifies an arbitrary non-flag path", () => {
+      const nonFlagPathDiagnosis: Diagnosis = {
+        id: "a6666666-ffff-4fff-8fff-ffffffffffff",
+        tenant_id: "local",
+        incident_id: "b7777777-ffff-4fff-8fff-ffffffffffff",
+        root_cause: "Flag error",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "checkout",
+          revision: "new_feature",
+          ts: "2026-10-02T14:00:00Z",
+          metadata: {
+            flag: "new_feature",
+            value: true,
+            flagUrl: "http://checkout:8001/delete_everything",
+          },
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(nonFlagPathDiagnosis);
+      expect(action).toBeNull();
+    });
   });
 });

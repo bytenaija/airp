@@ -1,6 +1,10 @@
 import Fastify, { FastifyInstance } from "fastify";
 import { Counter, Histogram, Registry } from "prom-client";
-import { IncidentRecordSchema, type IncidentRecord } from "@airp/common";
+import {
+  IncidentRecordSchema,
+  type IncidentRecord,
+  applyRoleCredentialSeparation,
+} from "@airp/common";
 import { InvestigationAgentRuntime, type RuntimeOptions } from "./runtime.js";
 
 export interface AgentRuntimeServerOptions extends RuntimeOptions {
@@ -16,6 +20,9 @@ export function buildAgentRuntimeServer(
   registry: Registry;
   runtime: InvestigationAgentRuntime;
 } {
+  // Enforce credential separation: agent runtime loads ONLY agent_ro credentials
+  applyRoleCredentialSeparation("agent_ro");
+
   const server = Fastify({ logger: options.logger ?? false });
   const registry = new Registry();
 

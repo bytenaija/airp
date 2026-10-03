@@ -144,16 +144,16 @@ export class RollbackAction extends ReversibleAction {
     }
 
     let output: unknown = null;
-
-    if (this.onRollback) {
-      await this.onRollback(this.targetService, this.previousVersion);
-    }
+    let executionMode: "verified_operational" | "simulated" | "hybrid" = "simulated";
 
     if (this.executor) {
       const env = {
         [this.versionEnvVar]: this.previousVersion,
         SERVICE_VERSION: this.previousVersion,
         TARGET_VERSION: this.previousVersion,
+        VERSION: this.previousVersion,
+        TAG: this.previousVersion,
+        IMAGE_TAG: this.previousVersion,
       };
 
       const execResult = await this.executor(
@@ -175,6 +175,11 @@ export class RollbackAction extends ReversibleAction {
         );
       }
       output = execResult;
+      executionMode = this.onRollback ? "hybrid" : "verified_operational";
+    }
+
+    if (this.onRollback) {
+      await this.onRollback(this.targetService, this.previousVersion);
     }
 
     return {
@@ -183,6 +188,7 @@ export class RollbackAction extends ReversibleAction {
       targetService: this.targetService,
       message: `Rolled back service '${this.targetService}' from '${this.currentVersion}' to '${this.previousVersion}'.`,
       output: output ?? { activeVersion: this.previousVersion },
+      executionMode,
     };
   }
 
@@ -196,16 +202,16 @@ export class RollbackAction extends ReversibleAction {
     }
 
     let output: unknown = null;
-
-    if (this.onRollback) {
-      await this.onRollback(this.targetService, this.currentVersion);
-    }
+    let executionMode: "verified_operational" | "simulated" | "hybrid" = "simulated";
 
     if (this.executor) {
       const env = {
         [this.versionEnvVar]: this.currentVersion,
         SERVICE_VERSION: this.currentVersion,
         TARGET_VERSION: this.currentVersion,
+        VERSION: this.currentVersion,
+        TAG: this.currentVersion,
+        IMAGE_TAG: this.currentVersion,
       };
 
       const execResult = await this.executor(
@@ -227,6 +233,11 @@ export class RollbackAction extends ReversibleAction {
         );
       }
       output = execResult;
+      executionMode = this.onRollback ? "hybrid" : "verified_operational";
+    }
+
+    if (this.onRollback) {
+      await this.onRollback(this.targetService, this.currentVersion);
     }
 
     return {
@@ -235,6 +246,7 @@ export class RollbackAction extends ReversibleAction {
       targetService: this.targetService,
       message: `Reverted rollback: restored service '${this.targetService}' to '${this.currentVersion}'.`,
       output: output ?? { activeVersion: this.currentVersion },
+      executionMode,
     };
   }
 }

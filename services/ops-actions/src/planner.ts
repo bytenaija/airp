@@ -44,6 +44,74 @@ export class MissingActionParametersError extends Error {
   }
 }
 
+function isValidServiceFlagUrl(
+  candidateUrl: string,
+  service: string,
+  options: PlannerOptions,
+  metadataPort?: number,
+): boolean {
+  try {
+    const url = new URL(candidateUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+
+    // Must be a flag admin endpoint path
+    const validPaths = [
+      "/admin/flags",
+      "/flags",
+      "/api/flags",
+      "/admin/feature-flags",
+    ];
+    const hasValidPath = validPaths.some(
+      (p) => url.pathname === p || url.pathname.endsWith(p),
+    );
+    if (!hasValidPath) {
+      return false;
+    }
+
+    const host = url.hostname.toLowerCase();
+    const svc = service.toLowerCase();
+
+    // 1. Direct service name match (e.g. Docker compose service DNS: checkout, checkout.internal, etc.)
+    if (
+      host === svc ||
+      host.startsWith(`${svc}.`) ||
+      host.endsWith(`.${svc}`)
+    ) {
+      return true;
+    }
+
+    // 2. Loopback / local development (localhost, 127.0.0.1, ::1, 0.0.0.0)
+    const isLocalhost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "0.0.0.0";
+
+    if (isLocalhost) {
+      const port = url.port
+        ? Number(url.port)
+        : url.protocol === "https:"
+          ? 443
+          : 80;
+      if (options.servicePorts && options.servicePorts[service]) {
+        return port === options.servicePorts[service];
+      }
+      if (typeof metadataPort === "number" && metadataPort > 0) {
+        return port === metadataPort;
+      }
+      if (port > 0 && port <= 65535) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveFlagUrl(
   service: string,
   options: PlannerOptions = {},
@@ -58,14 +126,32 @@ export function resolveFlagUrl(
   }
 
   if (changeMetadata) {
-    if (typeof changeMetadata.flagUrl === "string") {
-      return changeMetadata.flagUrl;
+    const candidatePort =
+      typeof changeMetadata.port === "number" &&
+      changeMetadata.port > 0 &&
+      changeMetadata.port <= 65535
+        ? changeMetadata.port
+        : undefined;
+
+    const candidateUrl =
+      typeof changeMetadata.flagUrl === "string"
+        ? changeMetadata.flagUrl
+        : typeof changeMetadata.flag_url === "string"
+          ? changeMetadata.flag_url
+          : null;
+
+    if (candidateUrl) {
+      if (
+        isValidServiceFlagUrl(candidateUrl, service, options, candidatePort)
+      ) {
+        return candidateUrl;
+      }
+      // Rejects arbitrary/unbound external destination URLs to prevent SSRF
+      return null;
     }
-    if (typeof changeMetadata.flag_url === "string") {
-      return changeMetadata.flag_url;
-    }
-    if (typeof changeMetadata.port === "number") {
-      return `http://localhost:${changeMetadata.port}/admin/flags`;
+
+    if (candidatePort) {
+      return `http://localhost:${candidatePort}/admin/flags`;
     }
   }
 

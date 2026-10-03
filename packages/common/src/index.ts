@@ -3,3 +3,4 @@ export * from "./observability-client.js";
 export * from "./topology.js";
 export * from "./llm.js";
 export * from "./vcs.js";
+export * from "./credentials.js";

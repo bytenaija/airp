@@ -131,10 +131,7 @@ export class ScaleAction extends ReversibleAction {
     }
 
     let output: unknown = null;
-
-    if (this.onScale) {
-      await this.onScale(this.targetService, this.targetReplicas);
-    }
+    let executionMode: "verified_operational" | "simulated" | "hybrid" = "simulated";
 
     if (this.executor) {
       const execResult = await this.executor("docker", [
@@ -153,6 +150,11 @@ export class ScaleAction extends ReversibleAction {
         );
       }
       output = execResult;
+      executionMode = this.onScale ? "hybrid" : "verified_operational";
+    }
+
+    if (this.onScale) {
+      await this.onScale(this.targetService, this.targetReplicas);
     }
 
     return {
@@ -161,6 +163,7 @@ export class ScaleAction extends ReversibleAction {
       targetService: this.targetService,
       message: `Scaled service '${this.targetService}' from ${this.currentReplicas} to ${this.targetReplicas} replicas.`,
       output: output ?? { activeReplicas: this.targetReplicas },
+      executionMode,
     };
   }
 
@@ -174,10 +177,7 @@ export class ScaleAction extends ReversibleAction {
     }
 
     let output: unknown = null;
-
-    if (this.onScale) {
-      await this.onScale(this.targetService, this.currentReplicas);
-    }
+    let executionMode: "verified_operational" | "simulated" | "hybrid" = "simulated";
 
     if (this.executor) {
       const execResult = await this.executor("docker", [
@@ -196,6 +196,11 @@ export class ScaleAction extends ReversibleAction {
         );
       }
       output = execResult;
+      executionMode = this.onScale ? "hybrid" : "verified_operational";
+    }
+
+    if (this.onScale) {
+      await this.onScale(this.targetService, this.currentReplicas);
     }
 
     return {
@@ -204,6 +209,7 @@ export class ScaleAction extends ReversibleAction {
       targetService: this.targetService,
       message: `Reverted scaling: restored service '${this.targetService}' to ${this.currentReplicas} replicas.`,
       output: output ?? { activeReplicas: this.currentReplicas },
+      executionMode,
     };
   }
 }
