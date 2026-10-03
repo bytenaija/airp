@@ -267,8 +267,10 @@ export class SweepMiner {
           const body = (await res.json()) as { incidents?: IncidentRecord[] };
           incidents = body.incidents || [];
         }
-      } catch {
-        // Gateway unreachable or offline
+      } catch (err: any) {
+        console.warn(
+          `[SweepMiner] Incident gateway lookup failed, treating as unlinked: ${err?.message || err}`,
+        );
       }
     }
 
