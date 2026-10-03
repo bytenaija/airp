@@ -20,6 +20,12 @@ import type { SweepCandidate } from "./miner.js";
 
 export interface SweepWorkerOptions {
   maxDailyCandidates?: number;
+  /**
+   * Optional path to a JSON file used to persist daily rate-limit counts
+   * across process restarts (e.g. repeated `airp sweep` CLI invocations).
+   * When unset, counts live in memory only.
+   */
+  quotaStorePath?: string;
   runtime?: InvestigationAgentRuntime;
   vcsProvider?: VCSProvider;
   repoSnapshotDir?: string;
@@ -62,6 +68,8 @@ export class SweepWorker {
 
   // Rate-limiting state keyed by date string YYYY-MM-DD
   private dailyCounts: Map<string, number> = new Map();
+  private readonly quotaStorePath?: string;
+  private readonly ownsScratchDir: boolean;
 
   constructor(options: SweepWorkerOptions = {}) {
     this.maxDailyCandidates = options.maxDailyCandidates ?? 3;
@@ -69,9 +77,14 @@ export class SweepWorker {
     this.vcsProvider = options.vcsProvider || new LocalGitProvider();
     this.repoSnapshotDir =
       options.repoSnapshotDir || path.resolve(process.cwd());
+    this.ownsScratchDir = !options.scratchCloneDir;
     this.scratchCloneDir =
       options.scratchCloneDir ||
       fs.mkdtempSync(path.join(os.tmpdir(), "airp-sweep-scratch-"));
+    this.quotaStorePath = options.quotaStorePath;
+    if (this.quotaStorePath) {
+      this.loadQuotaStore();
+    }
     this.policyVersion = options.policyVersion || "v2";
     this.policyEvaluator =
       options.policyEvaluator ||
@@ -105,6 +118,60 @@ export class SweepWorker {
     } else {
       this.dailyCounts.clear();
     }
+    this.persistQuotaStore();
+  }
+
+  /**
+   * Removes the auto-created scratch directory, if this worker created one.
+   * Callers that run one-shot sweeps (e.g. the CLI) should call this when
+   * done. Directories explicitly provided via options are never removed.
+   */
+  cleanup(): void {
+    if (this.ownsScratchDir) {
+      try {
+        fs.rmSync(this.scratchCloneDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup of the temp directory.
+      }
+    }
+  }
+
+  /**
+   * Loads persisted daily counts from the quota store file, if configured.
+   */
+  private loadQuotaStore(): void {
+    if (!this.quotaStorePath) {
+      return;
+    }
+    try {
+      const raw = fs.readFileSync(this.quotaStorePath, "utf8");
+      const data = JSON.parse(raw) as Record<string, number>;
+      for (const [day, count] of Object.entries(data)) {
+        if (typeof count === "number" && count > 0) {
+          this.dailyCounts.set(day, count);
+        }
+      }
+    } catch {
+      // Missing or corrupt store: start from zero.
+    }
+  }
+
+  /**
+   * Persists daily counts to the quota store file, if configured.
+   */
+  private persistQuotaStore(): void {
+    if (!this.quotaStorePath) {
+      return;
+    }
+    try {
+      fs.mkdirSync(path.dirname(this.quotaStorePath), { recursive: true });
+      fs.writeFileSync(
+        this.quotaStorePath,
+        JSON.stringify(Object.fromEntries(this.dailyCounts), null, 2),
+      );
+    } catch {
+      // Best-effort: quota persistence must never break a sweep.
+    }
   }
 
   /**
@@ -128,6 +195,7 @@ export class SweepWorker {
 
     // Increment rate limiter counter
     this.dailyCounts.set(dayKey, currentCount + 1);
+    this.persistQuotaStore();
 
     // 2. Synthesize proactive incident record
     const incidentId = crypto.randomUUID();
