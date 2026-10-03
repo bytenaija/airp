@@ -7,4 +7,5 @@ export * from "./s3.js";
 export * from "./r2.js";
 export * from "./memory.js";
 export * from "./prisma.js";
+export * from "./pgvector.js";
 export * from "./factory.js";
