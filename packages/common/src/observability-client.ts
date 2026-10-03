@@ -360,3 +360,5 @@ export class QueryClient {
     return response.json();
   }
 }
+
+export { QueryClient as ObservabilityClient };

@@ -10,6 +10,7 @@ export interface EvaluationContext {
   rulesPath?: string;
   tier0Path?: string;
   timestamp?: string | Date;
+  version?: string;
 }
 
 export interface PolicyRule {
@@ -141,12 +142,21 @@ export class PolicyEngineEvaluator {
   private defaultRulesPath: string;
   private defaultTier0Path: string;
 
-  constructor(options: { defaultRulesPath?: string; defaultTier0Path?: string } = {}) {
+  constructor(
+    options: {
+      defaultRulesPath?: string;
+      defaultTier0Path?: string;
+      version?: string;
+    } = {},
+  ) {
+    const version = options.version || process.env.POLICY_RULES_VERSION || "v1";
     this.defaultRulesPath =
       options.defaultRulesPath ||
-      path.resolve(process.cwd(), "services/policy-engine/rules/v1/rules.yaml");
+      process.env.POLICY_RULES_PATH ||
+      path.resolve(process.cwd(), `services/policy-engine/rules/${version}/rules.yaml`);
     this.defaultTier0Path =
       options.defaultTier0Path ||
+      process.env.TIER0_PATH ||
       path.resolve(process.cwd(), "infra/tier0.yaml");
   }
 
@@ -175,8 +185,12 @@ export class PolicyEngineEvaluator {
     }
   }
 
-  loadRules(customPath?: string): RuleFile {
-    const filePath = customPath || this.defaultRulesPath;
+  loadRules(customPath?: string, version?: string): RuleFile {
+    const filePath =
+      customPath ||
+      (version
+        ? path.resolve(process.cwd(), `services/policy-engine/rules/${version}/rules.yaml`)
+        : this.defaultRulesPath);
     if (this.rulesCache.has(filePath)) {
       return this.rulesCache.get(filePath)!;
     }
@@ -198,7 +212,7 @@ export class PolicyEngineEvaluator {
     plan: RemediationPlan,
     context: EvaluationContext = {},
   ): PolicyDecision {
-    const rulesConfig = this.loadRules(context.rulesPath);
+    const rulesConfig = this.loadRules(context.rulesPath, context.version);
     const tier0Services =
       context.tier0_services !== undefined
         ? new Set(context.tier0_services)
@@ -228,15 +242,15 @@ export class PolicyEngineEvaluator {
       clearance: plan.clearance,
     };
 
-function formatReason(template: string, attrs: PlanAttributes): string {
-  return template
-    .replace(/\$\{service\}/g, attrs.service)
-    .replace(/\$\{diff_lines\}/g, String(attrs.diff_lines))
-    .replace(/\$\{confidence\}/g, String(attrs.confidence))
-    .replace(/\$\{fixability\}/g, attrs.fixability)
-    .replace(/\$\{data_classification\}/g, attrs.data_classification || "")
-    .replace(/\$\{clearance\}/g, attrs.clearance || "");
-}
+    function formatReason(template: string, attrs: PlanAttributes): string {
+      return template
+        .replace(/\$\{service\}/g, attrs.service)
+        .replace(/\$\{diff_lines\}/g, String(attrs.diff_lines))
+        .replace(/\$\{confidence\}/g, String(attrs.confidence))
+        .replace(/\$\{fixability\}/g, attrs.fixability)
+        .replace(/\$\{data_classification\}/g, attrs.data_classification || "")
+        .replace(/\$\{clearance\}/g, attrs.clearance || "");
+    }
 
     // 1. Hard Stops: Evaluate rules where decision.allowed == false
     // If any hard stop rule matches, its verdict is immediate and non-overridable
@@ -253,9 +267,14 @@ function formatReason(template: string, attrs: PlanAttributes): string {
     }
 
     // 2. Auto-Merge Eligibility: Find matching auto_merge rule
-    const autoMergeRule = rulesConfig.rules.find(
-      (r) => r.decision.auto_merge_eligible && matchCondition(r.when, attrs),
-    );
+    // Proactive Invariant (Chapter 1, Epic 13):
+    // Proactive plans operate permanently at reduced privilege (auto_merge: never).
+    // No rule combination can enable auto-merge for proactive plans, regardless of confidence.
+    const autoMergeRule = attrs.proactive
+      ? undefined
+      : rulesConfig.rules.find(
+          (r) => r.decision.auto_merge_eligible && matchCondition(r.when, attrs),
+        );
 
     const allowed = true;
     let autoMerge = false;

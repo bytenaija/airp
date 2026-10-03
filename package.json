@@ -34,5 +34,9 @@
     "tsx": "^4.23.15",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "@types/node-cron": "^3.0.11",
+    "node-cron": "^4.6.0"
   }
 }

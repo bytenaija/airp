@@ -1,0 +1,24 @@
+{
+  "name": "@airp/sweep",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@airp/agent-runtime": "*",
+    "@airp/common": "*",
+    "@airp/patch-pipeline": "*",
+    "@airp/policy-engine": "*",
+    "node-cron": "^3.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.4.5"
+  }
+}

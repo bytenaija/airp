@@ -1,4 +1,4 @@
-# AIRP — Autonomous Incident Investigation and Remediation Platform
+# AIRP: Autonomous Incident Investigation and Remediation Platform
 
 A build project: an autonomous system that detects service incidents,
 investigates them with an LLM agent over telemetry and code, and either opens
@@ -153,6 +153,12 @@ Incident replay, patch benchmarks, and regression gates are run via the
 evaluation harness: `airp eval --all` runs the full replay corpus, patch
 benchmark, end-to-end scenarios, and CI regression gates. See
 `docs/evaluation-harness.md`.
+
+Recurring non-paging error patterns are uncovered and repaired before
+they escalate via proactive sweep mode: `airp sweep` runs the background
+miner and rate-limited worker (max 3/day) to localize faults, generate
+patches, and open human-reviewed PRs under a strict auto-merge-never policy.
+See `docs/proactive-sweep.md`.
 
 ### 7. Deploy somewhere real
 

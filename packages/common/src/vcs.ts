@@ -22,6 +22,9 @@ export interface CreatePullRequestOptions {
    * committing a clean tree exits non-zero.
    */
   alreadyCommitted?: boolean;
+  isProactive?: boolean;
+  labels?: string[];
+  header?: string;
 }
 
 export interface PullRequestResult {
@@ -30,6 +33,8 @@ export interface PullRequestResult {
   isLocal: boolean;
   prDescriptionPath?: string;
   prNumber?: number;
+  labels?: string[];
+  isProactive?: boolean;
 }
 
 export interface VCSProvider {
@@ -39,16 +44,26 @@ export interface VCSProvider {
 }
 
 /**
- * Formats a pull request description according to Textbook §15.4.6 template:
- * 1. Incident link
- * 2. Root-cause summary
- * 3. Evidence summary
- * 4. Test results (FAIL_TO_PASS and PASS_TO_PASS)
- * 5. Rollback plan
+ * Formats a pull request description according to Textbook Section 15.4.6 template:
+ * 1. Proactive sweep banner (when proactive)
+ * 2. Incident link
+ * 3. Root-cause summary
+ * 4. Evidence summary
+ * 5. Test results (FAIL_TO_PASS and PASS_TO_PASS)
+ * 6. Rollback plan
  */
 export function formatPRDescription(options: CreatePullRequestOptions): string {
-  return [
-    `# [Remediation] ${options.title}`,
+  const parts: string[] = [];
+
+  if (options.isProactive || options.labels?.includes("proactive")) {
+    parts.push("> found by sweep, no incident, please review", "");
+  } else if (options.header) {
+    parts.push(`> ${options.header}`, "");
+  }
+
+  const prefix = options.isProactive ? "Proactive Remediation" : "Remediation";
+  parts.push(
+    `# [${prefix}] ${options.title}`,
     "",
     "## Incident Link",
     options.incidentLink,
@@ -66,8 +81,12 @@ export function formatPRDescription(options: CreatePullRequestOptions): string {
     options.rollbackPlan,
     "",
     "---",
-    "_Generated automatically by AIRP Patch Pipeline (proposes, never merges)._",
-  ].join("\n");
+    options.isProactive
+      ? "_Generated automatically by AIRP Proactive Sweep (proposes, never merges)._"
+      : "_Generated automatically by AIRP Patch Pipeline (proposes, never merges)._",
+  );
+
+  return parts.join("\n");
 }
 
 /**
@@ -104,7 +123,9 @@ export class LocalGitProvider implements VCSProvider {
   async createPullRequest(
     options: CreatePullRequestOptions,
   ): Promise<PullRequestResult> {
-    const branchName = options.branchName ?? `airp/fix-${options.incidentId}`;
+    const isProactive = Boolean(options.isProactive || options.labels?.includes("proactive"));
+    const branchPrefix = isProactive ? "airp/proactive" : "airp/fix";
+    const branchName = options.branchName ?? `${branchPrefix}-${options.incidentId}`;
     const repoDir = path.resolve(options.repoDir);
 
     if (!fs.existsSync(repoDir)) {
@@ -176,6 +197,8 @@ export class LocalGitProvider implements VCSProvider {
       branch: branchName,
       isLocal: true,
       prDescriptionPath: descriptionPath,
+      labels: options.labels || (isProactive ? ["proactive"] : []),
+      isProactive,
     };
   }
 }
@@ -214,9 +237,14 @@ export class GitHubProvider implements VCSProvider {
       return this.localFallback.createPullRequest(options);
     }
 
-    const branchName = options.branchName ?? `airp/fix-${options.incidentId}`;
+    const isProactive = Boolean(options.isProactive || options.labels?.includes("proactive"));
+    const branchPrefix = isProactive ? "airp/proactive" : "airp/fix";
+    const branchName = options.branchName ?? `${branchPrefix}-${options.incidentId}`;
     const baseBranch = options.baseBranch ?? "main";
     const body = formatPRDescription(options);
+    const prTitle = isProactive
+      ? `[Proactive Remediation] ${options.title}`
+      : `[Remediation] ${options.title}`;
 
     // Push branch if in git repo
     const repoDir = path.resolve(options.repoDir);
@@ -256,7 +284,7 @@ export class GitHubProvider implements VCSProvider {
             "user.email=bot@airp.local",
             "commit",
             "-m",
-            `fix(${options.incidentId}): ${options.title}`,
+            `${isProactive ? "proactive" : "fix"}(${options.incidentId}): ${options.title}`,
           ],
           { cwd: repoDir, stdio: "pipe" },
         );
@@ -308,7 +336,7 @@ export class GitHubProvider implements VCSProvider {
           "User-Agent": "AIRP-Patch-Pipeline/1.0",
         },
         body: JSON.stringify({
-          title: `[Remediation] ${options.title}`,
+          title: prTitle,
           body,
           head: branchName,
           base: baseBranch,
@@ -322,11 +350,30 @@ export class GitHubProvider implements VCSProvider {
       }
 
       const pr = (await res.json()) as { html_url: string; number: number };
+
+      if (options.labels && options.labels.length > 0) {
+        try {
+          await fetch(`${this.apiBaseUrl}/repos/${this.repo}/issues/${pr.number}/labels`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${this.token}`,
+              Accept: "application/vnd.github.v3+json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ labels: options.labels }),
+          });
+        } catch {
+          // Non-blocking label failure
+        }
+      }
+
       return {
         prUrl: pr.html_url,
         branch: branchName,
         isLocal: false,
         prNumber: pr.number,
+        labels: options.labels || (isProactive ? ["proactive"] : []),
+        isProactive,
       };
     } catch (err: any) {
       console.warn(
