@@ -35,24 +35,27 @@ BUILD:
    put/get/list (handoff reports, patch artifacts, air-gap bundles, eval
    data), RelationalStore (the Postgres surface the services use),
    VectorStore (the pgvector surface), Queue (changefeed and outbox
-   operations). Up to three backends where it makes sense: Local
-   (Postgres plus filesystem on block-backed storage in production,
-   current behavior, used by compose),
-   Cloudflare-native (R2, D1, Vectorize, Cloudflare Queues), and
-   Containers-hybrid (the same Cloudflare-managed state as native; only
-   the services themselves run in Containers). No service imports a
-   concrete backend; everything goes through the interfaces. The
-   BlobStore Local implementation targets a block-backed mount, not just
-   any host dir. The existing test suite runs against every implemented
-   backend.
+   operations). BlobStore has exactly two implementations: S3 (AWS and
+   VPS production deployments) and R2 (Cloudflare deployments). Blobs
+   never live on a local disk mount in production. The database and
+   telemetry surfaces keep up to three backends where it makes sense:
+   Local (Postgres plus pgvector on block storage in production,
+   current behavior, used by compose), Cloudflare-native (D1 or
+   Hyperdrive, Vectorize, Cloudflare Queues), and Containers-hybrid
+   (the same Cloudflare-managed state as native; only the services
+   themselves run in Containers). No service imports a concrete backend;
+   everything goes through the interfaces. The existing test suite runs
+   against every implemented backend.
 2. Containers-hybrid deployment: ingest-gateway, changefeed, code-index,
    agent-runtime, policy-engine, rollout-controller, ux, and handoff run
    as Cloudflare Containers, fronted by Workers that route traffic and
    enforce auth. Postgres/pgvector is reached via Hyperdrive to managed
    Postgres, or via D1 plus Vectorize for embeddings; the exact choice
    is a decision of this epic, verified by tests, not assumed.
-   Artifacts, bundles, and handoff reports go to R2. Changefeed and
-   outbox go to Cloudflare Queues. Loki, Tempo, Prometheus, and Grafana
+   Artifacts, bundles, and handoff reports go to object storage: R2 on
+   Cloudflare deployments, S3 on VPS and AWS production deployments,
+   never a local disk mount. Changefeed and outbox go to Cloudflare
+   Queues. Loki, Tempo, Prometheus, and Grafana
    do not run on Containers; observability on Cloudflare uses Workers
    Logs and the Cloudflare observability surface.
 3. Agent runtime on the Cloudflare Agents SDK (services/agent-runtime):
