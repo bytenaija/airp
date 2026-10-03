@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SweepMiner } from "../../services/sweep/src/miner.js";
+import { SweepMiner, type SweepSource } from "../../services/sweep/src/miner.js";
 import { QueryClient, type LogEntry, type IncidentRecord } from "@airp/common";
 
 describe("SweepMiner Unit Tests", () => {
@@ -145,6 +145,49 @@ describe("SweepMiner Unit Tests", () => {
 
     // Since the signature is already linked to an incident, it must NOT be surfaced
     expect(candidates.length).toBe(0);
+  });
+
+  it("supports pluggable non-Loki sources via the SweepSource interface", async () => {
+    const fakeSource: SweepSource = {
+      name: "fake-sentry",
+      listErrorEvents: async () => [
+        {
+          service: "web",
+          timestamp: "2026-10-02T10:00:00.000Z",
+          message:
+            "TypeError: Cannot read properties of undefined (reading 'user') at web/profile.ts:12",
+          level: "error",
+        },
+        {
+          service: "web",
+          timestamp: "2026-10-02T11:00:00.000Z",
+          message:
+            "TypeError: Cannot read properties of undefined (reading 'user') at web/profile.ts:12",
+          level: "error",
+        },
+        {
+          service: "web",
+          timestamp: "2026-10-02T12:00:00.000Z",
+          message:
+            "TypeError: Cannot read properties of undefined (reading 'user') at web/profile.ts:12",
+          level: "error",
+        },
+      ],
+    };
+
+    const miner = new SweepMiner({
+      sources: [fakeSource],
+      minOccurrences: 2,
+      isIncidentLinked: () => false, // No linked incident
+    });
+
+    const candidates = await miner.scan();
+
+    expect(candidates.length).toBe(1);
+    const candidate = candidates[0];
+    expect(candidate.service).toBe("web");
+    expect(candidate.count_7d).toBe(3);
+    expect(candidate.signature).toContain("TypeError");
   });
 
   it("starts and stops node-cron scheduled job cleanly", () => {
