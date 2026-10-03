@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP · Platform</title>
+<style>
+  html[data-theme="violet"]{--accent:#a78bfa;--accent-hover:#8b5cf6;--bg:#0b0a10;--surface:#15131d;--border:#282434;--text:#f5f3fa;--muted:#a8a3b8;}
+  html[data-theme="crimson"]{--accent:#f87171;--accent-hover:#ef4444;--bg:#0c0909;--surface:#181214;--border:#2e2224;--text:#faf3f3;--muted:#b8a3a3;}
+  html[data-theme="signal-green"]{--accent:#4ade80;--accent-hover:#22c55e;--bg:#0a0a0b;--surface:#141417;--border:#26262b;--text:#f4f4f5;--muted:#a1a1aa;}
+  html[data-theme="ember-orange"]{--accent:#fb923c;--accent-hover:#f97316;--bg:#0b0a09;--surface:#161412;--border:#2b2521;--text:#faf7f4;--muted:#a8a29e;}
+  html[data-theme="cyan"]{--accent:#22d3ee;--accent-hover:#06b6d4;--bg:#090b0c;--surface:#121819;--border:#1f2b2e;--text:#f2fafa;--muted:#9fb3b8;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5}
+  .app{display:flex;min-height:100vh}
+  .sidebar{width:230px;flex-shrink:0;border-right:1px solid var(--border);padding:20px 12px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 10px 18px}
+  .brand .logo{width:28px;height:28px;border-radius:8px;background:var(--accent);color:#000;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .brand b{font-size:15px}
+  .brand span{display:block;font-size:11px;color:var(--muted);font-weight:400}
+  .nav-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:14px 10px 6px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13.5px;cursor:pointer;border:1px solid transparent;width:100%;background:none;text-align:left}
+  .nav-item:hover{background:var(--surface);color:var(--text)}
+  .nav-item.active{background:var(--surface);color:var(--accent);border-color:var(--border)}
+  .nav-item .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+  .main{flex:1;min-width:0;padding:28px 36px 80px;max-width:1180px}
+  .view{display:none}
+  .view.active{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  h1{font-size:22px;margin-bottom:4px}
+  .page-sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px}
+  .card h3{font-size:14px;margin-bottom:2px}
+  .card .desc{font-size:12.5px;color:var(--muted)}
+  .section-title{font-size:15px;font-weight:700;margin:26px 0 4px}
+  .section-sub{font-size:12.5px;color:var(--muted);margin-bottom:14px}
+  .btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#0b0a10}
+  .btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+  .btn-danger{background:transparent;border-color:#7f2d2d;color:#f87171}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px}
+  .badge.green{background:rgba(74,222,128,.12);color:#4ade80}
+  .badge.amber{background:rgba(251,191,36,.12);color:#fbbf24}
+  .badge.red{background:rgba(248,113,113,.12);color:#f87171}
+  .badge.accent{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
+  .badge.gray{background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+  .search{width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-size:13px;margin-bottom:14px}
+  .search:focus{outline:none;border-color:var(--accent)}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px}
+  .tab{background:none;border:1px solid var(--border);color:var(--muted);border-radius:999px;padding:6px 13px;font-size:12.5px;cursor:pointer}
+  .tab:hover{color:var(--text)}
+  .tab.active{background:var(--accent);border-color:var(--accent);color:#0b0a10;font-weight:700}
+  .tab .count{opacity:.75;font-size:11px;margin-left:4px}
+  .conn-row{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:10px}
+  .conn-row .icon{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;flex-shrink:0}
+  .conn-row .meta{flex:1;min-width:0}
+  .conn-row .meta b{font-size:14px}
+  .conn-row .meta p{font-size:12.5px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--border)}
+  td{padding:12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted)}
+  .toggle{position:relative;width:40px;height:23px;border-radius:999px;background:#3a3a44;border:none;cursor:pointer;flex-shrink:0;transition:background .15s}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .15s}
+  .toggle.on{background:var(--accent)}
+  .toggle.on::after{left:20px}
+  .flag-row{display:flex;align-items:center;gap:16px;padding:16px 4px;border-bottom:1px solid var(--border)}
+  .flag-row .meta{flex:1}
+  .flag-row .meta b{font-size:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
+  .flag-row .meta p{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}.sidebar{display:none}.main{padding:20px}}
+  .metric{font-size:30px;font-weight:700}
+  .donut-wrap{display:flex;align-items:center;gap:18px}
+  .legend{font-size:12.5px;color:var(--muted)}
+  .legend .sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+  .bar-row{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:12.5px}
+  .bar-row .lbl{width:170px;color:var(--muted);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;height:8px;background:var(--bg);border:1px solid var(--border);border-radius:99px;overflow:hidden}
+  .bar-fill{height:100%;background:var(--accent);border-radius:99px}
+  .bar-row .val{width:44px;text-align:right;font-weight:600}
+  .empty{text-align:center;padding:56px 20px;color:var(--muted)}
+  .empty .glyph{font-size:40px;margin-bottom:12px}
+  .empty b{color:var(--text);display:block;font-size:15px;margin-bottom:4px}
+  .theme-flag{position:fixed;right:18px;bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;z-index:100;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+  .theme-flag .lbl{font-size:10.5px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;margin-bottom:8px}
+  .theme-flag .opts{display:flex;gap:6px}
+  .theme-flag button{width:22px;height:22px;border-radius:6px;border:2px solid transparent;cursor:pointer;padding:0}
+  .theme-flag button.sel{border-color:var(--text)}
+  .kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:2px 7px}
+  .mem-card{margin-bottom:12px}
+  .mem-card .src{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+  .pulse{animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">A</div><div><b>AIRP</b><span>Platform section</span></div></div>
+    <div class="nav-label">Platform</div>
+    <button class="nav-item active" data-view="catalog"><span class="dot"></span>Connector catalog</button>
+    <button class="nav-item" data-view="integrations"><span class="dot"></span>Integrations</button>
+    <button class="nav-item" data-view="flags"><span class="dot"></span>Feature flags</button>
+    <button class="nav-item" data-view="clouds"><span class="dot"></span>Clouds</button>
+    <button class="nav-item" data-view="repos"><span class="dot"></span>Repositories</button>
+    <button class="nav-item" data-view="memories"><span class="dot"></span>Memories</button>
+    <button class="nav-item" data-view="audit"><span class="dot"></span>Audit log</button>
+    <button class="nav-item" data-view="flywheel"><span class="dot"></span>Learning flywheel</button>
+    <div class="nav-label" style="margin-top:18px">Prototype</div>
+    <div style="padding:0 10px;font-size:12px;color:var(--muted)">Section 06 of the AIRP frontend prototype. Views switch inline; theme via the floating flag.</div>
+  </aside>
+  <main class="main">
+    <!-- CONNECTOR CATALOG -->
+    <section class="view active" id="view-catalog">
+      <h1>Connector catalog</h1>
+      <p class="page-sub">Connect the tools AIRP investigates with. Connected entries appear first so you can manage or disconnect them.</p>
+      <input class="search" id="catalogSearch" type="text" placeholder="Search connectors (try &quot;slack&quot;, &quot;aws&quot;, &quot;datadog&quot;)">
+      <div class="tabs" id="catalogTabs"></div>
+
+      <div class="section-title">Connected</div>
+      <p class="section-sub">Manage what is already connected to this workspace.</p>
+      <div id="connectedList">
+        <div class="conn-row" data-conn="cloudflare">
+          <div class="icon" style="background:rgba(251,146,60,.14);color:#fb923c">CF</div>
+          <div class="meta"><b>Cloudflare</b> &nbsp;<span class="badge green"><span class="status-dot" style="background:#4ade80"></span>1 connected</span><p>Workers, Pages, R2, D1 and edge network</p></div>
+          <button class="btn" onclick="manageConn('Cloudflare')">Manage</button>
+          <button class="btn btn-danger" onclick="disconnectConn(this,'Cloudflare')">Disconnect</button>
+        </div>
+        <div class="conn-row" data-conn="github">
+          <div class="icon" style="background:rgba(167,139,250,.12);color:var(--accent)">GH</div>
+          <div class="meta"><b>GitHub</b> &nbsp;<span class="badge green"><span class="status-dot" style="background:#4ade80"></span>1 connected</span><p>Codebase context, pull request reviews and autofix PRs</p></div>
+          <button class="btn" onclick="manageConn('GitHub')">Manage</button>
+          <button class="btn btn-danger" onclick="disconnectConn(this,'GitHub')">Disconnect</button>
+        </div>
+        <div class="conn-row" data-conn="datadog">
+          <div class="icon" style="background:rgba(248,113,113,.12);color:#f87171">DD</div>
+          <div class="meta"><b>Datadog</b> &nbsp;<span class="badge green"><span class="status-dot" style="background:#4ade80"></span>1 connected</span><p>Metrics, logs and monitors feeding detection</p></div>
+          <button class="btn" onclick="manageConn('Datadog')">Manage</button>
+          <button class="btn btn-danger" onclick="disconnectConn(this,'Datadog')">Disconnect</button>
+        </div>
+      </div>
+
+      <div class="section-title">Browse</div>
+      <p class="section-sub">Pick a category, then connect a provider.</p>
+      <div id="catalogList"></div>
+    </section>
+
+    <!-- INTEGRATIONS -->
+    <section class="view" id="view-integrations">
+      <h1>Integrations</h1>
+      <p class="page-sub">Every connected integration, its credential health and sync state. Reconnect before a credential expires.</p>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr><th>Integration</th><th>Type</th><th>Credential health</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Cloudflare</b><div class="mono">acct afc92595c65e7247ad</div></td>
+              <td>Cloud provider</td>
+              <td><span class="badge green">Healthy</span><div class="mono">expires in 340 days</div></td>
+              <td>2 min ago</td>
+              <td><span class="badge green"><span class="status-dot" style="background:#4ade80"></span>Live</span></td>
+              <td style="text-align:right"><button class="btn">Manage</button></td>
+            </tr>
+            <tr>
+              <td><b>GitHub</b><div class="mono">app installation 48151623</div></td>
+              <td>Git provider</td>
+              <td><span class="badge green">Healthy</span><div class="mono">OAuth, no expiry</div></td>
+              <td>5 min ago</td>
+              <td><span class="badge green"><span class="status-dot" style="background:#4ade80"></span>Live</span></td>
+              <td style="text-align:right"><button class="btn">Manage</button></td>
+            </tr>
+            <tr>
+              <td><b>Datadog</b><div class="mono">org purple-finch-042</div></td>
+              <td>Observability</td>
+              <td><span class="badge amber">Expiring soon</span><div class="mono">API key expires in 9 days</div></td>
+              <td>11 min ago</td>
+              <td><span class="badge green"><span class="status-dot" style="background:#4ade80"></span>Live</span></td>
+              <td style="text-align:right"><button class="btn btn-primary">Reconnect</button></td>
+            </tr>
+            <tr>
+              <td><b>Slack</b><div class="mono">workspace T03QF9Z2D</div></td>
+              <td>Communication</td>
+              <td><span class="badge green">Healthy</span><div class="mono">bot token, no expiry</div></td>
+              <td>26 min ago</td>
+              <td><span class="badge green"><span class="status-dot" style="background:#4ade80"></span>Live</span></td>
+              <td style="text-align:right"><button class="btn">Manage</button></td>
+            </tr>
+            <tr>
+              <td><b>AWS (prod)</b><div class="mono">role arn:aws:iam::884210:role/airp</div></td>
+              <td>Cloud provider</td>
+              <td><span class="badge red">Failed</span><div class="mono">STS assume-role denied 2h ago</div></td>
+              <td>2 h ago</td>
+              <td><span class="badge red"><span class="status-dot" style="background:#f87171"></span>Error</span></td>
+              <td style="text-align:right"><button class="btn btn-primary">Reconnect</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="page-sub" style="margin-top:14px">AIRP pauses investigations that depend on a failed integration and resumes them automatically after reconnect.</p>
+    </section>
+    <!-- FEATURE FLAGS -->
+    <section class="view" id="view-flags">
+      <h1>Feature flags</h1>
+      <p class="page-sub">Roll out behavior per workspace without redeploying. Changes apply within 60 seconds.</p>
+      <div class="card" style="padding:6px 20px">
+        <div class="flag-row"><div class="meta"><b>ui.theme.accent</b><p>Accent color of the AIRP console. Values: signal-green, ember-orange, cyan, violet, crimson.</p></div><span class="kbd">violet</span></div>
+        <div class="flag-row"><div class="meta"><b>investigations.auto_start</b><p>Start an investigation automatically when detection fires, instead of waiting for triage.</p></div><button class="toggle on" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row"><div class="meta"><b>autofix.open_prs</b><p>Allow the patch pipeline to open pull requests for approved fixes.</p></div><button class="toggle on" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row"><div class="meta"><b>autofix.draft_prs</b><p>Open new autofix pull requests as drafts until a human marks them ready.</p></div><button class="toggle" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row"><div class="meta"><b>investigations.weekend</b><p>Run full investigations on Saturday and Sunday (UTC). Triage still runs every day.</p></div><button class="toggle on" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row"><div class="meta"><b>rollout.canary_required</b><p>Require a canary stage before the rollout controller promotes any patch to production.</p></div><button class="toggle on" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row"><div class="meta"><b>flywheel.export_datasets</b><p>Let the learning flywheel export fine-tuning datasets to the blob store.</p></div><button class="toggle" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row"><div class="meta"><b>telemetry.synthetic</b><p>Allow synthetic demo telemetry. Development only; blocked in staging and production.</p></div><button class="toggle" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+        <div class="flag-row" style="border-bottom:none"><div class="meta"><b>ops_actions.require_approval</b><p>Hold every ops action (restart, scale, rollback) for human approval, even low-risk ones.</p></div><button class="toggle on" onclick="this.classList.toggle('on')" aria-label="toggle"></button></div>
+      </div>
+    </section>
+
+    <!-- CLOUDS -->
+    <section class="view" id="view-clouds">
+      <h1>Clouds</h1>
+      <p class="page-sub">Cloud accounts AIRP inspects. Resources sync on a schedule and feed the topology.</p>
+      <div style="margin-bottom:16px"><button class="btn btn-primary">+ Add cloud account</button></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr><th>Alias</th><th>Account</th><th>Resources</th><th>Status</th><th>Added</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>prod-cloudflare</b></td><td class="mono">afc92595c65e7247ad546cc945893d2f</td><td>1,284</td><td><span class="badge green"><span class="status-dot" style="background:#4ade80"></span>Ready</span></td><td>Sep 28, 2026</td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>prod-aws</b></td><td class="mono">884210775301</td><td>3,907</td><td><span class="badge red"><span class="status-dot" style="background:#f87171"></span>Sync failed</span></td><td>Sep 29, 2026</td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>staging-fly</b></td><td class="mono">fly-org-quiet-pond-118</td><td>46</td><td><span class="badge amber"><span class="status-dot pulse" style="background:#fbbf24"></span>Syncing</span><div class="mono">62% · 29 of 46</div></td><td>Oct 3, 2026</td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>dev-railway</b></td><td class="mono">rw-proj-7d2cf1</td><td>12</td><td><span class="badge green"><span class="status-dot" style="background:#4ade80"></span>Ready</span></td><td>Oct 1, 2026</td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- REPOSITORIES -->
+    <section class="view" id="view-repos">
+      <h1>Repositories</h1>
+      <p class="page-sub">Code repositories AIRP agents can read and act on, via the GitHub app installation.</p>
+      <div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn btn-primary">+ Add repository</button><button class="btn">Refresh from GitHub</button></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr><th>Name</th><th>Owner</th><th>Added</th><th>Repository access</th><th>Pull request reviews</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>airp</b></td><td>bytenaija</td><td>8 minutes ago</td><td><span class="badge green">Active</span></td><td><span class="badge green">On</span></td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>checkout-service</b></td><td>bytenaija</td><td>2 days ago</td><td><span class="badge green">Active</span></td><td><span class="badge green">On</span></td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>edge-gateway</b></td><td>bytenaija</td><td>6 days ago</td><td><span class="badge green">Active</span></td><td><span class="badge gray">Off</span></td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>billing-worker</b></td><td>bytenaija</td><td>2 weeks ago</td><td><span class="badge amber">Pending install</span></td><td><span class="badge gray">Off</span></td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+            <tr><td><b>docs-site</b></td><td>bytenaija</td><td>3 weeks ago</td><td><span class="badge green">Active</span></td><td><span class="badge gray">Off</span></td><td style="text-align:right"><button class="btn">⋯</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MEMORIES -->
+    <section class="view" id="view-memories">
+      <h1>Memories</h1>
+      <p class="page-sub">Institutional knowledge AIRP built while investigating issues and analyzing infrastructure.</p>
+      <div style="margin-bottom:16px"><button class="btn btn-primary">+ New memory</button></div>
+      <div class="card mem-card"><h3>Checkout latency spikes follow deploys of checkout-service</h3><p class="desc">Three of the last four p99 latency incidents started within 20 minutes of a checkout-service deploy. The canary stage now watches p99 for 15 minutes before promoting.</p><p class="src">Source: investigation INC-2418 · Created Sep 30, 2026 · Used 6 times</p></div>
+      <div class="card mem-card"><h3>Cloudflare cache purge fixes stale pricing pages</h3><p class="desc">When the pricing page serves content older than the last CMS publish, purging the Cloudflare cache for /pricing/* resolves it without a redeploy.</p><p class="src">Source: investigation INC-2391 · Created Sep 26, 2026 · Used 3 times</p></div>
+      <div class="card mem-card"><h3> Postgres connection pool saturates before CPU does</h3><p class="desc">On db-primary, pool wait time is the leading indicator of overload. Scale the pool before adding CPU; the runbook RB-14 encodes this.</p><p class="src">Source: human note by E. Olumese · Created Sep 21, 2026 · Used 11 times</p></div>
+      <div class="card mem-card"><h3>Fly.io regions fra and ams share a noisy neighbor pattern</h3><p class="desc">Disk I/O contention in fra/ams correlates with elevated error rates on edge-gateway. Prefer iad or lhr for latency-sensitive workloads.</p><p class="src">Source: investigation INC-2355 · Created Sep 17, 2026 · Used 2 times</p></div>
+    </section>
+    <!-- AUDIT LOG -->
+    <section class="view" id="view-audit">
+      <h1>Audit log</h1>
+      <p class="page-sub">Every consequential action in the workspace: who did what, to which resource, and the result.</p>
+      <input class="search" id="auditSearch" type="text" placeholder="Filter by actor, action or resource">
+      <div class="card" style="padding:0;overflow:hidden">
+        <table id="auditTable">
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">Oct 3, 07:12 EDT</td><td>airp-agent</td><td>investigation.started</td><td class="mono">INC-2420</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 3, 07:04 EDT</td><td>e.olumese</td><td>flag.updated</td><td class="mono">ui.theme.accent → violet</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 3, 06:58 EDT</td><td>airp-agent</td><td>patch.opened_pr</td><td class="mono">bytenaija/airp#57</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 3, 06:41 EDT</td><td>airp-agent</td><td>ops_action.held</td><td class="mono">restart checkout-canary</td><td><span class="badge amber">awaiting approval</span></td></tr>
+            <tr><td class="mono">Oct 3, 06:22 EDT</td><td>airp-agent</td><td>rollout.promoted</td><td class="mono">checkout-service → canary 5%</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 3, 05:57 EDT</td><td>system</td><td>cloud.sync_failed</td><td class="mono">prod-aws</td><td><span class="badge red">error</span></td></tr>
+            <tr><td class="mono">Oct 2, 22:14 EDT</td><td>e.olumese</td><td>integration.reconnected</td><td class="mono">datadog</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 2, 21:03 EDT</td><td>airp-agent</td><td>memory.created</td><td class="mono">checkout latency pattern</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 2, 18:47 EDT</td><td>e.olumese</td><td>member.invited</td><td class="mono">teammate@example.com</td><td><span class="badge green">ok</span></td></tr>
+            <tr><td class="mono">Oct 2, 16:20 EDT</td><td>airp-agent</td><td>patch.validation_failed</td><td class="mono">INC-2417 sandbox run</td><td><span class="badge red">error</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="page-sub" style="margin-top:14px">Retained 400 days. Export available to workspace owners.</p>
+    </section>
+
+    <!-- LEARNING FLYWHEEL -->
+    <section class="view" id="view-flywheel">
+      <h1>Learning flywheel</h1>
+      <p class="page-sub">How AIRP turns incident outcomes into better investigations: labels, rewards and exported datasets.</p>
+      <div class="grid3">
+        <div class="card">
+          <h3>Outcomes</h3><p class="desc">How investigations settled in the last 30 days.</p>
+          <div class="donut-wrap" style="margin-top:14px">
+            <svg width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="44" fill="none" stroke="var(--border)" stroke-width="16"/>
+              <circle cx="55" cy="55" r="44" fill="none" stroke="#4ade80" stroke-width="16" stroke-dasharray="173 276" stroke-linecap="round" transform="rotate(-90 55 55)"/>
+              <circle cx="55" cy="55" r="44" fill="none" stroke="#fbbf24" stroke-width="16" stroke-dasharray="55 276" stroke-dashoffset="-173" transform="rotate(-90 55 55)"/>
+              <circle cx="55" cy="55" r="44" fill="none" stroke="#f87171" stroke-width="16" stroke-dasharray="48 276" stroke-dashoffset="-228" transform="rotate(-90 55 55)"/>
+              <text x="55" y="52" text-anchor="middle" fill="var(--text)" font-size="20" font-weight="700">86</text>
+              <text x="55" y="68" text-anchor="middle" fill="var(--muted)" font-size="10">total</text>
+            </svg>
+            <div class="legend">
+              <div><span class="sw" style="background:#4ade80"></span>Resolved by fix · 54</div>
+              <div><span class="sw" style="background:#fbbf24"></span>Resolved manually · 17</div>
+              <div><span class="sw" style="background:#f87171"></span>Unresolved · 15</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Reward signal</h3><p class="desc">Mean investigation reward, trailing 30 days.</p>
+          <div class="metric" style="margin-top:10px">+0.62</div>
+          <p class="desc">▲ 0.09 vs prior period. Rewards come from human verdicts on the feedback page.</p>
+        </div>
+        <div class="card">
+          <h3>Datasets</h3><p class="desc">Exported training data from labeled outcomes.</p>
+          <div class="metric" style="margin-top:10px">4</div>
+          <p class="desc">Latest export: Oct 1, 2026 · 12,408 tuples · stored in the blob store.</p>
+        </div>
+      </div>
+
+      <div class="section-title">Labels</div>
+      <p class="section-sub">Human-applied labels on outcomes. The flywheel trains on these.</p>
+      <div class="card" style="padding:6px 20px">
+        <div class="bar-row"><span class="lbl">root-cause: deploy-related</span><div class="bar-track"><div class="bar-fill" style="width:82%"></div></div><span class="val">41</span></div>
+        <div class="bar-row"><span class="lbl">root-cause: infra</span><div class="bar-track"><div class="bar-fill" style="width:56%"></div></div><span class="val">28</span></div>
+        <div class="bar-row"><span class="lbl">fix-quality: good</span><div class="bar-track"><div class="bar-fill" style="width:74%"></div></div><span class="val">37</span></div>
+        <div class="bar-row"><span class="lbl">fix-quality: needs-work</span><div class="bar-track"><div class="bar-fill" style="width:24%"></div></div><span class="val">12</span></div>
+        <div class="bar-row"><span class="lbl">severity: sev-1</span><div class="bar-track"><div class="bar-fill" style="width:14%"></div></div><span class="val">7</span></div>
+        <div class="bar-row"><span class="lbl">severity: sev-2</span><div class="bar-track"><div class="bar-fill" style="width:38%"></div></div><span class="val">19</span></div>
+      </div>
+
+      <div class="section-title">Exported datasets</div>
+      <p class="section-sub">Fine-tuning and eval data produced from labeled outcomes.</p>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr><th>Name</th><th>Tuples</th><th>Source window</th><th>Exported</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>flywheel-ft-2026-10-01</b></td><td>12,408</td><td>Sep 1 – Sep 30, 2026</td><td>Oct 1, 2026</td><td style="text-align:right"><button class="btn">Download manifest</button></td></tr>
+            <tr><td><b>flywheel-eval-2026-09-15</b></td><td>2,150</td><td>Aug 15 – Sep 15, 2026</td><td>Sep 15, 2026</td><td style="text-align:right"><button class="btn">Download manifest</button></td></tr>
+            <tr><td><b>flywheel-ft-2026-09-01</b></td><td>10,976</td><td>Aug 1 – Aug 31, 2026</td><td>Sep 1, 2026</td><td style="text-align:right"><button class="btn">Download manifest</button></td></tr>
+            <tr><td><b>runbook-drafts-2026-08</b></td><td>64 drafts</td><td>Jul – Aug 2026</td><td>Aug 28, 2026</td><td style="text-align:right"><button class="btn">Download manifest</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="theme-flag">
+  <div class="lbl">Feature flag: ui.theme.accent</div>
+  <div class="opts">
+    <button data-set-theme="violet" class="sel" style="background:#a78bfa" title="violet" aria-label="violet"></button>
+    <button data-set-theme="crimson" style="background:#f87171" title="crimson" aria-label="crimson"></button>
+    <button data-set-theme="signal-green" style="background:#4ade80" title="signal-green" aria-label="signal-green"></button>
+    <button data-set-theme="ember-orange" style="background:#fb923c" title="ember-orange" aria-label="ember-orange"></button>
+    <button data-set-theme="cyan" style="background:#22d3ee" title="cyan" aria-label="cyan"></button>
+  </div>
+</div>
+<script>
+  // Theme flag
+  document.querySelectorAll('[data-set-theme]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.documentElement.setAttribute('data-theme', btn.getAttribute('data-set-theme'));
+      document.querySelectorAll('[data-set-theme]').forEach(function(b){ b.classList.toggle('sel', b === btn); });
+    });
+  });
+
+  // View router
+  var navItems = document.querySelectorAll('.nav-item');
+  function showView(name){
+    navItems.forEach(function(n){ n.classList.toggle('active', n.getAttribute('data-view') === name); });
+    document.querySelectorAll('.view').forEach(function(v){ v.classList.toggle('active', v.id === 'view-' + name); });
+    if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+    window.scrollTo(0, 0);
+  }
+  navItems.forEach(function(n){ n.addEventListener('click', function(){ showView(n.getAttribute('data-view')); }); });
+  var initial = (location.hash || '#catalog').slice(1);
+  if(document.getElementById('view-' + initial)) showView(initial);
+
+  // Connector catalog data
+  var CATALOG = [
+    {name:'AWS', desc:'EC2, Lambda, ECS, RDS, S3 and more', cat:'Cloud providers', init:'AW', c:'rgba(251,146,60,.13)', t:'#fb923c'},
+    {name:'Vercel', desc:'Deployments, serverless functions and edge config', cat:'Cloud providers', init:'V', c:'rgba(244,244,245,.08)', t:'#f4f4f5'},
+    {name:'Render', desc:'Web services, databases and cron jobs', cat:'Cloud providers', init:'R', c:'rgba(34,211,238,.12)', t:'#22d3ee'},
+    {name:'PlanetScale', desc:'Databases, branches and schema changes', cat:'Cloud providers', init:'PS', c:'rgba(167,139,250,.12)', t:'#a78bfa'},
+    {name:'Railway', desc:'Projects, services, deployments and volumes', cat:'Cloud providers', init:'RW', c:'rgba(248,113,113,.12)', t:'#f87171'},
+    {name:'Fly.io', desc:'Machines, volumes and global edge deployments', cat:'Cloud providers', init:'F', c:'rgba(167,139,250,.12)', t:'#a78bfa'},
+    {name:'Kubernetes', desc:'Pods, Deployments, Nodes, Services and more', cat:'Cloud providers', init:'K8', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Supabase', desc:'Database, auth, storage and edge functions', cat:'Cloud providers', init:'S', c:'rgba(74,222,128,.12)', t:'#4ade80'},
+    {name:'GCP', desc:'Compute, GKE, Cloud SQL and more', cat:'Cloud providers', init:'G', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Azure', desc:'VMs, AKS, databases and networking', cat:'Cloud providers', init:'Az', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'DigitalOcean', desc:'Droplets, Kubernetes and managed databases', cat:'Cloud providers', init:'DO', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Grafana', desc:'Dashboards, alerts and incident annotations', cat:'Observability', init:'G', c:'rgba(251,146,60,.13)', t:'#fb923c'},
+    {name:'PagerDuty', desc:'Incidents, on-call schedules and escalations', cat:'Observability', init:'PD', c:'rgba(74,222,128,.12)', t:'#4ade80'},
+    {name:'Sentry', desc:'Error tracking and release health', cat:'Observability', init:'S', c:'rgba(167,139,250,.12)', t:'#a78bfa'},
+    {name:'Honeybadger', desc:'Error and uptime monitoring', cat:'Observability', init:'H', c:'rgba(251,191,36,.13)', t:'#fbbf24'},
+    {name:'Slack', desc:'Investigate and approve from Slack threads', cat:'Communication', init:'S', c:'rgba(74,222,128,.12)', t:'#4ade80', connected:true},
+    {name:'Microsoft Teams', desc:'Adaptive cards for approvals and alerts', cat:'Communication', init:'MT', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Devin', desc:'Delegate autofix implementation to Devin agents', cat:'Code agents', init:'D', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Cursor', desc:'Delegate autofix implementation to Cursor agents', cat:'Code agents', init:'C', c:'rgba(244,244,245,.08)', t:'#f4f4f5'},
+    {name:'Jira', desc:'Sync incidents to Jira issues', cat:'Issue tracking', init:'J', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Linear', desc:'Sync incidents to Linear issues', cat:'Issue tracking', init:'L', c:'rgba(167,139,250,.12)', t:'#a78bfa'},
+    {name:'incident.io', desc:'Declare and manage incidents', cat:'Issue tracking', init:'i', c:'rgba(248,113,113,.12)', t:'#f87171'},
+    {name:'Confluence', desc:'Runbooks and institutional docs as context', cat:'Knowledge base', init:'C', c:'rgba(96,165,250,.13)', t:'#60a5fa'},
+    {name:'Notion', desc:'Docs and runbooks as investigation context', cat:'Knowledge base', init:'N', c:'rgba(244,244,245,.08)', t:'#f4f4f5'}
+  ];
+  var CATS = ['All','Cloud providers','Observability','Communication','Code agents','Issue tracking','Knowledge base','Connected'];
+  var activeCat = 'All';
+
+  function catCount(cat){
+    if(cat === 'All') return CATALOG.length + 3;
+    if(cat === 'Connected') return 4;
+    return CATALOG.filter(function(c){ return c.cat === cat; }).length;
+  }
+  function renderTabs(){
+    var el = document.getElementById('catalogTabs');
+    el.innerHTML = '';
+    CATS.forEach(function(cat){
+      var b = document.createElement('button');
+      b.className = 'tab' + (cat === activeCat ? ' active' : '');
+      b.innerHTML = cat + '<span class="count">' + catCount(cat) + '</span>';
+      b.addEventListener('click', function(){ activeCat = cat; renderTabs(); renderCatalog(); });
+      el.appendChild(b);
+    });
+  }
+  function renderCatalog(){
+    var q = document.getElementById('catalogSearch').value.trim().toLowerCase();
+    var list = document.getElementById('catalogList');
+    list.innerHTML = '';
+    var items = CATALOG.filter(function(c){
+      var okCat = activeCat === 'All' || c.cat === activeCat || (activeCat === 'Connected' && c.connected);
+      var okQ = !q || c.name.toLowerCase().indexOf(q) !== -1 || c.desc.toLowerCase().indexOf(q) !== -1;
+      return okCat && okQ;
+    });
+    if(!items.length){
+      list.innerHTML = '<div class="empty"><div class="glyph">🔌</div><b>No connectors match</b>Try a different search or category.</div>';
+      return;
+    }
+    items.forEach(function(c){
+      var row = document.createElement('div');
+      row.className = 'conn-row';
+      row.innerHTML =
+        '<div class="icon" style="background:' + c.c + ';color:' + c.t + '">' + c.init + '</div>' +
+        '<div class="meta"><b>' + c.name + '</b><p>' + c.desc + ' · ' + c.cat + '</p></div>' +
+        (c.connected
+          ? '<span class="badge green">Connected</span><button class="btn">Manage</button>'
+          : '<button class="btn btn-primary">Connect</button>');
+      var btn = row.querySelector('.btn-primary');
+      if(btn) btn.addEventListener('click', function(){
+        c.connected = true;
+        btn.outerHTML = '<span class="badge green">Connected</span>';
+        renderTabs(); renderCatalog();
+      });
+      list.appendChild(row);
+    });
+  }
+  document.getElementById('catalogSearch').addEventListener('input', renderCatalog);
+  renderTabs(); renderCatalog();
+
+  function manageConn(name){ alert('Manage ' + name + ' (prototype): credential rotation, scopes and resource selection would open here.'); }
+  function disconnectConn(btn, name){
+    if(confirm('Disconnect ' + name + ' from this workspace?')){
+      btn.closest('.conn-row').remove();
+      renderTabs();
+    }
+  }
+
+  // Audit filter
+  document.getElementById('auditSearch').addEventListener('input', function(){
+    var q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#auditTable tbody tr').forEach(function(tr){
+      tr.style.display = tr.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+    });
+  });
+</script>
+</body>
+</html>

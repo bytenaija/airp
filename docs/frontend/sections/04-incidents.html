@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP — Incidents &amp; Threads</title>
+<style>
+  :root, html[data-theme="violet"] {
+    --accent:#a78bfa; --accent-hover:#8b5cf6; --bg:#0b0a10; --surface:#15131d;
+    --border:#282434; --text:#f5f3fa; --muted:#a8a3b8;
+  }
+  html[data-theme="crimson"] {
+    --accent:#f87171; --accent-hover:#ef4444; --bg:#0c0909; --surface:#181214;
+    --border:#2e2224; --text:#faf3f3; --muted:#b8a3a3;
+  }
+  html[data-theme="signal-green"] {
+    --accent:#4ade80; --accent-hover:#22c55e; --bg:#0a0a0b; --surface:#141417;
+    --border:#26262b; --text:#f4f4f5; --muted:#a1a1aa;
+  }
+  html[data-theme="ember-orange"] {
+    --accent:#fb923c; --accent-hover:#f97316; --bg:#0b0a09; --surface:#161412;
+    --border:#2b2521; --text:#faf7f4; --muted:#a8a29e;
+  }
+  html[data-theme="cyan"] {
+    --accent:#22d3ee; --accent-hover:#06b6d4; --bg:#090b0c; --surface:#121819;
+    --border:#1f2b2e; --text:#f2fafa; --muted:#9fb3b8;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size:14px; height:100vh; overflow:hidden; }
+  a { color:inherit; text-decoration:none; }
+  button { font-family:inherit; }
+  .app { display:flex; height:100vh; }
+  /* left rail */
+  .rail { width:220px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
+  .rail .brand { padding:16px 18px; font-weight:700; font-size:15px; border-bottom:1px solid var(--border); }
+  .rail .brand span { color:var(--accent); }
+  .rail nav { padding:10px; display:flex; flex-direction:column; gap:2px; }
+  .rail nav button { background:none; border:none; color:var(--muted); text-align:left; padding:9px 12px; border-radius:8px; font-size:13.5px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .rail nav button:hover { background:rgba(255,255,255,.04); color:var(--text); }
+  .rail nav button.active { background:rgba(255,255,255,.06); color:var(--accent); font-weight:600; }
+  .rail nav button .count { font-size:11px; background:rgba(255,255,255,.08); border-radius:999px; padding:1px 8px; color:var(--muted); }
+  .rail nav button.active .count { color:var(--accent); }
+  .rail .foot { margin-top:auto; padding:14px 18px; border-top:1px solid var(--border); font-size:12px; color:var(--muted); }
+  /* main */
+  .main { flex:1; overflow-y:auto; padding:26px 32px; }
+  .view { display:none; max-width:1080px; margin:0 auto; }
+  .view.active { display:block; }
+  .page-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+  .page-head h1 { font-size:21px; }
+  .page-head p { color:var(--muted); font-size:13px; margin-top:4px; }
+  /* cards & tables */
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin-bottom:4px; }
+  .card .desc { color:var(--muted); font-size:12.5px; margin-bottom:14px; }
+  table.list { width:100%; border-collapse:collapse; }
+  table.list th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); padding:10px 12px; border-bottom:1px solid var(--border); font-weight:600; }
+  table.list td { padding:12px; border-bottom:1px solid var(--border); font-size:13.5px; vertical-align:middle; }
+  table.list tr.rowlink { cursor:pointer; }
+  table.list tr.rowlink:hover td { background:rgba(255,255,255,.025); }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; text-transform:uppercase; letter-spacing:.04em; }
+  .sev-critical { background:rgba(248,113,113,.14); color:#f87171; }
+  .sev-high { background:rgba(251,146,60,.14); color:#fb923c; }
+  .sev-medium { background:rgba(250,204,21,.13); color:#facc15; }
+  .sev-low { background:rgba(34,211,238,.12); color:#22d3ee; }
+  .status { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; }
+  .status .dot { width:8px; height:8px; border-radius:50%; }
+  .st-open .dot { background:#f87171; } .st-open { color:#f87171; }
+  .st-investigating .dot { background:#fb923c; } .st-investigating { color:#fb923c; }
+  .st-mitigating .dot { background:#facc15; } .st-mitigating { color:#facc15; }
+  .st-resolved .dot { background:var(--accent); } .st-resolved { color:var(--accent); }
+  .muted { color:var(--muted); }
+  .small { font-size:12px; }
+  .btn { background:var(--accent); color:#0b0a10; border:none; border-radius:7px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:hover { background:var(--accent-hover); }
+  .btn-ghost { background:transparent; border:1px solid var(--border); color:var(--text); border-radius:7px; padding:8px 14px; font-size:13px; cursor:pointer; }
+  .btn-ghost:hover { border-color:var(--accent); }
+  .avatar { width:26px; height:26px; border-radius:50%; background:var(--accent); color:#0b0a10; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+  /* detail layout */
+  .detail-grid { display:grid; grid-template-columns:1fr 320px; gap:16px; }
+  .back { color:var(--muted); font-size:13px; cursor:pointer; margin-bottom:14px; display:inline-block; }
+  .back:hover { color:var(--accent); }
+  /* timeline */
+  .timeline { position:relative; padding-left:26px; }
+  .timeline::before { content:""; position:absolute; left:8px; top:6px; bottom:6px; width:2px; background:var(--border); }
+  .t-event { position:relative; padding:0 0 20px 0; }
+  .t-event::before { content:""; position:absolute; left:-24px; top:4px; width:12px; height:12px; border-radius:50%; background:var(--bg); border:3px solid var(--accent); }
+  .t-event.warn::before { border-color:#fb923c; }
+  .t-event.bad::before { border-color:#f87171; }
+  .t-event .t-time { font-size:11.5px; color:var(--muted); margin-bottom:3px; }
+  .t-event .t-title { font-weight:600; font-size:13.5px; margin-bottom:3px; }
+  .t-event .t-body { font-size:13px; color:var(--muted); line-height:1.5; }
+  .t-event .t-body code { background:rgba(255,255,255,.06); padding:1px 6px; border-radius:4px; font-size:12px; color:var(--text); }
+  /* handoff */
+  .handoff-row { display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .handoff-row:last-child { border-bottom:none; }
+  .handoff-row .k { color:var(--muted); }
+  /* similar */
+  .sim-item { padding:12px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+  .sim-item:last-child { border-bottom:none; }
+  .sim-item:hover .sim-title { color:var(--accent); }
+  .sim-title { font-size:13.5px; font-weight:600; margin-bottom:3px; }
+  .sim-meta { font-size:12px; color:var(--muted); }
+  .match { font-size:11px; font-weight:700; color:var(--accent); background:rgba(255,255,255,.05); padding:2px 8px; border-radius:999px; margin-left:8px; }
+  /* thread conversation */
+  .msg { display:flex; gap:12px; margin-bottom:18px; }
+  .msg .who { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; flex-shrink:0; }
+  .msg.agent .who { background:var(--accent); color:#0b0a10; }
+  .msg.human .who { background:rgba(255,255,255,.08); color:var(--text); border:1px solid var(--border); }
+  .msg .bubble { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; flex:1; font-size:13.5px; line-height:1.6; }
+  .msg .bubble p { margin-bottom:10px; } .msg .bubble p:last-child { margin-bottom:0; }
+  .msg .meta { font-size:11.5px; color:var(--muted); margin-bottom:6px; }
+  .toolcite { display:inline-block; font-size:11.5px; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:6px; padding:3px 9px; margin:3px 4px 3px 0; color:var(--accent); cursor:pointer; }
+  .toolcite:hover { border-color:var(--accent); }
+  .verdict { border-left:3px solid var(--accent); padding:10px 14px; background:rgba(255,255,255,.03); border-radius:0 8px 8px 0; margin-top:10px; font-size:13px; }
+  .composer { display:flex; gap:10px; margin-top:8px; }
+  .composer input { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:11px 14px; color:var(--text); font-size:13.5px; }
+  .composer input:focus { outline:none; border-color:var(--accent); }
+  /* flag switcher */
+  .flag { position:fixed; right:18px; bottom:18px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; font-size:12px; z-index:50; box-shadow:0 8px 30px rgba(0,0,0,.45); }
+  .flag .fname { font-family:monospace; color:var(--muted); margin-bottom:8px; }
+  .flag .opts { display:flex; gap:6px; }
+  .flag .opts button { width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer; }
+  .flag .opts button.on { border-color:var(--text); }
+  .prio { font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; }
+  .prio-p1 { background:rgba(248,113,113,.14); color:#f87171; }
+  .prio-p2 { background:rgba(251,146,60,.14); color:#fb923c; }
+  .prio-p3 { background:rgba(250,204,21,.13); color:#facc15; }
+  @media (max-width:900px){ .detail-grid{grid-template-columns:1fr;} .rail{width:64px;} .rail .brand,.rail nav button span.lbl,.rail .foot{display:none;} }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">AIRP <span>&#9679;</span></div>
+    <nav>
+      <button data-view="incidents" class="active"><span class="lbl">Incidents</span><span class="count">4</span></button>
+      <button data-view="threads"><span class="lbl">Threads</span><span class="count">6</span></button>
+      <button data-view="issues"><span class="lbl">Issues</span><span class="count">9</span></button>
+      <button data-view="escalations"><span class="lbl">Escalations</span><span class="count">2</span></button>
+    </nav>
+    <div class="foot">Section prototype<br>04 &mdash; incidents</div>
+  </aside>
+  <main class="main">
+
+    <!-- ============ INCIDENTS LIST ============ -->
+    <section class="view active" id="view-incidents">
+      <div class="page-head">
+        <div><h1>Incidents</h1><p>Detected anomalies under investigation across your workspace.</p></div>
+        <button class="btn-ghost">New investigation</button>
+      </div>
+      <div class="card" style="padding:6px 18px;">
+        <table class="list">
+          <thead><tr><th>Incident</th><th>Severity</th><th>Status</th><th>Assignee</th><th>Age</th></tr></thead>
+          <tbody>
+            <tr class="rowlink" data-goto="incident-detail" data-inc="1">
+              <td><strong>Checkout p99 latency spike</strong><div class="small muted">demo-store &middot; api-gateway &middot; us-east</div></td>
+              <td><span class="badge sev-critical">Critical</span></td>
+              <td><span class="status st-investigating"><span class="dot"></span>Investigating</span></td>
+              <td><span class="avatar">EO</span> <span class="small">Everistus</span></td>
+              <td class="muted">18m</td>
+            </tr>
+            <tr class="rowlink" data-goto="incident-detail" data-inc="2">
+              <td><strong>Failed deploy: payments-worker v2.14.3</strong><div class="small muted">payments-worker &middot; rollout #4821</div></td>
+              <td><span class="badge sev-high">High</span></td>
+              <td><span class="status st-mitigating"><span class="dot"></span>Mitigating</span></td>
+              <td><span class="avatar">AK</span> <span class="small">Amara</span></td>
+              <td class="muted">1h 12m</td>
+            </tr>
+            <tr class="rowlink" data-goto="incident-detail" data-inc="3">
+              <td><strong>Postgres connection pool saturation</strong><div class="small muted">orders-db &middot; primary</div></td>
+              <td><span class="badge sev-high">High</span></td>
+              <td><span class="status st-open"><span class="dot"></span>Open</span></td>
+              <td><span class="muted small">Unassigned</span></td>
+              <td class="muted">3h 40m</td>
+            </tr>
+            <tr class="rowlink" data-goto="incident-detail" data-inc="4">
+              <td><strong>Elevated 5xx on image CDN edge</strong><div class="small muted">cdn-images &middot; edge POPs</div></td>
+              <td><span class="badge sev-medium">Medium</span></td>
+              <td><span class="status st-resolved"><span class="dot"></span>Resolved</span></td>
+              <td><span class="avatar">JO</span> <span class="small">Jonas</span></td>
+              <td class="muted">1d 2h</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ INCIDENT DETAIL ============ -->
+    <section class="view" id="view-incident-detail">
+      <span class="back" data-goto="incidents">&larr; Back to incidents</span>
+      <div class="page-head">
+        <div>
+          <h1>Checkout p99 latency spike <span class="badge sev-critical" style="vertical-align:middle">Critical</span></h1>
+          <p>INC-2401 &middot; opened 18 minutes ago &middot; demo-store / api-gateway / us-east</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-ghost">Assign</button>
+          <button class="btn">Open thread</button>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <div class="card">
+            <h2>Timeline</h2>
+            <p class="desc">Every detection, action, and verdict in order.</p>
+            <div class="timeline">
+              <div class="t-event bad">
+                <div class="t-time">07:42:11 UTC &middot; detection</div>
+                <div class="t-title">Anomaly detected: p99 latency 2.8s (baseline 340ms)</div>
+                <div class="t-body">Trace sampling flagged <code>POST /checkout</code> on <code>api-gateway</code>. Error budget burn rate 14x normal. Auto-triage opened this incident.</div>
+              </div>
+              <div class="t-event">
+                <div class="t-time">07:42:40 UTC &middot; agent</div>
+                <div class="t-title">Investigation started in thread</div>
+                <div class="t-body">AIRP correlated the spike with deploy <code>storefront@a3f9c21</code> 6 minutes earlier and began tracing the regression.</div>
+              </div>
+              <div class="t-event warn">
+                <div class="t-time">07:47:03 UTC &middot; agent</div>
+                <div class="t-title">Likely cause: N+1 query in cart hydration</div>
+                <div class="t-body">Diff review shows <code>hydrateCart()</code> now issues one query per line item. 200-line carts issue 200+ sequential queries. Confidence: high.</div>
+              </div>
+              <div class="t-event">
+                <div class="t-time">07:51:26 UTC &middot; agent</div>
+                <div class="t-title">Patch proposed: batch cart line fetch</div>
+                <div class="t-body">Pull request #56 opened against <code>storefront</code> &mdash; batches line-item hydration into a single query. Awaiting policy review.</div>
+              </div>
+              <div class="t-event">
+                <div class="t-time">07:55:10 UTC &middot; human</div>
+                <div class="t-title">Everistus joined the incident</div>
+                <div class="t-body">Took ownership and requested a canary rollout at 5% before full merge.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <h2>Handoff</h2>
+            <p class="desc">Current state for the next responder.</p>
+            <div class="handoff-row"><span class="k">Owner</span><span>Everistus</span></div>
+            <div class="handoff-row"><span class="k">Status</span><span class="status st-investigating"><span class="dot"></span>Investigating</span></div>
+            <div class="handoff-row"><span class="k">Suspected cause</span><span>N+1 in hydrateCart()</span></div>
+            <div class="handoff-row"><span class="k">Mitigation</span><span>PR #56 canary 5%</span></div>
+            <div class="handoff-row"><span class="k">Customer impact</span><span>Checkout p99 2.8s</span></div>
+            <div class="handoff-row"><span class="k">Next step</span><span>Approve canary rollout</span></div>
+          </div>
+          <div class="card">
+            <h2>Similar incidents</h2>
+            <p class="desc">Past incidents with matching signatures.</p>
+            <div class="sim-item">
+              <div class="sim-title">Cart latency regression after promo deploy<span class="match">92% match</span></div>
+              <div class="sim-meta">INC-1877 &middot; resolved in 41m &middot; same service</div>
+            </div>
+            <div class="sim-item">
+              <div class="sim-title">p99 spike on /checkout during flash sale<span class="match">78% match</span></div>
+              <div class="sim-meta">INC-1532 &middot; resolved in 1h 12m &middot; traffic-driven</div>
+            </div>
+            <div class="sim-item">
+              <div class="sim-title">N+1 query in order history endpoint<span class="match">71% match</span></div>
+              <div class="sim-meta">INC-1204 &middot; resolved in 2h 5m &middot; same root-cause class</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ THREADS LIST ============ -->
+    <section class="view" id="view-threads">
+      <div class="page-head">
+        <div><h1>Threads</h1><p>Agent investigations, human or AIRP-initiated.</p></div>
+        <button class="btn">New thread</button>
+      </div>
+      <div class="card" style="padding:6px 18px;">
+        <table class="list">
+          <thead><tr><th>Thread</th><th>Type</th><th>Status</th><th>Messages</th><th>Updated</th></tr></thead>
+          <tbody>
+            <tr class="rowlink" data-goto="thread-detail">
+              <td><strong>Checkout p99 latency spike</strong><div class="small muted">INC-2401 &middot; started by AIRP</div></td>
+              <td><span class="badge sev-high">Fix run</span></td>
+              <td><span class="status st-investigating"><span class="dot"></span>Active</span></td>
+              <td>14</td><td class="muted">2m ago</td>
+            </tr>
+            <tr class="rowlink" data-goto="thread-detail">
+              <td><strong>Why did payments-worker v2.14.3 fail?</strong><div class="small muted">INC-2402 &middot; started by Amara</div></td>
+              <td><span class="badge sev-medium">Question</span></td>
+              <td><span class="status st-investigating"><span class="dot"></span>Active</span></td>
+              <td>9</td><td class="muted">22m ago</td>
+            </tr>
+            <tr class="rowlink" data-goto="thread-detail">
+              <td><strong>Which services deployed in the last 24h?</strong><div class="small muted">started by Everistus</div></td>
+              <td><span class="badge sev-low">Explore</span></td>
+              <td><span class="status st-resolved"><span class="dot"></span>Done</span></td>
+              <td>5</td><td class="muted">3h ago</td>
+            </tr>
+            <tr class="rowlink" data-goto="thread-detail">
+              <td><strong>Postgres pool saturation on orders-db</strong><div class="small muted">INC-2403 &middot; started by AIRP</div></td>
+              <td><span class="badge sev-high">Fix run</span></td>
+              <td><span class="status st-investigating"><span class="dot"></span>Active</span></td>
+              <td>7</td><td class="muted">1h ago</td>
+            </tr>
+            <tr class="rowlink" data-goto="thread-detail">
+              <td><strong>Review PR #56: batch cart line fetch</strong><div class="small muted">storefront &middot; started by AIRP</div></td>
+              <td><span class="badge sev-low">Review</span></td>
+              <td><span class="status st-resolved"><span class="dot"></span>Done</span></td>
+              <td>4</td><td class="muted">5h ago</td>
+            </tr>
+            <tr class="rowlink" data-goto="thread-detail">
+              <td><strong>CDN 5xx postmortem draft</strong><div class="small muted">INC-2398 &middot; started by Jonas</div></td>
+              <td><span class="badge sev-low">Explore</span></td>
+              <td><span class="status st-resolved"><span class="dot"></span>Done</span></td>
+              <td>11</td><td class="muted">1d ago</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ THREAD DETAIL ============ -->
+    <section class="view" id="view-thread-detail">
+      <span class="back" data-goto="threads">&larr; Back to threads</span>
+      <div class="page-head">
+        <div><h1>Checkout p99 latency spike</h1><p>INC-2401 &middot; fix run &middot; 14 messages</p></div>
+        <button class="btn-ghost">Share</button>
+      </div>
+      <div class="card">
+        <div class="msg agent">
+          <div class="who">AI</div>
+          <div class="bubble">
+            <div class="meta">AIRP agent &middot; 07:42:40 UTC</div>
+            <p>Incident INC-2401 opened: <strong>p99 latency on <code>POST /checkout</code> rose from 340ms to 2.8s</strong> at 07:42 UTC. Error budget burn is 14x baseline. Starting investigation.</p>
+            <div>
+              <span class="toolcite">trace.query(service=api-gateway)</span>
+              <span class="toolcite">deploy.list(since=1h)</span>
+              <span class="toolcite">metrics.p99(/checkout)</span>
+            </div>
+          </div>
+        </div>
+        <div class="msg agent">
+          <div class="who">AI</div>
+          <div class="bubble">
+            <div class="meta">AIRP agent &middot; 07:44:12 UTC</div>
+            <p>Found a strong correlation: deploy <code>storefront@a3f9c21</code> landed 6 minutes before the spike. The diff touches cart hydration. Pulling the change and tracing slow queries now.</p>
+            <div>
+              <span class="toolcite">git.diff(a3f9c21)</span>
+              <span class="toolcite">trace.slow_queries(/checkout)</span>
+            </div>
+          </div>
+        </div>
+        <div class="msg human">
+          <div class="who">EO</div>
+          <div class="bubble">
+            <div class="meta">Everistus &middot; 07:46:03 UTC</div>
+            <p>Was there a load change at the same time, or is this purely the deploy?</p>
+          </div>
+        </div>
+        <div class="msg agent">
+          <div class="who">AI</div>
+          <div class="bubble">
+            <div class="meta">AIRP agent &middot; 07:47:03 UTC</div>
+            <p>Traffic is flat &mdash; this is the deploy. <code>hydrateCart()</code> now issues <strong>one query per line item</strong> instead of a single batched fetch. A 200-line cart triggers 200+ sequential queries. This matches INC-1877 (92% signature match).</p>
+            <div>
+              <span class="toolcite">code.search(hydrateCart)</span>
+              <span class="toolcite">db.query_log(cart_items)</span>
+            </div>
+            <div class="verdict"><strong>Verdict:</strong> code regression, high confidence. Proposing a patch that restores batched hydration.</div>
+          </div>
+        </div>
+        <div class="msg agent">
+          <div class="who">AI</div>
+          <div class="bubble">
+            <div class="meta">AIRP agent &middot; 07:51:26 UTC</div>
+            <p>Opened <strong>PR #56</strong> on <code>storefront</code>: batch cart line-item hydration into a single query, with a fallback to per-item fetch on partial failure. Sandbox validation passed (12/12 checks).</p>
+            <div>
+              <span class="toolcite">patch.create(storefront)</span>
+              <span class="toolcite">sandbox.validate(pr=56)</span>
+            </div>
+          </div>
+        </div>
+        <div class="msg human">
+          <div class="who">EO</div>
+          <div class="bubble">
+            <div class="meta">Everistus &middot; 07:55:10 UTC</div>
+            <p>Canary it at 5% first. If p99 recovers within 15 minutes, roll to 100%.</p>
+          </div>
+        </div>
+        <div class="composer">
+          <input type="text" placeholder="Ask a follow-up or give the agent an instruction&hellip;">
+          <button class="btn">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ISSUES ============ -->
+    <section class="view" id="view-issues">
+      <div class="page-head">
+        <div><h1>Issues</h1><p>Tracked problems, each worked by a fix run.</p></div>
+        <button class="btn-ghost">Filters</button>
+      </div>
+      <div class="card" style="padding:6px 18px;">
+        <table class="list">
+          <thead><tr><th>Issue</th><th>Priority</th><th>Status</th><th>Linked incident</th><th>Updated</th></tr></thead>
+          <tbody>
+            <tr><td><strong>N+1 query in cart hydration</strong><div class="small muted">storefront &middot; opened by AIRP</div></td><td><span class="prio prio-p1">P1</span></td><td><span class="status st-investigating"><span class="dot"></span>Fix in progress</span></td><td class="muted">INC-2401</td><td class="muted">4m ago</td></tr>
+            <tr><td><strong>payments-worker crash loop on v2.14.3</strong><div class="small muted">payments-worker &middot; opened by Amara</div></td><td><span class="prio prio-p1">P1</span></td><td><span class="status st-mitigating"><span class="dot"></span>Mitigating</span></td><td class="muted">INC-2402</td><td class="muted">20m ago</td></tr>
+            <tr><td><strong>orders-db pool exhaustion under peak</strong><div class="small muted">orders-db &middot; opened by AIRP</div></td><td><span class="prio prio-p2">P2</span></td><td><span class="status st-open"><span class="dot"></span>Triaging</span></td><td class="muted">INC-2403</td><td class="muted">1h ago</td></tr>
+            <tr><td><strong>Stale feature flag: new-checkout-ui</strong><div class="small muted">storefront &middot; opened by Jonas</div></td><td><span class="prio prio-p3">P3</span></td><td><span class="status st-open"><span class="dot"></span>Open</span></td><td class="muted">&mdash;</td><td class="muted">5h ago</td></tr>
+            <tr><td><strong>Retry storm on inventory-service</strong><div class="small muted">inventory-service &middot; opened by AIRP</div></td><td><span class="prio prio-p2">P2</span></td><td><span class="status st-resolved"><span class="dot"></span>Fixed</span></td><td class="muted">INC-2395</td><td class="muted">1d ago</td></tr>
+            <tr><td><strong>CDN edge 5xx during cache purge</strong><div class="small muted">cdn-images &middot; opened by AIRP</div></td><td><span class="prio prio-p2">P2</span></td><td><span class="status st-resolved"><span class="dot"></span>Fixed</span></td><td class="muted">INC-2398</td><td class="muted">1d ago</td></tr>
+            <tr><td><strong>Slow dashboard query on analytics</strong><div class="small muted">analytics-api &middot; opened by Everistus</div></td><td><span class="prio prio-p3">P3</span></td><td><span class="status st-open"><span class="dot"></span>Open</span></td><td class="muted">&mdash;</td><td class="muted">2d ago</td></tr>
+            <tr><td><strong>Webhook delivery delays to partners</strong><div class="small muted">webhooks &middot; opened by AIRP</div></td><td><span class="prio prio-p3">P3</span></td><td><span class="status st-resolved"><span class="dot"></span>Fixed</span></td><td class="muted">INC-2389</td><td class="muted">3d ago</td></tr>
+            <tr><td><strong>Disk pressure on log aggregator</strong><div class="small muted">logging &middot; opened by AIRP</div></td><td><span class="prio prio-p3">P3</span></td><td><span class="status st-resolved"><span class="dot"></span>Fixed</span></td><td class="muted">INC-2384</td><td class="muted">4d ago</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ ESCALATIONS ============ -->
+    <section class="view" id="view-escalations">
+      <div class="page-head">
+        <div><h1>Escalations</h1><p>Incidents that need a human decision right now.</p></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div><strong style="font-size:15px">payments-worker v2.14.3 rollback approval</strong>
+          <div class="small muted" style="margin-top:4px">INC-2402 &middot; escalated 12m ago by AIRP agent</div></div>
+          <span class="prio prio-p1">P1</span>
+        </div>
+        <p style="font-size:13.5px;color:var(--muted);line-height:1.6;margin:10px 0 14px">The canary for the rollback is healthy, but full rollback touches the ledger writer. Policy requires a human approval before proceeding past 50%.</p>
+        <div style="display:flex;gap:8px"><button class="btn">Approve rollback</button><button class="btn-ghost">View incident</button><button class="btn-ghost">Snooze 30m</button></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div><strong style="font-size:15px">Checkout canary stuck at 5% &mdash; needs decision</strong>
+          <div class="small muted" style="margin-top:4px">INC-2401 &middot; escalated 3m ago by AIRP agent</div></div>
+          <span class="prio prio-p1">P1</span>
+        </div>
+        <p style="font-size:13.5px;color:var(--muted);line-height:1.6;margin:10px 0 14px">p99 recovered to 380ms on the canary cohort. The agent recommends rolling to 100%, but the change touches checkout revenue path &mdash; your call.</p>
+        <div style="display:flex;gap:8px"><button class="btn">Roll to 100%</button><button class="btn-ghost">View thread</button><button class="btn-ghost">Hold canary</button></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- feature flag: theme switcher -->
+<div class="flag">
+  <div class="fname">Feature flag: ui.theme.accent</div>
+  <div class="opts">
+    <button data-theme-set="violet" title="violet" style="background:#a78bfa" class="on"></button>
+    <button data-theme-set="crimson" title="crimson" style="background:#f87171"></button>
+    <button data-theme-set="signal-green" title="signal-green" style="background:#4ade80"></button>
+    <button data-theme-set="ember-orange" title="ember-orange" style="background:#fb923c"></button>
+    <button data-theme-set="cyan" title="cyan" style="background:#22d3ee"></button>
+  </div>
+</div>
+
+<script>
+  // view router
+  function show(view){
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    var el=document.getElementById('view-'+view);
+    if(el) el.classList.add('active');
+    document.querySelectorAll('.rail nav button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.view===view || (view==='incident-detail'&&b.dataset.view==='incidents') || (view==='thread-detail'&&b.dataset.view==='threads'));
+    });
+    document.querySelector('.main').scrollTop=0;
+  }
+  document.querySelectorAll('[data-goto]').forEach(el=>{
+    el.addEventListener('click',function(){ show(el.dataset.goto); });
+  });
+  document.querySelectorAll('.rail nav button').forEach(b=>{
+    b.addEventListener('click',function(){ show(b.dataset.view); });
+  });
+  // theme flag
+  document.querySelectorAll('[data-theme-set]').forEach(btn=>{
+    btn.addEventListener('click',function(){
+      document.documentElement.setAttribute('data-theme',btn.dataset.themeSet);
+      document.querySelectorAll('[data-theme-set]').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

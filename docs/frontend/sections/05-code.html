@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP — Code Automation</title>
+<style>
+  :root, html[data-theme="violet"]{
+    --accent:#a78bfa; --accent-hover:#8b5cf6; --bg:#0b0a10; --surface:#15131d;
+    --border:#282434; --text:#f5f3fa; --muted:#a8a3b8;
+  }
+  html[data-theme="crimson"]{
+    --accent:#f87171; --accent-hover:#ef4444; --bg:#0c0909; --surface:#181214;
+    --border:#2e2224; --text:#faf3f3; --muted:#b8a3a3;
+  }
+  html[data-theme="signal-green"]{
+    --accent:#4ade80; --accent-hover:#22c55e; --bg:#0a0a0b; --surface:#141417;
+    --border:#26262b; --text:#f4f4f5; --muted:#a1a1aa;
+  }
+  html[data-theme="ember-orange"]{
+    --accent:#fb923c; --accent-hover:#f97316; --bg:#0b0a09; --surface:#161412;
+    --border:#2b2521; --text:#faf7f4; --muted:#a8a29e;
+  }
+  html[data-theme="cyan"]{
+    --accent:#22d3ee; --accent-hover:#06b6d4; --bg:#090b0c; --surface:#121819;
+    --border:#1f2b2e; --text:#f2fafa; --muted:#9fb3b8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5;min-height:100vh}
+  a{color:var(--accent);text-decoration:none}
+  .app{display:flex;min-height:100vh}
+  .rail{width:216px;flex-shrink:0;border-right:1px solid var(--border);padding:18px 12px;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 10px 18px;font-weight:700;font-size:16px}
+  .brand .mark{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#0b0a10;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .rail .sec{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:10px 10px 6px}
+  .rail a.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);font-size:13.5px;cursor:pointer}
+  .rail a.nav:hover{background:var(--surface);color:var(--text)}
+  .rail a.nav.active{background:var(--surface);color:var(--accent);font-weight:600}
+  .rail a.nav .count{margin-left:auto;font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted)}
+  .main{flex:1;min-width:0}
+  .topbar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:12px}
+  .topbar h1{font-size:17px;font-weight:650}
+  .topbar .crumb{color:var(--muted);font-size:13px}
+  .topbar .spacer{flex:1}
+  .content{padding:26px 28px 90px;max-width:1180px}
+  .view{display:none}
+  .view.active{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px}
+  .card h3{font-size:14.5px;margin-bottom:4px}
+  .card p.desc{color:var(--muted);font-size:13px;margin-bottom:10px}
+  .row{display:flex;align-items:center;gap:12px}
+  .btn{border:none;border-radius:7px;padding:8px 16px;font-size:13px;font-weight:650;cursor:pointer;background:var(--accent);color:#0b0a10}
+  .btn:hover{background:var(--accent-hover)}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text);border-radius:7px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .btn-danger{background:transparent;border:1px solid #7f1d1d;color:#f87171;border-radius:7px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em;padding:10px 12px;border-bottom:1px solid var(--border)}
+  td{padding:12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr.clickable{cursor:pointer}
+  tr.clickable:hover td{background:rgba(255,255,255,.015)}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:650;padding:3px 10px;border-radius:999px;white-space:nowrap}
+  .b-pass{background:rgba(74,222,128,.13);color:#4ade80}
+  .b-fail{background:rgba(248,113,113,.13);color:#f87171}
+  .b-neutral{background:rgba(161,161,170,.13);color:var(--muted)}
+  .b-pending{background:rgba(251,191,36,.13);color:#fbbf24}
+  .b-info{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+  .b-draft{background:rgba(167,139,250,.13);color:#a78bfa}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+  .muted{color:var(--muted)}
+  .verdict{border-radius:12px;padding:16px 18px;margin-bottom:16px;border:1px solid;display:flex;gap:14px;align-items:flex-start}
+  .verdict.fail{background:rgba(248,113,113,.06);border-color:rgba(248,113,113,.35)}
+  .verdict.pass{background:rgba(74,222,128,.06);border-color:rgba(74,222,128,.35)}
+  .verdict .vicon{font-size:20px;line-height:1.2}
+  .verdict h3{font-size:15px;margin-bottom:2px}
+  .verdict p{font-size:13px;color:var(--muted)}
+  .comment{border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;background:var(--bg)}
+  .comment .chead{display:flex;gap:10px;align-items:center;margin-bottom:6px;font-size:12.5px}
+  .comment .cfile{color:var(--accent)}
+  .comment p{font-size:13.5px}
+  .comment code{background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12px}
+  .checks{list-style:none;font-size:13px}
+  .checks li{padding:7px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center}
+  .checks li:last-child{border-bottom:none}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot.g{background:#4ade80}.dot.r{background:#f87171}.dot.a{background:#fbbf24}
+  .progress{height:8px;border-radius:999px;background:var(--bg);border:1px solid var(--border);overflow:hidden;margin:10px 0 4px}
+  .progress > div{height:100%;background:var(--accent);border-radius:999px;transition:width .4s ease}
+  .stages{display:flex;gap:6px;margin:12px 0}
+  .stage{flex:1;text-align:center;font-size:11.5px;color:var(--muted);padding:8px 4px;border-radius:7px;border:1px solid var(--border);background:var(--bg)}
+  .stage.done{color:var(--accent);border-color:var(--accent)}
+  .stage.now{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);font-weight:650}
+  pre.diff{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12.5px;overflow-x:auto;margin-top:10px}
+  pre.diff .add{color:#4ade80;display:block}
+  pre.diff .del{color:#f87171;display:block}
+  pre.diff .ctx{color:var(--muted);display:block}
+  pre.diff .hunk{color:var(--accent);display:block}
+  .steps{list-style:none;counter-reset:step}
+  .steps li{counter-increment:step;display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)}
+  .steps li:last-child{border-bottom:none}
+  .steps li::before{content:counter(step);flex-shrink:0;width:26px;height:26px;border-radius:50%;border:1px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .steps code{display:block;margin-top:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px}
+  .flag-switcher{position:fixed;right:18px;bottom:18px;z-index:50;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.45);max-width:250px}
+  .flag-switcher .flabel{font-size:11px;color:var(--muted);margin-bottom:8px}
+  .flag-switcher .flabel code{color:var(--text);font-size:11px}
+  .flag-switcher .dots{display:flex;gap:8px}
+  .flag-switcher button{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+  .flag-switcher button.on{border-color:var(--text)}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px}
+  .kpi .card{margin-bottom:0}
+  .kpi .num{font-size:26px;font-weight:700}
+  .kpi .lbl{font-size:12px;color:var(--muted)}
+  .toolbar{display:flex;gap:10px;margin-bottom:16px;align-items:center}
+  .toolbar input{background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:8px 12px;font-size:13px;width:260px}
+  .empty{text-align:center;padding:60px 20px;color:var(--muted)}
+  .empty .eicon{font-size:40px;margin-bottom:12px}
+  .pill-tabs{display:flex;gap:8px;margin-bottom:16px}
+  .pill-tabs button{background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:999px;padding:6px 14px;font-size:12.5px;cursor:pointer}
+  .pill-tabs button.on{color:var(--accent);border-color:var(--accent);font-weight:650}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><span class="mark">A</span> AIRP</div>
+    <div class="sec">Code automation</div>
+    <a class="nav active" data-view="pulls">Pull requests <span class="count">5</span></a>
+    <a class="nav" data-view="approvals">Approvals <span class="count">4</span></a>
+    <a class="nav" data-view="patches">Patches <span class="count">4</span></a>
+    <a class="nav" data-view="rollouts">Rollouts <span class="count">3</span></a>
+    <a class="nav" data-view="runbooks">Runbooks <span class="count">5</span></a>
+    <div class="sec">Section 05 of prototype</div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <span class="crumb">AIRP / Code automation /</span>
+      <h1 id="page-title">Pull requests</h1>
+      <div class="spacer"></div>
+      <button class="btn-ghost" onclick="alert('Docs open in the full app')">Documentation</button>
+    </div>
+    <div class="content">
+
+      <!-- PULL REQUESTS LIST -->
+      <section class="view active" id="view-pulls">
+        <div class="kpi">
+          <div class="card"><div class="num">5</div><div class="lbl">Open pull requests</div></div>
+          <div class="card"><div class="num">80%</div><div class="lbl">Agent review pass rate (30d)</div></div>
+          <div class="card"><div class="num">6m</div><div class="lbl">Median time to verdict</div></div>
+          <div class="card"><div class="num">1</div><div class="lbl">Blocked on review</div></div>
+        </div>
+        <div class="toolbar">
+          <input placeholder="Search pull requests..." oninput="filterRows('pr-table',this.value)">
+          <div class="pill-tabs">
+            <button class="on">All</button><button>Needs review</button><button>Merged</button>
+          </div>
+        </div>
+        <div class="card" style="padding:6px 12px">
+          <table id="pr-table">
+            <thead><tr><th>Pull request</th><th>Author</th><th>Agent verdict</th><th>Checks</th><th>Updated</th></tr></thead>
+            <tbody>
+              <tr class="clickable" onclick="showView('pr-detail')">
+                <td><span class="mono muted">#61</span> <strong>fix: exponential backoff with jitter on ingest 429s</strong><br><span class="muted" style="font-size:12px">bytenaija/airp · ingest-retry · +34 −12</span></td>
+                <td>AIRP agent</td>
+                <td><span class="badge b-fail">Found an issue</span></td>
+                <td><span class="dot r" style="display:inline-block"></span> 3/4</td>
+                <td class="muted">12m ago</td>
+              </tr>
+              <tr class="clickable" onclick="showView('pr-detail')">
+                <td><span class="mono muted">#60</span> <strong>Add HNSW index to outcome embeddings</strong><br><span class="muted" style="font-size:12px">bytenaija/airp · vector-index · +58 −6</span></td>
+                <td>everistusolumese</td>
+                <td><span class="badge b-pass">Passed</span></td>
+                <td><span class="dot g" style="display:inline-block"></span> 5/5</td>
+                <td class="muted">1h ago</td>
+              </tr>
+              <tr class="clickable" onclick="showView('pr-detail')">
+                <td><span class="mono muted">#59</span> <strong>chore: bump tree-sitter grammar registry</strong><br><span class="muted" style="font-size:12px">bytenaija/airp · deps · +9 −9</span></td>
+                <td>AIRP agent</td>
+                <td><span class="badge b-pass">Passed</span></td>
+                <td><span class="dot g" style="display:inline-block"></span> 4/4</td>
+                <td class="muted">3h ago</td>
+              </tr>
+              <tr>
+                <td><span class="mono muted">#58</span> <strong>Set up AIRP</strong><br><span class="muted" style="font-size:12px">bytenaija/airp · main · +9 −0</span></td>
+                <td>AIRP agent</td>
+                <td><span class="badge b-neutral">Superseded</span></td>
+                <td><span class="dot g" style="display:inline-block"></span> merged</td>
+                <td class="muted">2d ago</td>
+              </tr>
+              <tr>
+                <td><span class="mono muted">#57</span> <strong>docs: connector catalog shape</strong><br><span class="muted" style="font-size:12px">bytenaija/airp · docs · +112 −4</span></td>
+                <td>everistusolumese</td>
+                <td><span class="badge b-neutral">Skipped</span></td>
+                <td><span class="dot g" style="display:inline-block"></span> merged</td>
+                <td class="muted">3d ago</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PR DETAIL -->
+      <section class="view" id="view-pr-detail">
+        <div class="row" style="margin-bottom:14px">
+          <a class="btn-ghost" style="cursor:pointer" onclick="showView('pulls')">← Back to pull requests</a>
+          <span class="mono muted">bytenaija/airp #61</span>
+        </div>
+        <h2 style="font-size:20px;margin-bottom:4px">fix: exponential backoff with jitter on ingest 429s</h2>
+        <p class="muted" style="margin-bottom:16px">ingest-retry → main · opened by AIRP agent · +34 −12 across 2 files</p>
+        <div class="verdict fail">
+          <span class="vicon">✕</span>
+          <div>
+            <h3>Agent review: found an issue</h3>
+            <p>Reviewed against the production topology and incident INC-2041 evidence. One failing check blocks merge: the retry path must respect the provider <span class="mono">Retry-After</span> header.</p>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Review comments</h3>
+          <p class="desc">2 comments from the AIRP reviewer</p>
+          <div class="comment">
+            <div class="chead"><span class="badge b-fail">Failing</span><span class="cfile mono">services/ingest-gateway/src/retry.ts:87</span></div>
+            <p>This path swallows the provider <code>Retry-After</code> header and always waits the computed backoff. Per the incident timeline, the provider asked for a 30s pause during the 429 storm and the gateway retried after 1.2s, amplifying the overload. Read the header first; fall back to computed backoff only when it is absent.</p>
+          </div>
+          <div class="comment">
+            <div class="chead"><span class="badge b-pending">Suggestion</span><span class="cfile mono">services/ingest-gateway/src/retry.ts:42</span></div>
+            <p>Jitter is applied to the full delay, which can still cluster retries. Consider <code>delay = min(cap, base * 2 ** attempt) / 2 + rand(0, cap / 2)</code> (equal jitter) so the expected wait stays bounded while spreading the retry storm.</p>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Checks</h3>
+          <ul class="checks">
+            <li><span class="dot g"></span> lint — passed in 41s</li>
+            <li><span class="dot g"></span> unit tests — 214 passed in 2m 10s</li>
+            <li><span class="dot r"></span> integration (live Postgres) — 1 failed: retry respects Retry-After</li>
+            <li><span class="dot r"></span> agent review — failing verdict, merge blocked</li>
+          </ul>
+        </div>
+        <div class="row">
+          <button class="btn" disabled>Merge pull request (blocked)</button>
+          <button class="btn-ghost">View thread</button>
+          <button class="btn-ghost">Open in GitHub</button>
+        </div>
+      </section>
+
+      <!-- APPROVALS -->
+      <section class="view" id="view-approvals">
+        <div class="kpi">
+          <div class="card"><div class="num">4</div><div class="lbl">Pending approvals</div></div>
+          <div class="card"><div class="num">2</div><div class="lbl">High risk</div></div>
+          <div class="card"><div class="num">11m</div><div class="lbl">Median wait time</div></div>
+          <div class="card"><div class="num">96%</div><div class="lbl">Auto-approved (7d)</div></div>
+        </div>
+        <div id="approval-list">
+          <div class="card" data-approval>
+            <div class="row" style="justify-content:space-between">
+              <h3>Restart deployment <span class="mono">checkout-api</span> in production</h3>
+              <span class="badge b-pending">Pending</span>
+            </div>
+            <p class="desc">Requested by AIRP agent · linked to <a>INC-2041</a> · 4m ago</p>
+            <div class="row" style="margin-bottom:12px">
+              <span class="badge b-info">policy: prod-restart-requires-approval</span>
+              <span class="badge b-pending">risk: medium</span>
+              <span class="muted" style="font-size:12.5px">Rolling restart, 3 replicas, health-gated</span>
+            </div>
+            <div class="row decision-row">
+              <button class="btn" onclick="decide(this,true)">Approve</button>
+              <button class="btn-danger" onclick="decide(this,false)">Reject</button>
+              <button class="btn-ghost">View policy</button>
+            </div>
+          </div>
+          <div class="card" data-approval>
+            <div class="row" style="justify-content:space-between">
+              <h3>Scale <span class="mono">code-index</span> workers 2 → 6</h3>
+              <span class="badge b-pending">Pending</span>
+            </div>
+            <p class="desc">Requested by AIRP agent · linked to <a>INC-2044</a> · 18m ago</p>
+            <div class="row" style="margin-bottom:12px">
+              <span class="badge b-info">policy: autoscale-beyond-budget</span>
+              <span class="badge b-pass">risk: low</span>
+              <span class="muted" style="font-size:12.5px">Estimated +CA$38/mo while active</span>
+            </div>
+            <div class="row decision-row">
+              <button class="btn" onclick="decide(this,true)">Approve</button>
+              <button class="btn-danger" onclick="decide(this,false)">Reject</button>
+              <button class="btn-ghost">View policy</button>
+            </div>
+          </div>
+          <div class="card" data-approval>
+            <div class="row" style="justify-content:space-between">
+              <h3>Apply patch P-118 to <span class="mono">policy-engine</span></h3>
+              <span class="badge b-pending">Pending</span>
+            </div>
+            <p class="desc">Requested by AIRP agent · linked to <a>INC-2039</a> · 32m ago</p>
+            <div class="row" style="margin-bottom:12px">
+              <span class="badge b-info">policy: patch-autoapply</span>
+              <span class="badge b-fail">risk: high</span>
+              <span class="muted" style="font-size:12.5px">Touches flag evaluation path; sandbox-validated</span>
+            </div>
+            <div class="row decision-row">
+              <button class="btn" onclick="decide(this,true)">Approve</button>
+              <button class="btn-danger" onclick="decide(this,false)">Reject</button>
+              <button class="btn-ghost">View patch</button>
+            </div>
+          </div>
+          <div class="card" data-approval>
+            <div class="row" style="justify-content:space-between">
+              <h3>Rotate Cloudflare API token</h3>
+              <span class="badge b-pending">Pending</span>
+            </div>
+            <p class="desc">Requested by everistusolumese · scheduled rotation · 1h ago</p>
+            <div class="row" style="margin-bottom:12px">
+              <span class="badge b-info">policy: credential-rotation</span>
+              <span class="badge b-pass">risk: low</span>
+              <span class="muted" style="font-size:12.5px">Dual-credential handover, zero downtime</span>
+            </div>
+            <div class="row decision-row">
+              <button class="btn" onclick="decide(this,true)">Approve</button>
+              <button class="btn-danger" onclick="decide(this,false)">Reject</button>
+              <button class="btn-ghost">View policy</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PATCHES -->
+      <section class="view" id="view-patches">
+        <div class="toolbar">
+          <div class="pill-tabs">
+            <button class="on">All</button><button>Proposed</button><button>Validated</button><button>Approved</button><button>Applied</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">P-121</span> Add jitter to ingest backoff</h3>
+            <span class="badge b-info">Validated</span>
+          </div>
+          <p class="desc">From INC-2041 · 2 files changed · <span style="color:#4ade80">+34</span> <span style="color:#f87171">−12</span> · sandbox run passed in 3m 20s</p>
+          <pre class="diff"><span class="hunk">@@ services/ingest-gateway/src/retry.ts @@</span><span class="ctx"> function computeDelay(attempt: number): number {</span><span class="del">-  return Math.min(1000 * 2 ** attempt, 30000);</span><span class="add">+  const capped = Math.min(1000 * 2 ** attempt, 30000);</span><span class="add">+  return capped / 2 + Math.random() * (capped / 2);</span><span class="ctx"> }</span></pre>
+          <div class="row" style="margin-top:12px">
+            <button class="btn">Send to approvals</button>
+            <button class="btn-ghost">View sandbox log</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">P-120</span> Raise HNSW ef_search 40 → 64</h3>
+            <span class="badge b-pass">Approved</span>
+          </div>
+          <p class="desc">From INC-2040 · 1 file changed · <span style="color:#4ade80">+3</span> <span style="color:#f87171">−3</span> · recall@10 improved 0.91 → 0.96 on eval set</p>
+          <div class="row" style="margin-top:12px">
+            <button class="btn">Apply now</button>
+            <button class="btn-ghost">Schedule for window</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">P-119</span> Fix flag evaluation cache TTL</h3>
+            <span class="badge b-pending">Proposed</span>
+          </div>
+          <p class="desc">From INC-2038 · 3 files changed · <span style="color:#4ade80">+51</span> <span style="color:#f87171">−18</span> · awaiting sandbox validation</p>
+          <div class="row" style="margin-top:12px">
+            <button class="btn-ghost">View proposal</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">P-118</span> policy-engine: schema guard on flag writes</h3>
+            <span class="badge b-neutral">Applied</span>
+          </div>
+          <p class="desc">From INC-2039 · applied 2h ago · rollout R-85 completed</p>
+        </div>
+      </section>
+
+      <!-- ROLLOUTS -->
+      <section class="view" id="view-rollouts">
+        <div class="card" data-rollout>
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">R-88</span> checkout-api <span class="mono">v2.14.1</span></h3>
+            <span class="badge b-info">Canary 25%</span>
+          </div>
+          <p class="desc">Started 42m ago · strategy: 5% → 25% → 50% → 100% · auto-promote on health</p>
+          <div class="stages">
+            <div class="stage done">5%</div>
+            <div class="stage now">25%</div>
+            <div class="stage">50%</div>
+            <div class="stage">100%</div>
+          </div>
+          <div class="progress"><div style="width:25%"></div></div>
+          <div class="row" style="font-size:12.5px">
+            <span class="muted">Error rate <strong style="color:var(--text)">0.21%</strong> (baseline 0.20%)</span>
+            <span class="muted">·</span>
+            <span class="muted">p99 latency <strong style="color:var(--text)">342ms</strong> (baseline 338ms)</span>
+            <span class="muted">·</span>
+            <span style="color:#4ade80">Health checks passing</span>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn">Promote to 50%</button>
+            <button class="btn-ghost">Pause</button>
+            <button class="btn-danger">Roll back</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">R-87</span> ingest-gateway <span class="mono">v1.9.0</span></h3>
+            <span class="badge b-pass">Complete</span>
+          </div>
+          <p class="desc">Finished 6h ago · all stages healthy · 0 rollbacks</p>
+          <div class="stages">
+            <div class="stage done">5%</div>
+            <div class="stage done">25%</div>
+            <div class="stage done">50%</div>
+            <div class="stage done">100%</div>
+          </div>
+          <div class="progress"><div style="width:100%"></div></div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3><span class="mono muted">R-86</span> ux <span class="mono">v0.22.0</span></h3>
+            <span class="badge b-pending">Paused at 50%</span>
+          </div>
+          <p class="desc">Paused by everistusolumese 1d ago · elevated 5xx on edge nodes during canary</p>
+          <div class="stages">
+            <div class="stage done">5%</div>
+            <div class="stage done">25%</div>
+            <div class="stage now">50%</div>
+            <div class="stage">100%</div>
+          </div>
+          <div class="progress"><div style="width:50%"></div></div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn">Resume</button>
+            <button class="btn-danger">Roll back</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- RUNBOOKS -->
+      <section class="view" id="view-runbooks">
+        <div class="toolbar">
+          <input placeholder="Search runbooks..." oninput="filterRows('rb-table',this.value)">
+          <div class="pill-tabs">
+            <button class="on">All</button><button>Published</button><button>Drafts</button>
+          </div>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn">New runbook</button>
+        </div>
+        <div class="card" style="padding:6px 12px">
+          <table id="rb-table">
+            <thead><tr><th>Runbook</th><th>Steps</th><th>Status</th><th>Last used</th></tr></thead>
+            <tbody>
+              <tr class="clickable" onclick="showView('runbook-detail')">
+                <td><span class="mono muted">RB-014</span> <strong>Postgres failover</strong><br><span class="muted" style="font-size:12px">Promote standby, repoint writers, verify replication lag</span></td>
+                <td>12</td>
+                <td><span class="badge b-pass">Published</span></td>
+                <td class="muted">2d ago</td>
+              </tr>
+              <tr class="clickable" onclick="showView('runbook-detail')">
+                <td><span class="mono muted">RB-009</span> <strong>Cloudflare tunnel outage</strong><br><span class="muted" style="font-size:12px">Diagnose tunnel health, fail over to backup origin</span></td>
+                <td>8</td>
+                <td><span class="badge b-pass">Published</span></td>
+                <td class="muted">9d ago</td>
+              </tr>
+              <tr class="clickable" onclick="showView('runbook-detail')">
+                <td><span class="mono muted">RB-003</span> <strong>Incident triage checklist</strong><br><span class="muted" style="font-size:12px">Severity assignment, comms, and escalation paths</span></td>
+                <td>6</td>
+                <td><span class="badge b-pass">Published</span></td>
+                <td class="muted">1d ago</td>
+              </tr>
+              <tr>
+                <td><span class="mono muted">RB-021</span> <strong>Neon branch restore</strong><br><span class="muted" style="font-size:12px">Point-in-time restore from a Neon branch — draft in progress</span></td>
+                <td>5</td>
+                <td><span class="badge b-draft">Draft</span></td>
+                <td class="muted">never</td>
+              </tr>
+              <tr>
+                <td><span class="mono muted">RB-020</span> <strong>Vectorize backfill</strong><br><span class="muted" style="font-size:12px">Rebuild vector index from Postgres embeddings — draft in progress</span></td>
+                <td>7</td>
+                <td><span class="badge b-draft">Draft</span></td>
+                <td class="muted">never</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- RUNBOOK DETAIL -->
+      <section class="view" id="view-runbook-detail">
+        <div class="row" style="margin-bottom:14px">
+          <a class="btn-ghost" style="cursor:pointer" onclick="showView('runbooks')">← Back to runbooks</a>
+          <span class="mono muted">RB-014</span>
+          <span class="badge b-pass">Published</span>
+        </div>
+        <h2 style="font-size:20px;margin-bottom:4px">Postgres failover</h2>
+        <p class="muted" style="margin-bottom:16px">Promote the standby, repoint writers, and verify replication lag is zero. Last used 2 days ago during INC-2036.</p>
+        <div class="card">
+          <h3>Steps</h3>
+          <ol class="steps">
+            <li><div><strong>Confirm the primary is down</strong><br><span class="muted">Two consecutive health-check failures, 30s apart.</span><code>airp db:health --primary</code></div></li>
+            <li><div><strong>Stop writes on the old primary</strong><br><span class="muted">Fence it so it cannot accept writes after promotion.</span><code>airp db:fence --target primary</code></div></li>
+            <li><div><strong>Promote the standby</strong><br><span class="muted">Wait for promotion to report ready before continuing.</span><code>airp db:promote --standby standby-1 --wait</code></div></li>
+            <li><div><strong>Repoint the writers</strong><br><span class="muted">Update the connection string in the vault; services pick it up on next deploy.</span><code>airp vault:rotate db-writer --value $NEW_PRIMARY_DSN</code></div></li>
+            <li><div><strong>Verify replication lag is zero</strong><br><span class="muted">Fail the runbook if lag exceeds 5s after 2 minutes.</span><code>airp db:lag --expect 0</code></div></li>
+            <li><div><strong>Announce in #incidents</strong><br><span class="muted">Post the failover summary and new primary endpoint.</span></div></li>
+          </ol>
+        </div>
+        <div class="row">
+          <button class="btn">Run now</button>
+          <button class="btn-ghost">Edit</button>
+          <button class="btn-ghost">Duplicate</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<div class="flag-switcher">
+  <div class="flabel">Feature flag: <code>ui.theme.accent</code></div>
+  <div class="dots">
+    <button data-set-theme="violet" title="violet" style="background:#a78bfa" class="on"></button>
+    <button data-set-theme="crimson" title="crimson" style="background:#f87171"></button>
+    <button data-set-theme="signal-green" title="signal-green" style="background:#4ade80"></button>
+    <button data-set-theme="ember-orange" title="ember-orange" style="background:#fb923c"></button>
+    <button data-set-theme="cyan" title="cyan" style="background:#22d3ee"></button>
+  </div>
+</div>
+
+<script>
+  var TITLES = {
+    'pulls': 'Pull requests',
+    'pr-detail': 'Pull request #61',
+    'approvals': 'Approvals',
+    'patches': 'Patches',
+    'rollouts': 'Rollouts',
+    'runbooks': 'Runbooks',
+    'runbook-detail': 'Runbook RB-014'
+  };
+  function showView(id){
+    document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+    var el = document.getElementById('view-' + id);
+    if(el) el.classList.add('active');
+    document.querySelectorAll('.rail a.nav').forEach(function(n){
+      n.classList.toggle('active', n.getAttribute('data-view') === id ||
+        (id === 'pr-detail' && n.getAttribute('data-view') === 'pulls') ||
+        (id === 'runbook-detail' && n.getAttribute('data-view') === 'runbooks'));
+    });
+    document.getElementById('page-title').textContent = TITLES[id] || id;
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('.rail a.nav').forEach(function(n){
+    n.addEventListener('click', function(){ showView(n.getAttribute('data-view')); });
+  });
+  document.querySelectorAll('[data-set-theme]').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.documentElement.setAttribute('data-theme', b.getAttribute('data-set-theme'));
+      document.querySelectorAll('[data-set-theme]').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+  function decide(btn, approved){
+    var card = btn.closest('[data-approval]');
+    var badge = card.querySelector('.badge.b-pending');
+    if(badge){
+      badge.textContent = approved ? 'Approved' : 'Rejected';
+      badge.className = 'badge ' + (approved ? 'b-pass' : 'b-fail');
+    }
+    var row = card.querySelector('.decision-row');
+    if(row) row.innerHTML = '<span class="muted" style="font-size:13px">' +
+      (approved ? 'Approved just now — action dispatched to the policy engine.' : 'Rejected just now — requester has been notified.') + '</span>';
+    var nav = document.querySelector('.rail a.nav[data-view="approvals"] .count');
+    if(nav){ var n = parseInt(nav.textContent, 10); if(n > 0) nav.textContent = n - 1; }
+  }
+  function filterRows(tableId, q){
+    q = q.toLowerCase();
+    document.querySelectorAll('#' + tableId + ' tbody tr').forEach(function(tr){
+      tr.style.display = tr.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+    });
+  }
+</script>
+</body>
+</html>
