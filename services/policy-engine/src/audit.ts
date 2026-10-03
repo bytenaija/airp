@@ -1,5 +1,9 @@
-import { PrismaClient } from "@prisma/client";
 import crypto from "node:crypto";
+import {
+  MemoryRelationalStore,
+  type AuditRecord,
+  type AuditRepository,
+} from "@airp/common";
 import { type PolicyDecision } from "@airp/common";
 import { type DecisionModelAdvisory } from "./decision/provider.js";
 
@@ -28,89 +32,114 @@ export interface AuditLogEntry {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Keys the policy audit folds into the storage `metadata` JSON object.
+ * The storage `audit_log` model has no dedicated columns for them, so
+ * the mapping is deliberate and documented here (see
+ * docs/storage-backends.md).
+ */
+const POLICY_METADATA_KEYS = [
+  "autoMergeEligible",
+  "requiredApprovals",
+  "reasons",
+  "advisory",
+] as const;
+
+/** Map a policy audit entry onto the storage audit_log model. */
+function toAuditRecord(entry: AuditLogEntry): AuditRecord {
+  return {
+    id: entry.id || crypto.randomUUID(),
+    tenantId: entry.tenantId || "local",
+    timestamp: (entry.timestamp || new Date()).toISOString(),
+    eventType: entry.eventType,
+    identity: entry.identity,
+    policyVersion: entry.policyVersion,
+    targetId: entry.targetId,
+    actionOrDecision: entry.actionOrDecision,
+    metadata: {
+      ...(entry.metadata || {}),
+      autoMergeEligible: entry.autoMergeEligible ?? null,
+      requiredApprovals: entry.requiredApprovals || [],
+      reasons: entry.reasons || [],
+      advisory: entry.advisory ?? null,
+    },
+  };
+}
+
+/** Map a storage audit record back onto a policy audit entry. */
+function toAuditLogEntry(record: AuditRecord): AuditLogEntry {
+  const metadata = { ...(record.metadata || {}) };
+  const policyFields: Record<string, unknown> = {};
+  for (const key of POLICY_METADATA_KEYS) {
+    if (key in metadata) {
+      policyFields[key] = metadata[key];
+      delete metadata[key];
+    }
+  }
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    timestamp: record.timestamp ? new Date(record.timestamp) : undefined,
+    eventType: record.eventType as AuditEventType,
+    identity: record.identity,
+    policyVersion: record.policyVersion,
+    targetId: record.targetId,
+    actionOrDecision: record.actionOrDecision,
+    autoMergeEligible: (policyFields.autoMergeEligible as boolean | null) ?? null,
+    requiredApprovals: (policyFields.requiredApprovals as string[]) || [],
+    reasons: (policyFields.reasons as string[]) || [],
+    advisory: (policyFields.advisory as DecisionModelAdvisory | null) ?? null,
+    metadata,
+  };
+}
+
 export class InsertOnlyViolationError extends Error {
-  constructor(message = "policy_audit_logs is insert-only: UPDATE and DELETE are prohibited") {
+  constructor(message = "policy audit log is insert-only: UPDATE and DELETE are prohibited") {
     super(message);
     this.name = "InsertOnlyViolationError";
   }
 }
 
+/**
+ * Policy audit log over the storage AuditRepository surface
+ * (Epic 20, work package 7).
+ *
+ * Previously this wrote to its own `policy_audit_logs` Prisma table with
+ * a Postgres trigger enforcing immutability. It now writes through the
+ * RelationalStore audit surface, so the same entries land in the shared
+ * `audit_log` table on Postgres (via PrismaRelationalStore), in
+ * Hyperdrive/D1 on Cloudflare, or in memory in tests. The policy-only
+ * fields (autoMergeEligible, requiredApprovals, reasons, advisory) are
+ * folded into the record metadata; see toAuditRecord.
+ *
+ * Insert-only is now structural: AuditRepository exposes no update or
+ * delete operations, so attemptUpdate/attemptDelete always throw
+ * InsertOnlyViolationError without needing a database trigger.
+ */
 export class PolicyAuditStore {
-  private prisma?: PrismaClient;
-  private inMemoryLogs: AuditLogEntry[] = [];
+  private readonly audit: AuditRepository;
 
-  constructor(prisma?: PrismaClient) {
-    this.prisma = prisma;
-  }
-
-  /**
-   * Ensures the PostgreSQL trigger enforcing immutability is installed on the database table.
-   * DDL failures propagate directly so database configuration issues fail loud.
-   */
-  async ensureDatabaseTrigger(): Promise<void> {
-    if (!this.prisma) return;
-
-    await this.prisma.$executeRawUnsafe(`
-      CREATE OR REPLACE FUNCTION forbid_policy_audit_mutation()
-      RETURNS TRIGGER AS $$
-      BEGIN
-          RAISE EXCEPTION 'policy_audit_logs is insert-only: UPDATE and DELETE are prohibited';
-      END;
-      $$ LANGUAGE plpgsql;
-    `);
-
-    await this.prisma.$executeRawUnsafe(`
-      DROP TRIGGER IF EXISTS policy_audit_logs_immutable ON policy_audit_logs;
-    `);
-
-    await this.prisma.$executeRawUnsafe(`
-      CREATE TRIGGER policy_audit_logs_immutable
-      BEFORE UPDATE OR DELETE ON policy_audit_logs
-      FOR EACH ROW EXECUTE FUNCTION forbid_policy_audit_mutation();
-    `);
+  constructor(audit?: AuditRepository) {
+    this.audit = audit || new MemoryRelationalStore().audit;
   }
 
   /**
    * Records an immutable audit log entry.
-   * When a Prisma client is configured, writes fail loud on any database error.
+   * Writes fail loud on any backend error.
    */
   async record(entry: AuditLogEntry): Promise<AuditLogEntry> {
-    const id = entry.id || crypto.randomUUID();
-    const timestamp = entry.timestamp || new Date();
-    const tenantId = entry.tenantId || "local";
-
     const normalized: AuditLogEntry = {
       ...entry,
-      id,
-      timestamp,
-      tenantId,
+      id: entry.id || crypto.randomUUID(),
+      timestamp: entry.timestamp || new Date(),
+      tenantId: entry.tenantId || "local",
       requiredApprovals: entry.requiredApprovals || [],
       reasons: entry.reasons || [],
       metadata: entry.metadata || {},
     };
 
-    if (this.prisma) {
-      await this.prisma.policyAuditLog.create({
-        data: {
-          id: normalized.id!,
-          tenantId: normalized.tenantId!,
-          timestamp: normalized.timestamp!,
-          eventType: normalized.eventType,
-          identity: normalized.identity,
-          policyVersion: normalized.policyVersion,
-          targetId: normalized.targetId,
-          actionOrDecision: normalized.actionOrDecision,
-          autoMergeEligible: normalized.autoMergeEligible ?? null,
-          requiredApprovals: normalized.requiredApprovals || [],
-          reasons: normalized.reasons || [],
-          advisory: (normalized.advisory as any) || null,
-          metadata: (normalized.metadata as any) || {},
-        },
-      });
-    }
+    await this.audit.record(toAuditRecord(normalized));
 
-    // Always maintain in-memory log for local unit tests / fast querying
-    this.inMemoryLogs.push(normalized);
     return normalized;
   }
 
@@ -143,100 +172,38 @@ export class PolicyAuditStore {
   }
 
   /**
-   * Helper to classify Postgres trigger rejection errors as InsertOnlyViolationError.
-   * Classifies ONLY the trigger rejection (code P2010 with SQLSTATE P0001 carrying the trigger's message),
-   * and rethrows any other error (connection error, table missing, syntax error, etc.).
-   */
-  private classifyTriggerRejection(err: any): never {
-    const isTriggerError =
-      (err?.code === "P2010" || err?.name === "PrismaClientKnownRequestError") &&
-      (err?.meta?.code === "P0001" ||
-        err?.message?.includes("P0001") ||
-        err?.message?.includes("policy_audit_logs is insert-only"));
-
-    if (isTriggerError) {
-      throw new InsertOnlyViolationError(
-        "policy_audit_logs is insert-only: UPDATE and DELETE are prohibited",
-      );
-    }
-    throw err;
-  }
-
-  /**
-   * Simulates/asserts that UPDATE is prohibited on the audit log table.
+   * UPDATE is prohibited: the audit surface is append-only by construction.
    */
   async attemptUpdate(id: string, _updates: Partial<AuditLogEntry>): Promise<void> {
-    if (this.prisma) {
-      try {
-        await this.prisma.$executeRawUnsafe(
-          "UPDATE policy_audit_logs SET action_or_decision = 'tampered' WHERE id = $1",
-          id,
-        );
-      } catch (err: any) {
-        this.classifyTriggerRejection(err);
-      }
-      return;
-    }
-    throw new InsertOnlyViolationError();
+    throw new InsertOnlyViolationError(
+      `policy audit log is insert-only: UPDATE of entry '${id}' is prohibited`,
+    );
   }
 
   /**
-   * Simulates/asserts that DELETE is prohibited on the audit log table.
+   * DELETE is prohibited: the audit surface is append-only by construction.
    */
   async attemptDelete(id: string): Promise<void> {
-    if (this.prisma) {
-      try {
-        await this.prisma.$executeRawUnsafe(
-          "DELETE FROM policy_audit_logs WHERE id = $1",
-          id,
-        );
-      } catch (err: any) {
-        this.classifyTriggerRejection(err);
-      }
-      return;
-    }
-    throw new InsertOnlyViolationError();
+    throw new InsertOnlyViolationError(
+      `policy audit log is insert-only: DELETE of entry '${id}' is prohibited`,
+    );
   }
 
   /**
-   * Query logs matching filters
+   * Query logs matching filters. Reads are tenant-scoped, as the storage
+   * backends require; the tenant defaults to "local", matching the write
+   * default.
    */
   async getLogs(filter?: {
     tenantId?: string;
     targetId?: string;
     eventType?: AuditEventType;
   }): Promise<AuditLogEntry[]> {
-    if (this.prisma) {
-      const records = await this.prisma.policyAuditLog.findMany({
-        where: {
-          tenantId: filter?.tenantId,
-          targetId: filter?.targetId,
-          eventType: filter?.eventType,
-        },
-        orderBy: { timestamp: "desc" },
-      });
-      return records.map((r) => ({
-        id: r.id,
-        tenantId: r.tenantId,
-        timestamp: r.timestamp,
-        eventType: r.eventType as AuditEventType,
-        identity: r.identity,
-        policyVersion: r.policyVersion,
-        targetId: r.targetId,
-        actionOrDecision: r.actionOrDecision,
-        autoMergeEligible: r.autoMergeEligible,
-        requiredApprovals: (r.requiredApprovals as string[]) || [],
-        reasons: (r.reasons as string[]) || [],
-        advisory: (r.advisory as any) || null,
-        metadata: (r.metadata as Record<string, unknown>) || {},
-      }));
-    }
-
-    return this.inMemoryLogs.filter((entry) => {
-      if (filter?.tenantId && entry.tenantId !== filter.tenantId) return false;
-      if (filter?.targetId && entry.targetId !== filter.targetId) return false;
-      if (filter?.eventType && entry.eventType !== filter.eventType) return false;
-      return true;
+    const records = await this.audit.getLogs({
+      tenantId: filter?.tenantId || "local",
+      targetId: filter?.targetId,
+      eventType: filter?.eventType,
     });
+    return records.map(toAuditLogEntry);
   }
 }

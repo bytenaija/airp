@@ -5,6 +5,7 @@ import {
   type RemediationPlan,
   type PolicyDecision,
   buildServiceLoggerOptions,
+  createRelationalStoreFromEnv,
 } from "@airp/common";
 import { PolicyEngineEvaluator, EvaluationContext } from "./evaluator.js";
 import { RbacManager, UserClaims, verifyJwt, AuthorizationError } from "./rbac.js";
@@ -63,9 +64,12 @@ export function buildPolicyEngineServer(
   const auditStore =
     options.auditStore ||
     new PolicyAuditStore(
-      useDatabaseAudit && process.env.DATABASE_URL
-        ? new PrismaClient()
-        : undefined,
+      createRelationalStoreFromEnv(process.env, {
+        prisma:
+          useDatabaseAudit && process.env.DATABASE_URL
+            ? new PrismaClient()
+            : undefined,
+      }).audit,
     );
 
   const slackProvider = new StubSlackProvider();
@@ -440,13 +444,9 @@ if (
 ) {
   const port = Number(process.env.POLICY_ENGINE_PORT || process.env.PORT || 8008);
   const host = process.env.HOST || "0.0.0.0";
-  const { server, auditStore } = buildPolicyEngineServer({
+  const { server } = buildPolicyEngineServer({
     useDatabaseAudit: !!process.env.DATABASE_URL,
     logger: true,
-  });
-
-  auditStore.ensureDatabaseTrigger().catch((err) => {
-    console.warn("Notice: postgres trigger initialization:", err.message);
   });
 
   server.listen({ port, host }, (err, address) => {
