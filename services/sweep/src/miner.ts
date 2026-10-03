@@ -236,6 +236,41 @@ export class SweepMiner {
   }
 
   /**
+   * Fetches the incident list once per scan. Prefers the direct incident
+   * store; falls back to the ingest-gateway HTTP API only when the store
+   * lookup fails (not when it succeeds with zero results).
+   */
+  private async listRelevantIncidents(): Promise<IncidentRecord[]> {
+    // Try direct incident store if provided
+    if (this.incidentStore) {
+      try {
+        return await this.incidentStore.listIncidents("local");
+      } catch (err: any) {
+        console.warn(
+          `[SweepMiner] Incident store lookup failed, falling back to HTTP: ${err?.message || err}`,
+        );
+      }
+    }
+
+    // Try ingest-gateway HTTP API
+    try {
+      const res = await fetch(`${this.ingestGatewayUrl}/incidents`);
+      if (res.ok) {
+        const body = (await res.json()) as { incidents?: IncidentRecord[] };
+        return body.incidents || [];
+      }
+      console.warn(
+        `[SweepMiner] Incident gateway returned status ${res.status}; treating as unlinked`,
+      );
+    } catch (err: any) {
+      console.warn(
+        `[SweepMiner] Incident gateway lookup failed, treating as unlinked: ${err?.message || err}`,
+      );
+    }
+    return [];
+  }
+
+  /**
    * Checks if an error signature is linked to any active or historical incident.
    */
   async checkIncidentLinked(
@@ -246,34 +281,18 @@ export class SweepMiner {
       return this.isIncidentLinkedCustom(signature, service);
     }
 
-    let incidents: IncidentRecord[] = [];
+    const incidents = await this.listRelevantIncidents();
+    return SweepMiner.isSignatureLinked(signature, service, incidents);
+  }
 
-    // Try direct incident store if provided
-    if (this.incidentStore) {
-      try {
-        incidents = await this.incidentStore.listIncidents("local");
-      } catch (err: any) {
-        console.warn(
-          `[SweepMiner] Incident store lookup failed, falling back to HTTP: ${err?.message || err}`,
-        );
-      }
-    }
-
-    // Try ingest-gateway HTTP API
-    if (incidents.length === 0) {
-      try {
-        const res = await fetch(`${this.ingestGatewayUrl}/incidents`);
-        if (res.ok) {
-          const body = (await res.json()) as { incidents?: IncidentRecord[] };
-          incidents = body.incidents || [];
-        }
-      } catch (err: any) {
-        console.warn(
-          `[SweepMiner] Incident gateway lookup failed, treating as unlinked: ${err?.message || err}`,
-        );
-      }
-    }
-
+  /**
+   * Pure signature matcher: true when any incident references the signature.
+   */
+  private static isSignatureLinked(
+    signature: string,
+    service: string,
+    incidents: IncidentRecord[],
+  ): boolean {
     // Inspect incidents for matching signatures or fingerprints
     for (const incident of incidents) {
       // Check signals
@@ -338,6 +357,12 @@ export class SweepMiner {
       const serviceFilter = options?.services;
       const candidates: SweepCandidate[] = [];
 
+      // Fetch incidents once per scan and reuse across clusters, instead of
+      // one lookup per cluster. Skipped when a custom link check is provided.
+      const linkedIncidents = this.isIncidentLinkedCustom
+        ? null
+        : await this.listRelevantIncidents();
+
       for (const [service, serviceEvents] of eventsByService) {
         if (serviceFilter && !serviceFilter.includes(service)) {
           continue;
@@ -367,10 +392,13 @@ export class SweepMiner {
           }
 
           // Check if this error signature already has a linked incident
-          const isLinked = await this.checkIncidentLinked(
-            cluster.signature,
-            service,
-          );
+          const isLinked = this.isIncidentLinkedCustom
+            ? await this.isIncidentLinkedCustom(cluster.signature, service)
+            : SweepMiner.isSignatureLinked(
+                cluster.signature,
+                service,
+                linkedIncidents || [],
+              );
           if (isLinked) {
             continue;
           }
