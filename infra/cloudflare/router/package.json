@@ -1,0 +1,1 @@
+{"dependencies":{"hono":"^4.13.12"},"description":"Cloudflare Workers edge router for the AIRP Containers-hybrid deployment: auth at the edge, prefix routing to service containers.","main":"dist/index.js","name":"@airp/edge-router","private":true,"scripts":{"build":"tsc -b","test":"vitest run"},"type":"module","types":"dist/index.d.ts","version":"0.1.0"}
