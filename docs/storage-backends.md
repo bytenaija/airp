@@ -80,7 +80,7 @@ At-least-once with explicit ack and a visibility timeout, which both
 the Postgres outbox and Cloudflare Queues can provide. `MemoryQueue`
 implements the same contract for tests.
 
-## Service migration (Epic 20 work package 6)
+## Service migration (Epic 20 work packages 6-7)
 
 Services program against the storage interfaces; the backend is chosen
 per deployment target. The migration is a pure seam change: no service
@@ -91,6 +91,9 @@ behavior changed.
 | ingest-gateway incidents | `IncidentRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
 | ingest-gateway alerts | `AlertRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
 | changefeed | `ChangeEventRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
+| code-index vectors | `VectorStore` | `PgVectorStore` | `VectorizeVectorStore` | `MemoryVectorStore` |
+| policy-engine audit | `AuditRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
+| flywheel outcomes | `BlobStore` (`FLYWHEEL_STORE=blob`) | S3 / memory | R2 | `MemoryBlobStore` |
 
 Wiring: services build the relational store with
 `createRelationalStoreFromEnv(process.env, { prisma })`, passing their
@@ -109,23 +112,37 @@ all three backends implement them):
 - `AlertRepository.markProcessed(ids, tenantId?, { incidentId? })`:
   link processed alerts to an incident (or unlink with `null`).
 
-Deferred (not migrated; documented here with the reason):
-- code-index vectors: the hybrid pgvector plus tsvector BM25 ranking
-  needs `file_path IN (...)` predicates that `VectorQuery.filter`
-  cannot express, and reimplementing the fusion would change ranking.
-  Requires VectorStore filter operators and a Node pgvector backend.
-- policy-engine audit: writes to its own `policy_audit_logs` Prisma
-  table, a different schema from the `audit_log` table the
-  `AuditRepository` backends use.
-- flywheel outcomes: implements its own `IOutcomeStore` interface,
-  not the package-1 storage interfaces.
+Migrated in work package 7 (no longer deferred):
+- code-index vectors: the hybrid BM25 plus vector search now runs the
+  vector half through the VectorStore interface. `VectorQuery.filter`
+  gained a backward-compatible `{ $in: [...] }` membership predicate
+  (all backends implement it; Vectorize supports it natively), and a
+  Node pgvector backend (`PgVectorStore`, shared `vector_documents`
+  table) serves compose/VPS. The BM25 engine, the in-memory chunk
+  records, and the reciprocal-rank-fusion ranking are unchanged. The
+  old `code_index.code_chunks` / `code_index.runbook_chunks` tables are
+  superseded; the index is rebuilt from source on reindex.
+- policy-engine audit: `PolicyAuditStore` now writes through the
+  RelationalStore audit surface. Deliberate mapping: the
+  `policy_audit_logs` columns `autoMergeEligible`, `requiredApprovals`,
+  `reasons`, and `advisory` fold into the storage `metadata` JSON
+  object; `id`, `tenantId` (default `local`), `timestamp`,
+  `eventType`, `identity`, `policyVersion`, `targetId`, and
+  `actionOrDecision` map 1:1. Insert-only is now structural: the audit
+  surface exposes no update or delete operations, so the Postgres
+  immutability trigger is retired.
+- flywheel outcomes: `BlobOutcomeStore` implements `IOutcomeStore` over
+  the BlobStore interface (one JSON blob per incident under
+  `outcomes/`). Wired with `FLYWHEEL_STORE=blob`; the file-backed JSONL
+  store stays the local default and the Postgres store stays for
+  compose/VPS.
 
 ## Environment reference
 
 | Variable | Used by | Description |
 |---|---|---|
 | `STORAGE_TARGET` | factory | `memory` (default), `s3`, `r2` |
-| `DATABASE_URL` | factory | Set selects `PrismaRelationalStore`; unset selects in-memory |
+| `DATABASE_URL` | factory | Set selects `PrismaRelationalStore` (relational) and `PgVectorStore` (vectors); unset selects in-memory |
 | `BLOB_BUCKET` | s3, r2 | Bucket name |
 | `BLOB_PREFIX` | s3, r2 | Key prefix for every blob operation |
 | `AWS_REGION` | s3 | S3 region (default `us-east-1`) |
@@ -135,6 +152,7 @@ Deferred (not migrated; documented here with the reason):
 | `R2_ACCESS_KEY_ID` | r2 | R2 API token access key |
 | `R2_SECRET_ACCESS_KEY` | r2 | R2 API token secret |
 | `R2_ENDPOINT` | r2 | Endpoint override (tests only) |
+| `FLYWHEEL_STORE` | flywheel | `file` (default), `postgres`, `blob` (portable: R2/S3/memory via `STORAGE_TARGET`) |
 
 ## Cloudflare binding reference
 
