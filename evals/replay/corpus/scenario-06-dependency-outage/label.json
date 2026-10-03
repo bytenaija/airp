@@ -1,0 +1,19 @@
+{
+  "scenarioId": "scenario-06-dependency-outage",
+  "name": "Third-Party Banking Gateway Outage",
+  "category": "dependency_outage",
+  "trueRootCause": {
+    "service": "payments",
+    "description": "External banking API experiencing complete regional outage (503 Service Unavailable)"
+  },
+  "trueFixability": "human_escalation",
+  "expectedTop1": "dependency_failure",
+  "expectedTop3": [
+    "dependency_failure",
+    "network_timeout",
+    "third_party_outage"
+  ],
+  "expectedConfidence": 0.86,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

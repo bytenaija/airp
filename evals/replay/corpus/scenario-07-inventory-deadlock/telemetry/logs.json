@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:04:00.000Z",
+    "service": "inventory",
+    "line": "DeadlockDetectedException: Process 8129 waits for ShareLock on transaction 912; blocked by process 8130",
+    "labels": {
+      "service": "inventory",
+      "level": "error"
+    }
+  }
+]

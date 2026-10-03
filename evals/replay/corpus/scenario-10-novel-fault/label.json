@@ -1,0 +1,20 @@
+{
+  "scenarioId": "scenario-10-novel-fault",
+  "name": "Uncataloged PCIe Bus Trap (Novel Fault)",
+  "category": "novel_fault",
+  "trueRootCause": {
+    "service": "kernel-node",
+    "description": "Uncataloged PCIe bus parity error with no historical runbooks or precedent"
+  },
+  "trueFixability": "handoff",
+  "expectedTop1": "novel_fault",
+  "expectedTop3": [
+    "novel_fault",
+    "hardware_failure",
+    "human_only"
+  ],
+  "expectedConfidence": 0.35,
+  "minConfidence": 0,
+  "maxConfidence": 0.69,
+  "adversarial": false
+}

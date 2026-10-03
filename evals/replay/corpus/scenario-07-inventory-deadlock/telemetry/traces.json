@@ -1,0 +1,15 @@
+[
+  {
+    "traceId": "tr-07-1",
+    "spans": [
+      {
+        "spanId": "inv-1",
+        "name": "POST /inventory/reserve",
+        "serviceName": "inventory",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "type": "deploy",
+    "service": "payments",
+    "revision": "v2.15.0",
+    "ts": "2026-10-02T14:00:00.000Z",
+    "metadata": {
+      "commit": "7c6b5a4",
+      "message": "Update payment gateway routing"
+    }
+  }
+]

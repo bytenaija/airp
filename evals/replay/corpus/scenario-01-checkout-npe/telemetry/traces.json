@@ -1,0 +1,21 @@
+[
+  {
+    "traceId": "tr-01-1",
+    "spans": [
+      {
+        "spanId": "chk-1",
+        "name": "POST /checkout",
+        "serviceName": "checkout"
+      },
+      {
+        "spanId": "pay-1",
+        "parentSpanId": "chk-1",
+        "name": "POST /payments/charge",
+        "serviceName": "payments",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

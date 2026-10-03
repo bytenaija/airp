@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:06:00.000Z",
+    "service": "compliance",
+    "line": "EventLoopBlockedWarning: Event loop blocked for 4812ms during RegExp.test in sanitizeTaxId",
+    "labels": {
+      "service": "compliance",
+      "level": "error"
+    }
+  }
+]

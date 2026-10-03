@@ -1,0 +1,14 @@
+[
+  {
+    "type": "flag",
+    "service": "payments",
+    "revision": "flag-toggle-experimental_payment_flow",
+    "ts": "2026-10-02T14:00:00.000Z",
+    "metadata": {
+      "key": "experimental_payment_flow",
+      "value": true,
+      "previousValue": false,
+      "toggledBy": "growth-engineer@company.local"
+    }
+  }
+]

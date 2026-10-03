@@ -1,0 +1,27 @@
+[
+  {
+    "traceId": "tr-06-1",
+    "spans": [
+      {
+        "spanId": "chk-6",
+        "name": "POST /checkout",
+        "serviceName": "checkout"
+      },
+      {
+        "spanId": "pay-6",
+        "parentSpanId": "chk-6",
+        "name": "POST /payments/charge",
+        "serviceName": "payments"
+      },
+      {
+        "spanId": "ext-6",
+        "parentSpanId": "pay-6",
+        "name": "POST https://api.bank-partner.net/v1/charge",
+        "serviceName": "external-bank",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

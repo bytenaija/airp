@@ -1,0 +1,15 @@
+[
+  {
+    "traceId": "tr-04-1",
+    "spans": [
+      {
+        "spanId": "bill-1",
+        "name": "POST /invoices",
+        "serviceName": "billing",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

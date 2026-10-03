@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:01:00.000Z",
+    "service": "payments",
+    "line": "InvalidPaymentPayloadError: Experimental format required when experimental_payment_flow=true",
+    "labels": {
+      "service": "payments",
+      "level": "error"
+    }
+  }
+]

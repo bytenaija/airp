@@ -1,0 +1,20 @@
+{
+  "scenarioId": "scenario-12-alert-storm",
+  "name": "Alert Storm Downstream Deduplication",
+  "category": "deploy_regression",
+  "trueRootCause": {
+    "service": "payments",
+    "description": "Deploy v2.15.0 in payments triggered cascading alerts across 5 dependent services",
+    "implicatedRevision": "v2.15.0"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "deploy_regression",
+  "expectedTop3": [
+    "deploy_regression",
+    "dependency_failure",
+    "alert_storm"
+  ],
+  "expectedConfidence": 0.88,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

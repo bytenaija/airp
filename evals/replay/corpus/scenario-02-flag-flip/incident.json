@@ -1,0 +1,38 @@
+{
+  "id": "11111111-0000-4000-a000-000000000002",
+  "tenant_id": "local",
+  "title": "Sudden payment validation failure spike following flag toggle",
+  "severity": "SEV2",
+  "status": "open",
+  "created_at": "2026-10-02T14:01:00.000Z",
+  "updated_at": "2026-10-02T14:01:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "payments",
+      "metric": "payment_validation_errors",
+      "detail": "Validation failure rate jumped to 0.75 after experimental_payment_flow enabled",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:01:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "payments-team",
+    "tier": "tier-1",
+    "recent_changes": [
+      {
+        "type": "flag",
+        "service": "payments",
+        "revision": "flag-toggle-experimental_payment_flow",
+        "ts": "2026-10-02T14:00:00.000Z",
+        "metadata": {
+          "key": "experimental_payment_flow",
+          "value": true,
+          "previousValue": false,
+          "toggledBy": "growth-engineer@company.local"
+        }
+      }
+    ]
+  }
+}

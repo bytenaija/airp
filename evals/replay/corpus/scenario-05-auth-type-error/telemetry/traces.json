@@ -1,0 +1,15 @@
+[
+  {
+    "traceId": "tr-05-1",
+    "spans": [
+      {
+        "spanId": "auth-1",
+        "name": "POST /auth/verify",
+        "serviceName": "auth",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

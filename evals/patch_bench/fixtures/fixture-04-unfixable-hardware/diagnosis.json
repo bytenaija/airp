@@ -1,0 +1,9 @@
+{
+  "id": "22222222-0000-4000-a000-000000000004",
+  "incident_id": "11111111-0000-4000-a000-000000000010",
+  "tenant_id": "local",
+  "root_cause": "Unrecoverable hardware parity bus error on physical host; no software code fix possible",
+  "confidence": 0.45,
+  "fixability": "human_only",
+  "evidence": []
+}

@@ -1,0 +1,15 @@
+[
+  {
+    "timestamp": "2026-10-02T14:02:00.000Z",
+    "service": "pricing",
+    "line": "DivisionByZeroError: Divisor cannot be zero in calculateDiscount (services/pricing/src/discount.ts:24)",
+    "labels": {
+      "service": "pricing",
+      "level": "error"
+    },
+    "data": {
+      "file": "services/pricing/src/discount.ts",
+      "line": 24
+    }
+  }
+]

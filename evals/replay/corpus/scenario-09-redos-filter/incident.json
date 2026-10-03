@@ -1,0 +1,25 @@
+{
+  "id": "11111111-0000-4000-a000-000000000009",
+  "tenant_id": "local",
+  "title": "CPU saturation and event-loop hang in compliance regex sanitizer",
+  "severity": "SEV2",
+  "status": "open",
+  "created_at": "2026-10-02T14:06:00.000Z",
+  "updated_at": "2026-10-02T14:06:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "compliance",
+      "metric": "cpu_utilization_percent",
+      "detail": "CPU at 100% due to catastrophic backtracking in regex validator",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:06:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "compliance-team",
+    "tier": "tier-2",
+    "recent_changes": []
+  }
+}

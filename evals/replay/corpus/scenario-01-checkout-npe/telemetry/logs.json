@@ -1,0 +1,21 @@
+[
+  {
+    "timestamp": "2026-10-02T13:55:00.000Z",
+    "service": "payments",
+    "line": "Processed charge 1002 status=SUCCESS"
+  },
+  {
+    "timestamp": "2026-10-02T14:02:00.000Z",
+    "service": "payments",
+    "line": "NullPointerException: Cannot read property 'status' of null at retryWithBackoff (demo/src/payments.ts:88)",
+    "labels": {
+      "service": "payments",
+      "level": "error"
+    },
+    "data": {
+      "file": "demo/src/payments.ts",
+      "line": 88,
+      "exception": "NullPointerException"
+    }
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "id": "11111111-0000-4000-a000-000000000010",
+  "tenant_id": "local",
+  "title": "Unknown hardware kernel panic / PCIe bus anomaly",
+  "severity": "SEV1",
+  "status": "open",
+  "created_at": "2026-10-02T14:15:00.000Z",
+  "updated_at": "2026-10-02T14:15:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "kernel-node",
+      "metric": "unknown_hardware_traps",
+      "detail": "Uncataloged PCIe bus parity trap error code 0x88F7B01",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:15:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "infra-team",
+    "tier": "tier-1",
+    "recent_changes": []
+  }
+}

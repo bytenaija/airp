@@ -34,6 +34,9 @@ jobs:
       - name: Unit + functional tests (no Docker needed)
         run: npx vitest run tests/unit tests/functional
 
+      - name: Evaluation harness gates check (offline corpus + patch bench + baselines)
+        run: npx tsx evals/gates/check.ts
+
   integration:
     name: compose stack + integration tests
     runs-on: ubuntu-latest

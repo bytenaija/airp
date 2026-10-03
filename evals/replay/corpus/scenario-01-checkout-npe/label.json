@@ -1,0 +1,22 @@
+{
+  "scenarioId": "scenario-01-checkout-npe",
+  "name": "Checkout-Payments NPE Deploy",
+  "category": "deploy_regression",
+  "trueRootCause": {
+    "service": "payments",
+    "description": "Deploy v2.14.3 introduced NullPointerException in retryWithBackoff",
+    "implicatedRevision": "v2.14.3",
+    "suspectFile": "demo/src/payments.ts",
+    "suspectFunction": "retryWithBackoff"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "deploy_regression",
+  "expectedTop3": [
+    "deploy_regression",
+    "code_bug",
+    "runtime_exception"
+  ],
+  "expectedConfidence": 0.88,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

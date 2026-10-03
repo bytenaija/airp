@@ -1,0 +1,12 @@
+[
+  {
+    "type": "deploy",
+    "service": "payments",
+    "revision": "v2.14.3",
+    "ts": "2026-10-02T14:00:00.000Z",
+    "metadata": {
+      "commit": "a3f9c1d",
+      "message": "Optimize retry path, skip empty check"
+    }
+  }
+]

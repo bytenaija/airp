@@ -1,0 +1,21 @@
+[
+  {
+    "traceId": "tr-03-1",
+    "spans": [
+      {
+        "spanId": "chk-3",
+        "name": "POST /checkout",
+        "serviceName": "checkout"
+      },
+      {
+        "spanId": "fc-3",
+        "parentSpanId": "chk-3",
+        "name": "POST /fraud/evaluate",
+        "serviceName": "fraud-check",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

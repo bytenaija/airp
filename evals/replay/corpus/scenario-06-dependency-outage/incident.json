@@ -1,0 +1,25 @@
+{
+  "id": "11111111-0000-4000-a000-000000000006",
+  "tenant_id": "local",
+  "title": "Third-party payment provider 503 outage causing checkout cascade",
+  "severity": "SEV1",
+  "status": "open",
+  "created_at": "2026-10-02T14:03:00.000Z",
+  "updated_at": "2026-10-02T14:03:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "payments",
+      "metric": "upstream_5xx_total",
+      "detail": "100% timeout and 503 HTTP responses from external banking gateway",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:03:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "payments-team",
+    "tier": "tier-1",
+    "recent_changes": []
+  }
+}

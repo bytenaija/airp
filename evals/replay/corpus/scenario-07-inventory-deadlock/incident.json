@@ -1,0 +1,25 @@
+{
+  "id": "11111111-0000-4000-a000-000000000007",
+  "tenant_id": "local",
+  "title": "Deadlock detected in inventory reservation database transactions",
+  "severity": "SEV2",
+  "status": "open",
+  "created_at": "2026-10-02T14:04:00.000Z",
+  "updated_at": "2026-10-02T14:04:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "inventory",
+      "metric": "db_deadlocks_total",
+      "detail": "Postgres deadlock detected during concurrent multi-item reservation",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:04:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "warehouse-team",
+    "tier": "tier-2",
+    "recent_changes": []
+  }
+}

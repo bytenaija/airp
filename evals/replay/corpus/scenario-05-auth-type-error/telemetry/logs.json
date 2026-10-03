@@ -1,0 +1,15 @@
+[
+  {
+    "timestamp": "2026-10-02T14:02:00.000Z",
+    "service": "auth",
+    "line": "TypeError: Cannot read properties of undefined (reading 'roles') at verifyToken (services/auth/src/verify.ts:42)",
+    "labels": {
+      "service": "auth",
+      "level": "error"
+    },
+    "data": {
+      "file": "services/auth/src/verify.ts",
+      "line": 42
+    }
+  }
+]
