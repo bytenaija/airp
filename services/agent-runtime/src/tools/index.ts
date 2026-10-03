@@ -100,6 +100,23 @@ function parseWindowToMs(windowStr: string): number {
   }
 }
 
+/** Every read-only tool the investigation agent may call. */
+export const AGENT_TOOL_NAMES = [
+  "logs_query",
+  "metrics_query",
+  "traces_search",
+  "code_search",
+  "code_read",
+  "code_blame",
+  "runbook_search",
+  "deploys_recent",
+  "incidents_similar",
+  "change_point",
+  "trace_bisect",
+  "log_cluster",
+  "dependency_walk",
+] as const;
+
 export class AgentTools {
   private readonly queryClient: QueryClient;
   private readonly codePipeline?: CodeIndexPipelineLike;
@@ -110,21 +127,9 @@ export class AgentTools {
   private readonly outcomeStore: IOutcomeStore;
   private readonly embedder: FlywheelEmbedder;
 
-  private static readonly READ_ONLY_OPERATIONS = new Set([
-    "logs_query",
-    "metrics_query",
-    "traces_search",
-    "code_search",
-    "code_read",
-    "code_blame",
-    "runbook_search",
-    "deploys_recent",
-    "incidents_similar",
-    "change_point",
-    "trace_bisect",
-    "log_cluster",
-    "dependency_walk",
-  ]);
+  private static readonly READ_ONLY_OPERATIONS: ReadonlySet<string> = new Set(
+    AGENT_TOOL_NAMES,
+  );
 
   constructor(options: AgentToolsOptions = {}) {
     this.queryClient = options.queryClient || new QueryClient();

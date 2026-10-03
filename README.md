@@ -95,15 +95,16 @@ All ports below are host ports published by `infra/docker-compose.yml`:
 | 8004 | changefeed | Incident/change event feed |
 | 8005 | ingest-gateway | Telemetry ingestion |
 | 8006 | code-index | Code search and indexing |
-| 8007 | agent-runtime | Investigation agent |
+| 8007 | agent-runtime | Investigation agent, healthchecked, exposes self-RED metrics on /metrics |
 | 8008 | policy-engine | Approvals and policy |
 | 8009 | rollout-controller | Progressive delivery, canary weights |
+| 9093 | alertmanager | Fallback alerting router (profiles: fallback) |
 | 5432 | postgres | pgvector/pgvector:pg16 |
 | 3100 | loki | Log store |
 | 3200 | tempo | Trace store |
 | 4317, 4318, 8889 | otel-collector | OTLP gRPC, OTLP HTTP, Prometheus metrics |
-| 9090 | prometheus | Metrics |
-| 3000 | grafana | Dashboards (admin / admin) |
+| 9090 | prometheus | Metrics and alert rules |
+| 3000 | grafana | Dashboards (admin / admin): Service RED and Agent Self-RED |
 
 ### 4. Smoke test
 
@@ -122,6 +123,13 @@ The compose file sets sane local defaults. The ones you may need to know:
 - `DATABASE_URL` - Postgres connection, set per service in compose.
 - `LLM_PROVIDER=ollama` - agent-runtime uses Ollama by default; point at
   your provider per `CONTEXT.md` if you use something else.
+- `LLM_MODEL` - model name (default `llama3.2` for Ollama).
+- `OLLAMA_BASE_URL` - defaults to `http://host.docker.internal:11434/api`,
+  so the agent-runtime container reaches an Ollama running on the host
+  (`extra_hosts: host-gateway` makes this work on Linux Docker Engine too).
+- `LLM_STEP_TIMEOUT_MS` - per-call LLM timeout for the agent loop (default
+  `30000`). On timeout the investigation falls back to the deterministic
+  policy and records an `llm_step_fallback` timeline event.
 - `FLAGS_ADMIN_TOKEN` / `ADMIN_TOKEN` - required to call the demo
   `POST /admin/flags` endpoint; the shipped compose does not set one, so
   set it yourself before using flag writes.
@@ -161,6 +169,16 @@ faults, generate patches, and open human-reviewed PRs under a strict
 auto-merge-never policy. Use `--services` to choose which services to scan
 and `--dry-run` to list candidates without processing them.
 See `docs/proactive-sweep.md`.
+
+Platform hardening and operational readiness features safeguard cost,
+security, and fail-safe operations:
+- Secrets rotation drill: `airp secrets rotate` runs a rotation drill for credentials. See `docs/secrets-management.md`.
+- Customer-managed keys (CMEK) and crypto-shredding: `airp tenant destroy <tenantId>` executes tenant key destruction. Tenant keys and the destroyed-tenant list persist in the keystore at `AIRP_KMS_KEYSTORE`, wrapped by `AIRP_KMS_MASTER_KEY` (base64, 32 bytes), so a destruction holds across restarts and processes. Production refuses to start the in-memory keystore, and the CLI refuses to destroy without a keystore.
+- Supply chain security: `airp sbom` produces CycloneDX 1.5 and SPDX 2.3 SBOMs. See `docs/supply-chain.md`.
+- Sandbox escape monitoring: `airp leakage-probe` tests canary token leakage detection.
+- Fail-safe and outage runbooks: see `docs/runbooks/agent-outage.md` and `docs/runbooks/operator.md`.
+- Authentication and SSO: see `docs/auth-sso.md`.
+- Threat model: see `docs/threat-model.md`.
 
 ### 7. Deploy somewhere real
 

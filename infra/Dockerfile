@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl git ca-
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY .npmrc* package*.json ./
 COPY packages/common/package*.json ./packages/common/
 COPY packages/cli/package*.json ./packages/cli/
 COPY services/changefeed/package*.json ./services/changefeed/
@@ -19,7 +19,7 @@ COPY services/ux/package*.json ./services/ux/
 COPY services/flywheel/package*.json ./services/flywheel/
 COPY demo/package*.json ./demo/
 
-RUN npm install
+RUN npm ci --legacy-peer-deps
 
 COPY tsconfig.json ./
 COPY config ./config

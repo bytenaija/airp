@@ -16,6 +16,13 @@ import {
   type DatasetFormat,
 } from "@airp/flywheel";
 import { SweepMiner, SweepWorker, type SweepCandidate } from "@airp/sweep";
+import {
+  rotateDemoCredentials,
+  getGlobalKMS,
+  generateSbom,
+  SandboxEscapeMonitor,
+  type EscapeAlert,
+} from "@airp/common";
 
 dotenv.config();
 
@@ -1075,6 +1082,136 @@ program
       await runSweepWorker(candidates, maxPerDay);
     } catch (err: any) {
       console.error(`Error: sweep failed: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// --- Platform Hardening & Operations Commands (Epic 14) ---
+
+const secretsCmd = program
+  .command("secrets")
+  .description("Secrets management operations");
+
+secretsCmd
+  .command("rotate")
+  .description("Rotate demo and local credentials end to end")
+  .option("--dry-run", "Preview credential rotation without mutating environment or disk")
+  .option("--env-file <path>", "Path to .env file to update")
+  .action((options) => {
+    try {
+      const result = rotateDemoCredentials({
+        envPath: options.envFile,
+        dryRun: options.dryRun,
+      });
+      console.log(`Rotated credentials successfully at ${result.rotatedAt}:`);
+      for (const key of result.rotatedKeys) {
+        console.log(`- ${key}`);
+      }
+      console.log(result.auditLog);
+    } catch (err: any) {
+      console.error(`Error rotating secrets: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+const tenantCmd = program
+  .command("tenant")
+  .description("Tenant security and lifecycle operations");
+
+tenantCmd
+  .command("destroy <tenantId>")
+  .description("Cryptographically destroy tenant encryption keys, rendering all tenant data unrecoverable")
+  .action(async (tenantId: string) => {
+    try {
+      const kms = getGlobalKMS();
+      if (!kms.isPersistent) {
+        console.error(
+          "Refusing to destroy: no KMS keystore configured. Set AIRP_KMS_KEYSTORE and AIRP_KMS_MASTER_KEY so the destruction is recorded where the services read it.",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      await kms.destroyTenantKey(tenantId);
+      console.log(`Tenant '${tenantId}' encryption keys destroyed. All existing data is permanently unrecoverable.`);
+    } catch (err: any) {
+      console.error(`Error destroying tenant keys: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("sbom")
+  .description("Generate Software Bill of Materials (SBOM) for the AIRP platform")
+  .option("--format <format>", "SBOM format ('cyclonedx' or 'spdx')", "cyclonedx")
+  .option("--output <file>", "Output file path (prints to stdout if omitted)")
+  .action((options) => {
+    try {
+      const sbom = generateSbom({ format: options.format as "cyclonedx" | "spdx" });
+      const jsonStr = JSON.stringify(sbom, null, 2);
+      if (options.output) {
+        fs.writeFileSync(options.output, jsonStr, "utf8");
+        console.log(`Generated ${options.format} SBOM written to ${options.output}`);
+      } else {
+        console.log(jsonStr);
+      }
+    } catch (err: any) {
+      console.error(`Error generating SBOM: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("leakage-probe")
+  .description("Execute simulated sandbox escape and canary leakage probe")
+  .option("--tenant <tenantId>", "Tenant ID to probe", "demo-tenant")
+  .option("--alertmanager <url>", "Alertmanager URL for live on-call paging", process.env.ALERTMANAGER_URL)
+  .action(async (options) => {
+    try {
+      const monitor = new SandboxEscapeMonitor();
+      if (options.alertmanager) {
+        monitor.setNotifier(async (alert: EscapeAlert) => {
+          try {
+            const res = await fetch(`${options.alertmanager}/api/v2/alerts`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify([
+                {
+                  labels: {
+                    alertname: "SandboxCanaryLeakage",
+                    severity: alert.severity,
+                    tenant: options.tenant,
+                  },
+                  annotations: {
+                    summary: alert.title,
+                    description: alert.summary,
+                  },
+                },
+              ]),
+            });
+            return res.ok;
+          } catch {
+            return false;
+          }
+        });
+      }
+
+      const token = monitor.generateCanarySecret(options.tenant);
+      console.log(`Generated canary token for tenant '${options.tenant}': ${token.slice(0, 20)}...`);
+
+      // Simulate leakage into unconfined payload
+      const simulatedLeakedPayload = `ALERT_NOTIFICATION: External egress observed with secret ${token}`;
+      const detection = await monitor.detectCanaryLeakage(simulatedLeakedPayload, options.tenant);
+
+      if (detection.leaked) {
+        console.log(`[CANARY PROBE ALERT] Critical leakage detected!`);
+        console.log(`Alert ID: ${detection.alert?.id}`);
+        console.log(`Summary: ${detection.alert?.summary}`);
+        console.log(`Paged on-call: ${detection.alert?.pagedOnCall}`);
+      } else {
+        console.log("No canary leakage detected.");
+      }
+    } catch (err: any) {
+      console.error(`Error executing leakage probe: ${err.message}`);
       process.exitCode = 1;
     }
   });

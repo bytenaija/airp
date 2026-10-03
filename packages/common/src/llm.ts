@@ -9,6 +9,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOllama } from "ollama-ai-provider";
 import { type ZodType } from "zod";
+import { redact, redactObject } from "./redact.js";
 
 export type LLMProvider = "anthropic" | "openai" | "ollama" | "mock";
 
@@ -51,16 +52,176 @@ export function getPricingRates(
   return { inputPerMillion: 1.0, outputPerMillion: 3.0 };
 }
 
+export class TokenBudgetExceededError extends Error {
+  constructor(
+    public readonly incidentId: string,
+    public readonly budget: number,
+    public readonly totalTokens: number,
+  ) {
+    super(
+      `Token budget of ${budget} exceeded for incident ${incidentId} (consumed: ${totalTokens})`,
+    );
+    this.name = "TokenBudgetExceededError";
+  }
+}
+
+export interface LLMCallRecord {
+  incidentId: string;
+  provider: LLMProvider;
+  modelName: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  timestamp: string;
+}
+
+export interface CostTrackerOptions {
+  tokenBudget?: number;
+  databaseUrl?: string;
+  onUsageRecorded?: (record: LLMCallRecord) => Promise<void> | void;
+}
+
+// Global LLM metric counters for Prometheus scraping
+export const globalLLMMetrics = {
+  totalTokens: 0,
+  totalCostUsd: 0,
+  tokensByProvider: new Map<string, number>(),
+  costByProvider: new Map<string, number>(),
+  record(provider: string, model: string, tokens: number, cost: number) {
+    this.totalTokens += tokens;
+    this.totalCostUsd += cost;
+    const pKey = `${provider}:${model}`;
+    this.tokensByProvider.set(
+      pKey,
+      (this.tokensByProvider.get(pKey) || 0) + tokens,
+    );
+    this.costByProvider.set(pKey, (this.costByProvider.get(pKey) || 0) + cost);
+  },
+};
+
+export class PostgresLLMCostLogger {
+  private pool?: any;
+  private initialized = false;
+  private readonly databaseUrl?: string;
+
+  constructor(databaseUrl?: string) {
+    this.databaseUrl = databaseUrl || process.env.DATABASE_URL;
+  }
+
+  async init(): Promise<void> {
+    if (this.initialized || !this.databaseUrl) return;
+    try {
+      const pgModule = await import("pg");
+      const Pool = (pgModule as any).default?.Pool || (pgModule as any).Pool;
+      if (!this.pool) {
+        this.pool = new Pool({ connectionString: this.databaseUrl });
+      }
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS llm_cost_records (
+          id SERIAL PRIMARY KEY,
+          incident_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model_name TEXT NOT NULL,
+          prompt_tokens INT NOT NULL,
+          completion_tokens INT NOT NULL,
+          total_tokens INT NOT NULL,
+          cost_usd NUMERIC(10, 6) NOT NULL,
+          timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_llm_cost_incident ON llm_cost_records(incident_id);
+        CREATE INDEX IF NOT EXISTS idx_llm_cost_timestamp ON llm_cost_records(timestamp);
+      `);
+      this.initialized = true;
+    } catch {
+      // Non-blocking if database is unavailable or migration already exists
+    }
+  }
+
+  async record(call: LLMCallRecord): Promise<void> {
+    if (!this.databaseUrl) return;
+    try {
+      if (!this.initialized) {
+        await this.init();
+      }
+      if (this.pool) {
+        await this.pool.query(
+          `INSERT INTO llm_cost_records (
+            incident_id, provider, model_name, prompt_tokens,
+            completion_tokens, total_tokens, cost_usd, timestamp
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            call.incidentId,
+            call.provider,
+            call.modelName,
+            call.promptTokens,
+            call.completionTokens,
+            call.totalTokens,
+            call.costUsd,
+            call.timestamp,
+          ],
+        );
+      }
+    } catch {
+      // Non-blocking logger
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = undefined;
+    }
+  }
+}
+
 export class IncidentCostTracker {
   readonly incidentId: string;
+  private readonly tokenBudget?: number;
+  private readonly onUsageRecorded?: (
+    record: LLMCallRecord,
+  ) => Promise<void> | void;
+  private readonly databaseUrl?: string;
+  private readonly postgresLogger?: PostgresLLMCostLogger;
   private promptTokens = 0;
   private completionTokens = 0;
   private totalTokens = 0;
   private estimatedCostUsd = 0;
   private callCount = 0;
 
-  constructor(incidentId: string) {
+  constructor(
+    incidentId: string,
+    options: CostTrackerOptions | number = {},
+  ) {
     this.incidentId = incidentId;
+    if (typeof options === "number") {
+      this.tokenBudget = options;
+    } else {
+      this.tokenBudget = options.tokenBudget;
+      this.onUsageRecorded = options.onUsageRecorded;
+      this.databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
+    }
+    if (this.databaseUrl) {
+      this.postgresLogger = new PostgresLLMCostLogger(this.databaseUrl);
+    }
+  }
+
+  assertWithinBudget(): void {
+    if (this.tokenBudget && this.totalTokens >= this.tokenBudget) {
+      throw new TokenBudgetExceededError(
+        this.incidentId,
+        this.tokenBudget,
+        this.totalTokens,
+      );
+    }
+  }
+
+  isBudgetExceeded(): boolean {
+    return Boolean(this.tokenBudget && this.totalTokens >= this.tokenBudget);
+  }
+
+  getTokenBudget(): number | undefined {
+    return this.tokenBudget;
   }
 
   recordUsage(
@@ -85,6 +246,44 @@ export class IncidentCostTracker {
       (cTokens / 1_000_000) * rates.outputPerMillion;
 
     this.estimatedCostUsd += cost;
+
+    // Record in global metrics
+    globalLLMMetrics.record(provider, modelName, tTokens, cost);
+
+    const callRecord: LLMCallRecord = {
+      incidentId: this.incidentId,
+      provider,
+      modelName,
+      promptTokens: pTokens,
+      completionTokens: cTokens,
+      totalTokens: tTokens,
+      costUsd: Number(cost.toFixed(6)),
+      timestamp: new Date().toISOString(),
+    };
+
+    if (this.postgresLogger) {
+      this.postgresLogger.record(callRecord).catch(() => {});
+    }
+
+    if (this.onUsageRecorded) {
+      try {
+        const res = this.onUsageRecorded(callRecord);
+        if (res && typeof (res as Promise<void>).catch === "function") {
+          (res as Promise<void>).catch(() => {});
+        }
+      } catch {
+        // Non-blocking usage recording
+      }
+    }
+
+    // Check token budget hard stop
+    if (this.tokenBudget && this.totalTokens >= this.tokenBudget) {
+      throw new TokenBudgetExceededError(
+        this.incidentId,
+        this.tokenBudget,
+        this.totalTokens,
+      );
+    }
   }
 
   getPromptTokens(): number {
@@ -190,9 +389,22 @@ export class LLMClient {
     temperature?: number;
     maxTokens?: number;
   }): Promise<GenerateTextResult<any, any>> {
+    // Assert token budget before invocation
+    if (this.tracker) {
+      this.tracker.assertWithinBudget();
+    }
+
+    // Apply redaction to all strings crossing into the LLM
+    const sanitizedOptions = {
+      ...options,
+      system: options.system ? redact(options.system) : undefined,
+      prompt: options.prompt ? redact(options.prompt) : undefined,
+      messages: options.messages ? redactObject(options.messages) : undefined,
+    };
+
     const result = await aiGenerateText({
       model: this.model,
-      ...options,
+      ...sanitizedOptions,
     });
 
     if (this.tracker && result.usage) {
@@ -210,9 +422,22 @@ export class LLMClient {
     temperature?: number;
     maxTokens?: number;
   }): Promise<GenerateObjectResult<T>> {
+    // Assert token budget before invocation
+    if (this.tracker) {
+      this.tracker.assertWithinBudget();
+    }
+
+    // Apply redaction to all strings crossing into the LLM
+    const sanitizedOptions = {
+      ...options,
+      system: options.system ? redact(options.system) : undefined,
+      prompt: options.prompt ? redact(options.prompt) : undefined,
+      messages: options.messages ? redactObject(options.messages) : undefined,
+    };
+
     const result = await aiGenerateObject({
       model: this.model,
-      ...options,
+      ...sanitizedOptions,
     });
 
     if (this.tracker && result.usage) {

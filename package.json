@@ -40,6 +40,7 @@
     "@neon/config": "^1.8.3",
     "@neon/env": "^1.5.0",
     "@types/node-cron": "^3.0.11",
+    "better-auth": "^1.7.7",
     "node-cron": "^4.6.0"
   }
 }

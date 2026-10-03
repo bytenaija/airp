@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
@@ -120,5 +121,59 @@ export function applyRoleCredentialSeparation(
   return {
     allowedEnvVars: Array.from(allowedVars),
     scrubbedEnvVars: scrubbed,
+  };
+}
+
+export interface RotatedCredentialsResult {
+  rotatedAt: string;
+  rotatedKeys: string[];
+  auditLog: string;
+}
+
+export function rotateDemoCredentials(options?: {
+  envPath?: string;
+  dryRun?: boolean;
+}): RotatedCredentialsResult {
+  const envPath = options?.envPath || path.resolve(process.cwd(), ".env");
+  const rotatedKeys: string[] = [];
+
+  const newJwtSecret = "airp_jwt_" + crypto.randomBytes(24).toString("hex");
+  const newServiceSecret = "airp_svc_" + crypto.randomBytes(24).toString("hex");
+  const newCanarySecret = "airp_canary_" + crypto.randomBytes(24).toString("hex");
+
+  if (!options?.dryRun) {
+    process.env.JWT_SECRET = newJwtSecret;
+    process.env.SERVICE_ACCOUNT_SECRET = newServiceSecret;
+    process.env.CANARY_SECRET = newCanarySecret;
+  }
+
+  rotatedKeys.push("JWT_SECRET", "SERVICE_ACCOUNT_SECRET", "CANARY_SECRET");
+
+  if (!options?.dryRun && fs.existsSync(envPath)) {
+    let content = fs.readFileSync(envPath, "utf8");
+    const updates: Record<string, string> = {
+      JWT_SECRET: newJwtSecret,
+      SERVICE_ACCOUNT_SECRET: newServiceSecret,
+      CANARY_SECRET: newCanarySecret,
+    };
+
+    for (const [key, val] of Object.entries(updates)) {
+      const regex = new RegExp(`^${key}=.*$`, "m");
+      if (regex.test(content)) {
+        content = content.replace(regex, `${key}=${val}`);
+      } else {
+        content += `\n${key}=${val}`;
+      }
+    }
+    fs.writeFileSync(envPath, content, "utf8");
+  }
+
+  const prefix = options?.dryRun ? "[DRY_RUN] " : "";
+  const auditLog = `[SECRET_ROTATION] ${prefix}Successfully rotated credentials (${rotatedKeys.join(", ")}) at ${new Date().toISOString()}`;
+
+  return {
+    rotatedAt: new Date().toISOString(),
+    rotatedKeys,
+    auditLog,
   };
 }

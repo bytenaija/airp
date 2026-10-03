@@ -1,0 +1,30 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "service"]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+  receiver: "default-receiver"
+  routes:
+    # Fail-safe route: When agent-runtime is unhealthy or down, page human on-call directly
+    - match:
+        alertname: AgentDown
+      receiver: "human-oncall"
+      continue: false
+    - match:
+        service: agent-runtime
+      receiver: "human-oncall"
+      continue: false
+
+receivers:
+  - name: "default-receiver"
+    webhook_configs:
+      - url: "http://ingest-gateway:8005/alerts"
+        send_resolved: true
+
+  - name: "human-oncall"
+    webhook_configs:
+      - url: "http://fallback-pager:9095/webhook"
+        send_resolved: true

@@ -10,6 +10,7 @@ import {
   LLMClient,
   type LLMClientConfig,
   IncidentCostTracker,
+  TokenBudgetExceededError,
   type NotificationProvider,
   LocalNotify,
 } from "@airp/common";
@@ -60,6 +61,8 @@ export interface RuntimeOptions {
   llmConfig?: LLMClientConfig;
   promptsDir?: string;
   useDeterministicPolicy?: boolean;
+  /** Per-call LLM timeout. Defaults to LLM_STEP_TIMEOUT_MS, then 30000. */
+  llmStepTimeoutMs?: number;
   mockLLMResponses?: Array<{
     type: "tool_call" | "conclude" | "malformed";
     toolName?: string;
@@ -89,6 +92,7 @@ export class InvestigationAgentRuntime {
   private readonly ownershipPath: string;
   private readonly tools: AgentTools;
   private readonly llmClient: LLMClient;
+  private readonly llmStepTimeoutMs: number;
   private readonly promptsDir: string;
   private readonly useDeterministicPolicy: boolean;
   private readonly mockLLMResponses?: Array<any>;
@@ -135,6 +139,15 @@ export class InvestigationAgentRuntime {
       : undefined;
 
     this.llmClient = options.llmClient || new LLMClient(options.llmConfig);
+    const envTimeout = Number(process.env.LLM_STEP_TIMEOUT_MS);
+    this.llmStepTimeoutMs =
+      options.llmStepTimeoutMs ??
+      (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : 30_000);
+  }
+
+  /** Provider and model this runtime bills LLM usage against. */
+  getLLMIdentity(): { provider: string; model: string } {
+    return { provider: this.llmClient.provider, model: this.llmClient.modelName };
   }
 
   private loadPrompt(name: string): string {
@@ -268,10 +281,10 @@ export class InvestigationAgentRuntime {
 
     const startTime = Date.now();
     let toolCallCount = 0;
-    const tokenTracker = new IncidentCostTracker(incident.id);
+    const tokenBudget = this.getTokenBudgetForSeverity(incident.severity);
+    const tokenTracker = new IncidentCostTracker(incident.id, { tokenBudget });
     this.llmClient.setTracker(tokenTracker);
 
-    const tokenBudget = this.getTokenBudgetForSeverity(incident.severity);
     const hypothesisManager = new HypothesisManager(incident);
 
     // Initial plan timeline event
@@ -403,6 +416,20 @@ export class InvestigationAgentRuntime {
             context,
           );
         } catch (err: any) {
+          if (err instanceof TokenBudgetExceededError || tokenTracker.isBudgetExceeded()) {
+            this.appendTimeline(
+              incident,
+              "budget_exhausted",
+              `Exceeded token budget (${tokenBudget}) mid-investigation; halting loop with handoff`,
+            );
+            const leading = hypothesisManager.getLeadingHypothesis();
+            const diagnosis = this.createExhaustedBudgetDiagnosis(
+              incident,
+              `token budget (${tokenBudget}) exceeded`,
+              leading.evidence,
+            );
+            return this.postInvestigation(incident, diagnosis);
+          }
           context.llmUnavailable = true;
           // Graceful fallback to generic diagnostic policy when LLM provider is offline
           this.appendTimeline(
@@ -467,11 +494,29 @@ export class InvestigationAgentRuntime {
 
       // Record actual token usage if specified in mock/step
       if (nextStep.usage) {
-        tokenTracker.recordUsage(
-          nextStep.usage,
-          this.llmClient.provider,
-          this.llmClient.modelName,
-        );
+        try {
+          tokenTracker.recordUsage(
+            nextStep.usage,
+            this.llmClient.provider,
+            this.llmClient.modelName,
+          );
+        } catch (err: any) {
+          if (err instanceof TokenBudgetExceededError || tokenTracker.isBudgetExceeded()) {
+            this.appendTimeline(
+              incident,
+              "budget_exhausted",
+              `Exceeded token budget (${tokenBudget}) mid-investigation; halting loop with handoff`,
+            );
+            const leading = hypothesisManager.getLeadingHypothesis();
+            const diagnosis = this.createExhaustedBudgetDiagnosis(
+              incident,
+              `token budget (${tokenBudget}) exceeded`,
+              leading.evidence,
+            );
+            return this.postInvestigation(incident, diagnosis);
+          }
+          throw err;
+        }
       }
 
       // Update investigation context based on observation data
@@ -579,15 +624,26 @@ ${context.toolHistory
 
 Respond with the next tool to execute, or decide to conclude if confidence threshold is reached.`;
 
+    // The model only chooses the next tool; the loop executes it so the call
+    // lands on the timeline and in the step budget. Tools with `execute` would
+    // run inside generateText, where a tool failure throws and discards the
+    // usage of an LLM call that actually succeeded.
+    const decisionTools = Object.fromEntries(
+      Object.entries(this.tools.toAiSdkTools()).map(([name, def]) => [
+        name,
+        { description: def.description, parameters: def.parameters },
+      ]),
+    );
+
     const result = await withTimeout(
       this.llmClient.generateText({
         system: systemPrompt,
         prompt,
-        tools: this.tools.toAiSdkTools(),
+        tools: decisionTools,
         maxSteps: 1,
         temperature: 0.1,
       }),
-      2000,
+      this.llmStepTimeoutMs,
       "llm_step",
     );
 
@@ -623,8 +679,15 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
         return this.tools.runbookSearch(args);
       case "incidents_similar":
         return this.tools.incidentsSimilar(args);
-      default:
+      default: {
+        // Tools whose model-facing schema differs from the method signature
+        // (snake_case args) dispatch through their AI SDK definition.
+        const sdkTool = this.tools.toAiSdkTools()[toolName];
+        if (sdkTool?.execute) {
+          return sdkTool.execute(args, { toolCallId: toolName, messages: [] });
+        }
         throw new Error(`Unknown tool: ${toolName}`);
+      }
     }
   }
 
@@ -923,7 +986,7 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
                 system: this.loadPrompt("system"),
                 prompt: `${concludePrompt}\n\nIncident: ${JSON.stringify(incident)}\nLeading Hypothesis: ${JSON.stringify(leading)}`,
               }),
-              2000,
+              this.llmStepTimeoutMs,
               "conclude",
             );
             if (res.text && res.text.trim()) {

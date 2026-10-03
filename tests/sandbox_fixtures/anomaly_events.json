@@ -1,0 +1,38 @@
+[
+  {
+    "pid": 1337,
+    "syscall": "ptrace",
+    "executable": "/tmp/exploit",
+    "args": ["PTRACE_ATTACH", "1"],
+    "blocked": true,
+    "timestamp": "2026-10-03T11:00:00Z",
+    "anomalyType": "privilege_escalation"
+  },
+  {
+    "pid": 1338,
+    "syscall": "unshare",
+    "executable": "/bin/nsenter",
+    "args": ["--mount", "--net"],
+    "blocked": true,
+    "timestamp": "2026-10-03T11:00:05Z",
+    "anomalyType": "unauthorized_syscall"
+  },
+  {
+    "pid": 1339,
+    "syscall": "mount",
+    "executable": "/tmp/root_escape",
+    "args": ["proc", "/mnt", "proc"],
+    "blocked": true,
+    "timestamp": "2026-10-03T11:00:10Z",
+    "anomalyType": "mount_escape"
+  },
+  {
+    "pid": 1340,
+    "syscall": "connect",
+    "executable": "/bin/curl",
+    "args": ["http://169.254.169.254/latest/meta-data/"],
+    "blocked": true,
+    "timestamp": "2026-10-03T11:00:15Z",
+    "anomalyType": "egress_violation"
+  }
+]

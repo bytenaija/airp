@@ -2,11 +2,14 @@ import Fastify, { FastifyInstance } from "fastify";
 import { Counter, Histogram, Registry } from "prom-client";
 import {
   IncidentRecordSchema,
+  IncidentSeveritySchema,
   type IncidentRecord,
   applyRoleCredentialSeparation,
   buildServiceLoggerOptions,
+  globalLLMMetrics,
 } from "@airp/common";
 import { InvestigationAgentRuntime, type RuntimeOptions } from "./runtime.js";
+import { AGENT_TOOL_NAMES } from "./tools/index.js";
 
 export interface AgentRuntimeServerOptions extends RuntimeOptions {
   port?: number;
@@ -61,6 +64,103 @@ export function buildAgentRuntimeServer(
     registers: [registry],
   });
 
+  // Agent self-RED metrics requested by Epic 14
+  const investigationsStartedCounter = new Counter({
+    name: "airp_investigations_started_total",
+    help: "Total number of incident investigations started",
+    labelNames: ["severity"],
+    registers: [registry],
+  });
+
+  const investigationsErroredCounter = new Counter({
+    name: "airp_investigations_errored_total",
+    help: "Total number of incident investigations that resulted in errors",
+    labelNames: ["severity"],
+    registers: [registry],
+  });
+
+  const timeToDiagnosisHistogram = new Histogram({
+    name: "airp_time_to_diagnosis_seconds",
+    help: "Time from incident investigation start to diagnosis in seconds",
+    labelNames: ["severity"],
+    buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600],
+    registers: [registry],
+  });
+
+  const toolCallsTotalCounter = new Counter({
+    name: "airp_tool_calls_total",
+    help: "Total number of tool calls executed during investigations",
+    labelNames: ["tool"],
+    registers: [registry],
+  });
+
+  const confidenceDistributionHistogram = new Histogram({
+    name: "airp_confidence_distribution",
+    help: "Distribution of diagnosis confidence scores",
+    buckets: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    registers: [registry],
+  });
+
+  const llmTokensTotalCounter = new Counter({
+    name: "airp_llm_tokens_total",
+    help: "Total LLM tokens consumed",
+    labelNames: ["provider", "model"],
+    registers: [registry],
+  });
+
+  const llmCostDollarsCounter = new Counter({
+    name: "airp_llm_cost_dollars",
+    help: "Total LLM cost in USD",
+    labelNames: ["provider", "model"],
+    registers: [registry],
+  });
+
+  // Prometheus emits no series for a labeled metric until a label set is
+  // touched, which makes untouched dashboard panels render "No data". Seed
+  // every known label combination at 0 so a quiet runtime reads as 0.
+  for (const severity of IncidentSeveritySchema.options) {
+    investigationsStartedCounter.inc({ severity }, 0);
+    investigationsErroredCounter.inc({ severity }, 0);
+    timeToDiagnosisHistogram.zero({ severity });
+    durationHistogram.zero({ severity });
+  }
+  for (const tool of AGENT_TOOL_NAMES) {
+    toolCallsCounter.inc({ tool }, 0);
+    toolCallsTotalCounter.inc({ tool }, 0);
+  }
+  const llmIdentity = runtime.getLLMIdentity();
+  llmTokensTotalCounter.inc(llmIdentity, 0);
+  llmCostDollarsCounter.inc(llmIdentity, 0);
+
+  const lastReportedTokens = new Map<string, number>();
+  const lastReportedCost = new Map<string, number>();
+
+  function syncLLMMetrics(): void {
+    if (!globalLLMMetrics || !globalLLMMetrics.tokensByProvider) return;
+    for (const [key, totalTokens] of globalLLMMetrics.tokensByProvider.entries()) {
+      const colonIdx = key.indexOf(":");
+      const provider = colonIdx !== -1 ? key.slice(0, colonIdx) : "default";
+      const model = colonIdx !== -1 ? key.slice(colonIdx + 1) : key;
+      const prevTokens = lastReportedTokens.get(key) || 0;
+      const deltaTokens = totalTokens - prevTokens;
+      if (deltaTokens > 0) {
+        llmTokensTotalCounter.inc({ provider, model }, deltaTokens);
+        lastReportedTokens.set(key, totalTokens);
+      }
+    }
+    for (const [key, totalCost] of globalLLMMetrics.costByProvider.entries()) {
+      const colonIdx = key.indexOf(":");
+      const provider = colonIdx !== -1 ? key.slice(0, colonIdx) : "default";
+      const model = colonIdx !== -1 ? key.slice(colonIdx + 1) : key;
+      const prevCost = lastReportedCost.get(key) || 0;
+      const deltaCost = totalCost - prevCost;
+      if (deltaCost > 0) {
+        llmCostDollarsCounter.inc({ provider, model }, deltaCost);
+        lastReportedCost.set(key, totalCost);
+      }
+    }
+  }
+
   server.get("/health", async () => {
     return {
       status: "ok",
@@ -83,6 +183,7 @@ export function buildAgentRuntimeServer(
   });
 
   server.get("/metrics", async (_req, reply) => {
+    syncLLMMetrics();
     reply.header("Content-Type", registry.contentType);
     return reply.send(await registry.metrics());
   });
@@ -110,6 +211,8 @@ export function buildAgentRuntimeServer(
     const startTime = Date.now();
     const timelineStart = incident.timeline.length;
 
+    investigationsStartedCounter.inc({ severity: incident.severity });
+
     try {
       const diagnosis = await runtime.investigate(incident, {
         confidenceThreshold: body.confidence_threshold,
@@ -118,6 +221,9 @@ export function buildAgentRuntimeServer(
 
       durationHistogram.observe({ severity: incident.severity }, elapsedSec);
       confidenceHistogram.observe(diagnosis.confidence);
+      timeToDiagnosisHistogram.observe({ severity: incident.severity }, elapsedSec);
+      confidenceDistributionHistogram.observe(diagnosis.confidence);
+
       investigationsCounter.inc({
         status: diagnosis.confidence > 0 ? "success" : "exhausted",
         severity: incident.severity,
@@ -130,6 +236,7 @@ export function buildAgentRuntimeServer(
           const match = event.detail?.match(/\]\s+([a-zA-Z0-9_]+)\(/);
           const tool = match ? match[1] : "unknown";
           toolCallsCounter.inc({ tool });
+          toolCallsTotalCounter.inc({ tool });
         }
       }
 
@@ -139,6 +246,7 @@ export function buildAgentRuntimeServer(
         timeline: incident.timeline,
       });
     } catch (err: any) {
+      investigationsErroredCounter.inc({ severity: incident.severity });
       investigationsCounter.inc({
         status: "failure",
         severity: incident.severity,

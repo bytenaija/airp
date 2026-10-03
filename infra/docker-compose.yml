@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     container_name: airp-postgres
     restart: unless-stopped
     ports:
@@ -21,7 +21,7 @@ services:
       retries: 5
 
   loki:
-    image: grafana/loki:3.0.0
+    image: grafana/loki:3.0.0@sha256:757b5fadf816a1396f1fea598152947421fa49cb8b2db1ddd2a6e30fae003253
     container_name: airp-loki
     restart: unless-stopped
     user: "0"
@@ -39,7 +39,7 @@ services:
       retries: 5
 
   tempo:
-    image: grafana/tempo:2.4.1
+    image: grafana/tempo:2.4.1@sha256:5b9c08f6d8fb43b3b72dfd1252ba4f198b11a245257bf76ee2ca13e243bac565
     container_name: airp-tempo
     restart: unless-stopped
     user: "0"
@@ -57,7 +57,7 @@ services:
       retries: 5
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.96.0
+    image: otel/opentelemetry-collector-contrib:0.96.0@sha256:7ef2a2ff46b9e432321fdd63df104bfeedaf7b4e276950f42c634d0f23521fc4
     container_name: airp-otel-collector
     restart: unless-stopped
     ports:
@@ -73,13 +73,14 @@ services:
       - tempo
 
   prometheus:
-    image: prom/prometheus:v2.51.0
+    image: prom/prometheus:v2.51.0@sha256:5ccad477d0057e62a7cd1981ffcc43785ac10c5a35522dc207466ff7e7ec845f
     container_name: airp-prometheus
     restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -90,8 +91,30 @@ services:
     depends_on:
       - otel-collector
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
+    container_name: airp-alertmanager
+    profiles: ["fallback"]
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  fallback-pager:
+    image: ghcr.io/bytenaija/airp-fallback-pager:0.1.0
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-fallback-pager
+    profiles: ["fallback"]
+    restart: unless-stopped
+    command: ["node", "-e", "const http = require('http'); const server = http.createServer((req, res) => { let body = ''; req.on('data', chunk => { body += chunk; }); req.on('end', () => { console.log('[FALLBACK PAGER] Human page received: ' + req.method + ' ' + req.url); if (body) console.log('[FALLBACK PAGER] Body: ' + body); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'paged', receivedAt: new Date().toISOString() })); }); }); server.listen(9095, '0.0.0.0', () => console.log('Fallback pager webhook receiver listening on port 9095'));"]
+    ports:
+      - "9095:9095"
+
   grafana:
-    image: grafana/grafana:10.4.2
+    image: grafana/grafana:10.4.2@sha256:7d5faae481a4c6f436c99e98af11534f7fd5e8d3e35213552dd1dd02bc393d2e
     container_name: airp-grafana
     restart: unless-stopped
     ports:
@@ -110,6 +133,7 @@ services:
       - tempo
 
   demo:
+    image: ghcr.io/bytenaija/airp-demo:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -142,6 +166,7 @@ services:
       - otel-collector
 
   checkout-canary:
+    image: ghcr.io/bytenaija/airp-demo:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -169,7 +194,7 @@ services:
       - demo
 
   nginx:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
     container_name: airp-nginx
     restart: unless-stopped
     ports:
@@ -196,6 +221,7 @@ services:
 
 
   changefeed:
+    image: ghcr.io/bytenaija/airp-changefeed:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -216,6 +242,7 @@ services:
         condition: service_healthy
 
   ingest-gateway:
+    image: ghcr.io/bytenaija/airp-ingest-gateway:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -238,6 +265,7 @@ services:
         condition: service_healthy
 
   code-index:
+    image: ghcr.io/bytenaija/airp-code-index:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -262,6 +290,7 @@ services:
         condition: service_healthy
 
   agent-runtime:
+    image: ghcr.io/bytenaija/airp-agent-runtime:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -270,6 +299,12 @@ services:
     command: ["node", "services/agent-runtime/dist/server.js"]
     ports:
       - "8007:8007"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://localhost:8007/health\", (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     environment:
       - NODE_ENV=production
       - PORT=8007
@@ -278,8 +313,14 @@ services:
       - TEMPO_URL=http://tempo:3200
       - CODE_INDEX_URL=http://code-index:8006
       - CHANGEFEED_URL=http://changefeed:8004
-      - LLM_PROVIDER=ollama
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_MODEL=${LLM_MODEL:-llama3.2}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/api}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - LOG_DIR=/var/log/airp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - app_logs:/var/log/airp
     depends_on:
@@ -288,6 +329,7 @@ services:
       - ingest-gateway
 
   policy-engine:
+    image: ghcr.io/bytenaija/airp-policy-engine:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
@@ -313,6 +355,7 @@ services:
         condition: service_healthy
 
   rollout-controller:
+    image: ghcr.io/bytenaija/airp-rollout-controller:0.1.0
     build:
       context: ..
       dockerfile: infra/Dockerfile
