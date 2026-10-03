@@ -40,6 +40,9 @@ The reviewer runs scheduled checks (roughly every 5 minutes) that:
      spot-check by reading the diff. Re-running is the builder's job, but
      the reviewer's approval must rest on CI evidence, not on the builder's
      word alone.
+   - Screenshots: any PR with runtime changes must have end-to-end
+     screenshots attached proving the changed flow works. A runtime PR with
+     no screenshots gets `CHANGES REQUESTED`. Docs-only PRs are exempt.
    - No credentials, no phone-home, no cloud/paid dependencies (CONTEXT.md).
    - Consistency with the textbook chapters the epic references.
 3. Post the verdict **as a PR comment**:

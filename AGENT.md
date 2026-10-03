@@ -111,6 +111,14 @@ PR: check every 5 minutes for reviewer comments or a merge. When you see
 `CHANGES REQUESTED`, address the feedback first. The cron stops polling a PR
 once it is merged.
 
+## PR screenshots
+
+Every PR that changes runtime behavior must include screenshots proving the
+changed flow works end to end, attached to the PR description or a PR
+comment. Run the affected services (compose stack or CI), exercise the
+changed path, and capture the result. Docs-only PRs (no runtime changes)
+are exempt from app screenshots.
+
 ## Rules that are never bent
 
 - Never push directly to `main`. All work goes through epic branches + PRs.
