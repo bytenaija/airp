@@ -27,7 +27,10 @@ BUILD:
    hint.
 4. Guided first run: once connections verify, run a synthetic incident
    through the pipeline (ingest, investigate, handoff) so the tenant sees
-   the product working on their own connected systems.
+   the product working on their own connected systems. Route handoff
+   notifications to a local/test destination; require explicit admin
+   confirmation before sending to a real destination (CodeRabbit safety
+   finding 4172491730 on this PR).
 5. Access control: only org admins (Epic 8 RBAC, Epic 15 tenancy) can
    add, edit, or remove connections; every connection event is audit-logged
    per tenant.
