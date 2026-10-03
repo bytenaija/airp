@@ -9,6 +9,10 @@ export interface PostgresOutcomeStoreOptions {
   pool?: pg.Pool;
 }
 
+/**
+ * Resolves the database connection string. Defaults to the local docker compose
+ * connection string. Production environments must set DATABASE_URL explicitly.
+ */
 export function defaultDatabaseUrl(): string {
   return (
     process.env.DATABASE_URL ||

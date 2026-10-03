@@ -1,4 +1,7 @@
 -- Migration 001: Create outcomes table for Postgres-backed flywheel outcome store
+-- Note: This file is a manual-apply artifact and reference DDL. Runtime table
+-- initialization is performed dynamically by PostgresOutcomeStore.init(), and
+-- fresh local/compose installations initialize via infra/postgres/init.sql.
 
 CREATE TABLE IF NOT EXISTS outcomes (
     incident_id TEXT PRIMARY KEY,

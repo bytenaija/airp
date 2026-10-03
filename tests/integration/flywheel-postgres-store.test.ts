@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import pg from "pg";
 import crypto from "node:crypto";
 import {
   PostgresOutcomeStore,
@@ -40,32 +39,17 @@ function makeSampleRecord(id: string, overrides: Partial<OutcomeRecord> = {}): O
   };
 }
 
-describe("PostgresOutcomeStore against compose Postgres", () => {
+describe("PostgresOutcomeStore Integration Tests (Compose Stack)", () => {
   let store: PostgresOutcomeStore;
-  let isPostgresAvailable = false;
   const testIds: string[] = [];
 
   beforeAll(async () => {
-    try {
-      const probePool = new pg.Pool({
-        connectionString: DATABASE_URL,
-        connectionTimeoutMillis: 1500,
-      });
-      await probePool.query("SELECT 1;");
-      await probePool.end();
-      isPostgresAvailable = true;
-    } catch {
-      isPostgresAvailable = false;
-    }
-
-    if (isPostgresAvailable) {
-      store = new PostgresOutcomeStore({ databaseUrl: DATABASE_URL });
-      await store.init();
-    }
+    store = new PostgresOutcomeStore({ databaseUrl: DATABASE_URL });
+    await store.init();
   });
 
   afterAll(async () => {
-    if (isPostgresAvailable && store) {
+    if (store) {
       if (testIds.length > 0) {
         await store.pool.query(
           "DELETE FROM outcomes WHERE incident_id = ANY($1);",
@@ -77,9 +61,6 @@ describe("PostgresOutcomeStore against compose Postgres", () => {
   });
 
   it("adds and gets an outcome record", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const id = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
     testIds.push(id);
 
@@ -100,17 +81,11 @@ describe("PostgresOutcomeStore against compose Postgres", () => {
   });
 
   it("returns undefined for non-existent incident", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const nonExistent = await store.get("test-pg-does-not-exist");
     expect(nonExistent).toBeUndefined();
   });
 
   it("throws expected error on duplicate incident_id", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const id = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
     testIds.push(id);
 
@@ -123,9 +98,6 @@ describe("PostgresOutcomeStore against compose Postgres", () => {
   });
 
   it("lists records ordered by labeled_at", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const id1 = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
     const id2 = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
     testIds.push(id1, id2);
@@ -148,9 +120,6 @@ describe("PostgresOutcomeStore against compose Postgres", () => {
   });
 
   it("marks a record as reviewed and returns status", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const id = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
     testIds.push(id);
 
@@ -171,9 +140,6 @@ describe("PostgresOutcomeStore against compose Postgres", () => {
   });
 
   it("counts outcome records accurately", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const initialCount = await store.count();
 
     const id = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
@@ -185,9 +151,6 @@ describe("PostgresOutcomeStore against compose Postgres", () => {
   });
 
   it("returns trailing MTTR values", async () => {
-    if (!isPostgresAvailable) {
-      return;
-    }
     const id = `test-pg-${crypto.randomUUID().slice(0, 8)}`;
     testIds.push(id);
     await store.add(makeSampleRecord(id, { mttr_seconds: 350 }));
