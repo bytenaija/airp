@@ -89,11 +89,14 @@ Proactive sweep mode is configured via environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `SWEEP_CRON_SCHEDULE` | `0 3 * * *` | Cron schedule for the sweep miner (runs daily at 3:00 AM) |
-| `SWEEP_MAX_DAILY_RUNS` | `3` | Maximum number of proactive patches allowed per day |
-| `SWEEP_LOOKBACK_HOURS` | `168` | Lookback period in hours for recurring error log analysis (7 days) |
-| `SWEEP_MIN_ERROR_COUNT` | `5` | Minimum number of occurrences required to classify as recurring |
-| `POLICY_RULE_VERSION` | `v2` | Policy rule version enforcing the proactive auto-merge invariant |
+| `SWEEP_SERVICES` | (none) | Comma-separated service names for the miner to scan. The explicit `services` option wins when both are set. |
+| `LOKI_URL` | `http://localhost:3100` | Loki base URL for the default `LokiSweepSource`. |
+| `INGEST_GATEWAY_URL` | `http://localhost:8000` | Ingest gateway URL used for incident-link filtering. |
+| `AIRP_SWEEP_QUOTA_PATH` | `~/.airp/sweep-quota.json` | Where the `airp sweep` CLI persists its daily rate-limit counts. |
+| `POLICY_RULES_VERSION` | `v1` | Policy rule version for the evaluator (the sweep worker defaults to `v2`). |
+| `POLICY_RULES_PATH` | (built-in) | Path to the policy rules file. |
+
+The miner also accepts `lookbackMs` (default 7 days), `minOccurrences` (default 2), and `cronExpression` (default `0 0 * * *`) as constructor options.
 
 ## CLI
 
@@ -105,7 +108,7 @@ airp sweep --services checkout,payments --lookback-days 7 --max-per-day 3
 
 | Flag | Default | Description |
 |---|---|---|
-| `--services <list>` | (none) | Comma-separated service names to scan. When omitted the miner scans nothing. |
+| `--services <list>` | `SWEEP_SERVICES` or (none) | Comma-separated service names to scan. The flag wins over `SWEEP_SERVICES`; when both are absent the miner scans nothing. |
 | `--lookback-days <days>` | `7` | Log lookback window in days. Must be a positive integer. |
 | `--max-per-day <n>` | `3` | Maximum candidates the worker processes per day. Must be a positive integer. |
 | `--loki-url <url>` | `LOKI_URL` or `http://localhost:3100` | Loki base URL. |
