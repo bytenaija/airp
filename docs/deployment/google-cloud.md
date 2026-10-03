@@ -15,6 +15,16 @@ except 80/443/22.
    with Docker installed manually; container-optimized OS already
    ships Docker, so skip the install step there.
 3. Reserve a static external IP and point your DNS A record at it.
+4. Attach a persistent disk for the Docker data directory. This is
+   required: a plain host volume is not acceptable for production.
+   Format and mount it at `/var/lib/docker` so the `postgres_data`,
+   `loki_data`, `tempo_data`, `prometheus_data`, `grafana_data`, and
+   `app_logs` volumes all live on the persistent disk (100 GB,
+   balanced PD, is a reasonable starting point).
+
+   Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
+   eval data) do not go on disk at all: create an S3 bucket (or use R2)
+   and point the stack at it with the documented environment variables.
 
 ## Firewall rules
 
