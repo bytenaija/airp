@@ -167,7 +167,7 @@ const VALID_TRANSITIONS: Record<IncidentStatus, IncidentStatus[]> = {
   open: ["investigating"],
   investigating: ["diagnosed"],
   diagnosed: ["mitigating"],
-  mitigating: ["resolved"],
+  mitigating: ["resolved", "open"], // resolve on success or reopen on canary rollback
   resolved: ["open"], // explicit reopen
 };
 

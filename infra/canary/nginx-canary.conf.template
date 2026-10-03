@@ -1,0 +1,49 @@
+# Nginx Canary Configuration Template for AIRP
+# Weights: STABLE_WEIGHT (e.g. 99), CANARY_WEIGHT (e.g. 1)
+# Status flags: STABLE_STATUS ("" or "down"), CANARY_STATUS ("" or "down")
+# Upstreams: STABLE_UPSTREAM, CANARY_UPSTREAM
+# Listen port: NGINX_PORT
+
+upstream checkout_stable {
+    server ${STABLE_UPSTREAM};
+}
+
+upstream checkout_canary {
+    server ${CANARY_UPSTREAM};
+}
+
+upstream checkout_weighted {
+    server ${STABLE_UPSTREAM} weight=${STABLE_WEIGHT} ${STABLE_STATUS};
+    server ${CANARY_UPSTREAM} weight=${CANARY_WEIGHT} ${CANARY_STATUS};
+}
+
+server {
+    listen ${NGINX_PORT};
+    server_name localhost;
+
+    # Primary traffic distribution route (weighted between stable and canary)
+    location / {
+        proxy_pass http://checkout_weighted;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+    }
+
+    # Dedicated direct routes for healthchecks and verification
+    location /upstream/stable/ {
+        proxy_pass http://checkout_stable/;
+        proxy_set_header Host $host;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+    }
+
+    location /upstream/canary/ {
+        proxy_pass http://checkout_canary/;
+        proxy_set_header Host $host;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+    }
+}
