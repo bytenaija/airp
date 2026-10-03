@@ -5,6 +5,33 @@ Containers; the stateful backing services cannot. This guide covers the
 Containers-hybrid deployment, what Cloudflare can genuinely do for a
 self-hosted deployment, and the decisions still open for Epic 20.
 
+## Before you expose anything: mandatory security checklist
+
+Do all of these before this stack touches the internet or any real data.
+Every skipped item is a known open hole. This applies no matter which
+Cloudflare setup below you use.
+
+- [ ] Change the Grafana admin credentials. The compose file ships
+  `GF_SECURITY_ADMIN_USER=admin` and `GF_SECURITY_ADMIN_PASSWORD=admin`.
+  Override both through the environment (a `.env` file or your secret
+  store, never committed) and never ship the defaults.
+- [ ] Set `FLAGS_ADMIN_TOKEN` (or `ADMIN_TOKEN`). `POST /admin/flags`
+  performs no authentication when no token is configured, so without a
+  token anyone who can reach the service can write flags.
+- [ ] Do not start the demo fixture services in production. `demo` and
+  `checkout-canary` in `infra/docker-compose.yml` are local dev and CI
+  fixtures only. Until compose profiles gate them, start only the
+  production service set explicitly:
+
+  ```sh
+  docker compose -f infra/docker-compose.yml up --build -d postgres loki tempo otel-collector prometheus grafana nginx changefeed ingest-gateway code-index agent-runtime policy-engine rollout-controller
+  ```
+
+- [ ] Keep every port except 80/443 on the reverse proxy closed to the
+  internet (or use a tunnel and open nothing). Database, observability,
+  and service-to-service ports stay on the private network.
+
+
 ## What can and cannot run on Cloudflare
 
 Cloudflare Containers (Workers Paid plan) runs standard linux/amd64
@@ -101,10 +128,6 @@ on the server at all. Combine it with the firewall guidance in
   reported; Cloudflare fixed it within days with no evidence of
   exploitation. Treat container disks as untrusted for sensitive data
   regardless.
-- Before exposing anything: replace the Grafana default
-  credentials, set the flags admin token, never run demo or
-  checkout-canary services in production, and keep non-public ports
-  closed. This applies to every deployment guide in this directory.
 
 ## Open decisions (Epic 20)
 
