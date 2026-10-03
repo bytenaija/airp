@@ -119,7 +119,6 @@ export class CodeIndexPipeline {
           entry.name === "package-lock.json" ||
           entry.name === "pnpm-lock.yaml" ||
           entry.name === "yarn.lock" ||
-          entry.name.includes("test-symbol-sample") ||
           [
             ".png",
             ".jpg",
