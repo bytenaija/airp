@@ -29,6 +29,29 @@ backups. Multi-node clustering is out of scope.
    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
    ```
 
+## Block storage (required for production)
+
+A plain host volume is not acceptable for production. Attach your
+provider's block storage product (for example Hetzner Volumes or
+DigitalOcean Block Storage), format it, and mount it where Docker
+keeps its data so every named volume lives on block storage:
+
+```bash
+sudo mkfs.ext4 /dev/disk/by-id/scsi-0HC_Volume_100
+sudo mkdir -p /var/lib/docker
+echo '/dev/disk/by-id/scsi-0HC_Volume_100 /var/lib/docker ext4 defaults 0 0' | sudo tee -a /etc/fstab
+sudo mount -a
+```
+
+This covers `postgres_data`, `loki_data`, `tempo_data`,
+`prometheus_data`, `grafana_data`, and `app_logs`. Size it for your
+retention: 100 GB is a reasonable starting point.
+
+Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
+eval data) do not go on disk at all. Create an S3 bucket and point
+the stack at it with the documented environment variables; the
+services use the BlobStore S3 implementation in production.
+
 ## Clone and start the stack
 
 ```bash
