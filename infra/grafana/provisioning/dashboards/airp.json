@@ -24,7 +24,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (severity) (rate(airp_investigations_started_total[1m]))",
+          "expr": "sum by (severity) (max without (instance) (rate(airp_investigations_started_total[1m])))",
           "legendFormat": "{{severity}} started"
         }
       ]
@@ -37,7 +37,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (severity) (rate(airp_investigations_errored_total[1m]))",
+          "expr": "sum by (severity) (max without (instance) (rate(airp_investigations_errored_total[1m])))",
           "legendFormat": "{{severity}} errors"
         }
       ]
@@ -50,7 +50,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(airp_time_to_diagnosis_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (max without (instance) (rate(airp_time_to_diagnosis_seconds_bucket[5m]))))",
           "legendFormat": "p90 duration (s)"
         }
       ]
@@ -70,7 +70,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (tool) (rate(airp_tool_calls_total[1m]))",
+          "expr": "sum by (tool) (max without (instance) (rate(airp_tool_calls_total[1m])))",
           "legendFormat": "{{tool}}"
         }
       ]
@@ -83,7 +83,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (le) (increase(airp_confidence_distribution_bucket[$__range]))",
+          "expr": "sum by (le) (max without (instance) (increase(airp_confidence_distribution_bucket[$__range])))",
           "legendFormat": "{{le}}"
         }
       ]
@@ -103,7 +103,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (model) (rate(airp_llm_tokens_total[1m]))",
+          "expr": "sum by (model) (max without (instance) (rate(airp_llm_tokens_total[1m])))",
           "legendFormat": "{{model}} tokens/s"
         }
       ]
@@ -116,7 +116,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(airp_llm_cost_dollars)",
+          "expr": "sum(max without (instance) (airp_llm_cost_dollars))",
           "legendFormat": "Total LLM Cost ($)"
         }
       ]

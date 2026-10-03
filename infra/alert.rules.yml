@@ -2,7 +2,7 @@ groups:
   - name: airp_agent_alerts
     rules:
       - alert: AgentDown
-        expr: absent(up{job="agent-runtime"}) == 1 or up{job="agent-runtime"} == 0
+        expr: absent(up{job="agent-runtime"}) == 1 or max(up{job="agent-runtime"}) == 0
         for: 15s
         labels:
           severity: critical
@@ -12,7 +12,7 @@ groups:
           description: "The agent-runtime container failed its healthcheck or is unreachable. Routing alerts to human fallback."
 
       - alert: AgentHighErrorRate
-        expr: sum(rate(airp_investigations_errored_total[5m])) > 0.1
+        expr: sum(max without (instance) (rate(airp_investigations_errored_total[5m]))) > 0.1
         for: 1m
         labels:
           severity: warning
@@ -22,7 +22,7 @@ groups:
           description: "Agent investigations are throwing uncaught exceptions at a rate exceeding 0.1 errors/sec."
 
       - alert: HighTokenConsumption
-        expr: sum(rate(airp_llm_tokens_total[5m])) > 50000
+        expr: sum(max without (instance) (rate(airp_llm_tokens_total[5m]))) > 50000
         for: 1m
         labels:
           severity: warning

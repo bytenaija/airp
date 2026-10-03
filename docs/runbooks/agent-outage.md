@@ -77,7 +77,7 @@ To simulate an agent outage and verify human alerting:
    docker stop airp-agent-runtime
    ```
 
-2. Verify Prometheus detects `absent(up{job="agent-runtime"}) == 1 or up{job="agent-runtime"} == 0` within 15 seconds at `http://localhost:9090/alerts`.
+2. Verify Prometheus detects `absent(up{job="agent-runtime"}) == 1 or max(up{job="agent-runtime"}) == 0` within 15 seconds at `http://localhost:9090/alerts`.
 
 3. Verify Alertmanager fires the `AgentDown` alert and dispatches to the `human-oncall` receiver at `http://fallback-pager:9095/webhook`. Logs can be viewed via `docker logs airp-fallback-pager`.
 

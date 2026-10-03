@@ -46,11 +46,17 @@ Perform these checks at the start of each on-call shift:
 
 When an alert fires on the remediation system itself, use the following guide:
 
+Prometheus scrapes agent-runtime at both `agent-runtime:8007` (compose) and
+`host.docker.internal:8007` (host-run dev mode). Only one process can hold
+port 8007, so in compose both targets reach the same process. Every agent
+query takes `max without (instance)` before summing so that process is
+counted once, and `AgentDown` fires only when no target is up.
+
 | Alert Name | Metric Condition | Meaning | Immediate Action |
 | :--- | :--- | :--- | :--- |
-| `AgentDown` | `up{job="agent-runtime"} == 0` for 15s | Container crashed, OOM killed, or failed healthcheck | Check `docker logs airp-agent-runtime`, restart container, verify fallback routing in Alertmanager |
-| `AgentHighErrorRate` | `rate(airp_investigations_errored_total[5m]) > 0.1` | Agent investigations are throwing uncaught exceptions | Inspect agent runtime logs for schema parse errors or upstream API timeouts |
-| `HighTokenConsumption` | `rate(airp_llm_tokens_total[5m]) > 50000` | Runaway prompt or loop consuming excessive tokens | Check active incident investigations, inspect token budgets, halt runaway runs |
+| `AgentDown` | no `agent-runtime` scrape target up (`max(up{job="agent-runtime"}) == 0`, or the series is absent) for 15s | Container crashed, OOM killed, or failed healthcheck | Check `docker logs airp-agent-runtime`, restart container, verify fallback routing in Alertmanager |
+| `AgentHighErrorRate` | `sum(max without (instance) (rate(airp_investigations_errored_total[5m]))) > 0.1` | Agent investigations are throwing uncaught exceptions | Inspect agent runtime logs for schema parse errors or upstream API timeouts |
+| `HighTokenConsumption` | `sum(max without (instance) (rate(airp_llm_tokens_total[5m]))) > 50000` | Runaway prompt or loop consuming excessive tokens | Check active incident investigations, inspect token budgets, halt runaway runs |
 | `BreakerTripped` | Policy engine circuit breaker is open | Safety boundary tripped (too many rollbacks or failed patches) | Freeze automated actuation, inspect root cause, follow breaker-clear procedure below |
 
 ## 4. Circuit Breaker Inspection and Clear Procedure
