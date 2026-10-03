@@ -173,7 +173,7 @@ See `docs/proactive-sweep.md`.
 Platform hardening and operational readiness features safeguard cost,
 security, and fail-safe operations:
 - Secrets rotation drill: `airp secrets rotate` runs a rotation drill for credentials. See `docs/secrets-management.md`.
-- Customer-managed keys (CMEK) and crypto-shredding: `airp tenant destroy <tenantId>` executes tenant key destruction.
+- Customer-managed keys (CMEK) and crypto-shredding: `airp tenant destroy <tenantId>` executes tenant key destruction. Tenant keys and the destroyed-tenant list persist in the keystore at `AIRP_KMS_KEYSTORE`, wrapped by `AIRP_KMS_MASTER_KEY` (base64, 32 bytes), so a destruction holds across restarts and processes. Production refuses to start the in-memory keystore, and the CLI refuses to destroy without a keystore.
 - Supply chain security: `airp sbom` produces CycloneDX 1.5 and SPDX 2.3 SBOMs. See `docs/supply-chain.md`.
 - Sandbox escape monitoring: `airp leakage-probe` tests canary token leakage detection.
 - Fail-safe and outage runbooks: see `docs/runbooks/agent-outage.md` and `docs/runbooks/operator.md`.

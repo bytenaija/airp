@@ -69,7 +69,7 @@ This document details the threat model for the Autonomous Incident Remediation P
 - **Threat**: Unauthorized vendor access to tenant incident transcripts or source code.
   - **Mitigation**: Access Transparency logging. Every vendor access requires an approval record visible to the tenant. Local environments display a visible auto-approval banner.
 - **Threat**: Tenant data retained after contract termination or tenant deletion.
-  - **Mitigation**: Customer-Managed Encryption Keys (CMEK). Tenant data is encrypted at rest using tenant-specific cryptographic keys. `airp tenant destroy` destroys the key, rendering existing ciphertexts mathematically unrecoverable.
+  - **Mitigation**: Customer-Managed Encryption Keys (CMEK). Tenant data is encrypted at rest using tenant-specific cryptographic keys. `airp tenant destroy` destroys the key, rendering existing ciphertexts mathematically unrecoverable. LocalKMS persists tenant keys wrapped by a master key (`AIRP_KMS_KEYSTORE`, `AIRP_KMS_MASTER_KEY`) together with the destroyed-tenant list, so a destruction cannot be undone by a restart; production refuses the in-memory keystore.
 
 ---
 

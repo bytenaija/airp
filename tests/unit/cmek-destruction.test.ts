@@ -1,5 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { LocalKMS, TenantKeyDestroyedError } from "../../packages/common/src/cmek.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  LocalKMS,
+  TenantKeyDestroyedError,
+  createLocalKMSFromEnv,
+} from "../../packages/common/src/cmek.js";
 
 describe("Customer-Managed Keys (CMEK) and Key Destruction", () => {
   it("proves key destruction equals data destruction: encrypted data becomes permanently unreadable", async () => {
@@ -34,5 +42,72 @@ describe("Customer-Managed Keys (CMEK) and Key Destruction", () => {
     // 6. Assert a fresh KMS instance cannot decrypt the ciphertext of the destroyed key
     const freshKms = new LocalKMS();
     await expect(freshKms.decrypt(ciphertext, tenantId)).rejects.toThrow();
+  });
+
+  describe("persistent keystore", () => {
+    let dir: string;
+    let keystorePath: string;
+    const masterKey = crypto.randomBytes(32);
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "airp-kms-"));
+      keystorePath = path.join(dir, "keystore.json");
+    });
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("decrypts after a restart and keeps tenant keys wrapped at rest", async () => {
+      const ciphertext = await new LocalKMS({ keystorePath, masterKey }).encrypt(
+        "tenant secret",
+        "tenant-a",
+      );
+
+      const restarted = new LocalKMS({ keystorePath, masterKey });
+      expect(await restarted.decrypt(ciphertext, "tenant-a")).toBe("tenant secret");
+
+      const onDisk = JSON.parse(fs.readFileSync(keystorePath, "utf8"));
+      expect(onDisk.keys["tenant-a"].split(":")).toHaveLength(3);
+      expect(() => new LocalKMS({ keystorePath, masterKey: crypto.randomBytes(32) })).toThrow();
+    });
+
+    it("keeps a destruction made by one process in force for every later process", async () => {
+      const service = new LocalKMS({ keystorePath, masterKey });
+      const ciphertext = await service.encrypt("tenant secret", "tenant-b");
+      await service.encrypt("other tenant", "tenant-c");
+
+      // `airp tenant destroy` runs in its own process with its own instance.
+      await new LocalKMS({ keystorePath, masterKey }).destroyTenantKey("tenant-b");
+
+      const restarted = new LocalKMS({ keystorePath, masterKey });
+      expect(restarted.isKeyDestroyed("tenant-b")).toBe(true);
+      await expect(restarted.decrypt(ciphertext, "tenant-b")).rejects.toThrow(
+        TenantKeyDestroyedError,
+      );
+      await expect(restarted.encrypt("new", "tenant-b")).rejects.toThrow(TenantKeyDestroyedError);
+      expect(JSON.parse(fs.readFileSync(keystorePath, "utf8")).keys["tenant-b"]).toBeUndefined();
+      expect(restarted.isKeyDestroyed("tenant-c")).toBe(false);
+    });
+
+    it("builds from env and refuses the in-memory keystore in production", () => {
+      expect(() => createLocalKMSFromEnv({ NODE_ENV: "production" })).toThrow(/AIRP_KMS_KEYSTORE/);
+      expect(() => createLocalKMSFromEnv({ AIRP_KMS_KEYSTORE: keystorePath })).toThrow(
+        /AIRP_KMS_MASTER_KEY/,
+      );
+      expect(() =>
+        createLocalKMSFromEnv({
+          AIRP_KMS_KEYSTORE: keystorePath,
+          AIRP_KMS_MASTER_KEY: crypto.randomBytes(16).toString("base64"),
+        }),
+      ).toThrow(/32 bytes/);
+
+      expect(createLocalKMSFromEnv({ NODE_ENV: "test" }).isPersistent).toBe(false);
+      const kms = createLocalKMSFromEnv({
+        NODE_ENV: "production",
+        AIRP_KMS_KEYSTORE: keystorePath,
+        AIRP_KMS_MASTER_KEY: masterKey.toString("base64"),
+      });
+      expect(kms.isPersistent).toBe(true);
+    });
   });
 });

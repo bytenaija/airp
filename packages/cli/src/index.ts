@@ -18,7 +18,7 @@ import {
 import { SweepMiner, SweepWorker, type SweepCandidate } from "@airp/sweep";
 import {
   rotateDemoCredentials,
-  globalKMS,
+  getGlobalKMS,
   generateSbom,
   SandboxEscapeMonitor,
   type EscapeAlert,
@@ -1123,7 +1123,15 @@ tenantCmd
   .description("Cryptographically destroy tenant encryption keys, rendering all tenant data unrecoverable")
   .action(async (tenantId: string) => {
     try {
-      await globalKMS.destroyTenantKey(tenantId);
+      const kms = getGlobalKMS();
+      if (!kms.isPersistent) {
+        console.error(
+          "Refusing to destroy: no KMS keystore configured. Set AIRP_KMS_KEYSTORE and AIRP_KMS_MASTER_KEY so the destruction is recorded where the services read it.",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      await kms.destroyTenantKey(tenantId);
       console.log(`Tenant '${tenantId}' encryption keys destroyed. All existing data is permanently unrecoverable.`);
     } catch (err: any) {
       console.error(`Error destroying tenant keys: ${err.message}`);
