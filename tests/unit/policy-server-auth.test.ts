@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { type RemediationPlan } from "@airp/common";
 import { buildPolicyEngineServer } from "../../services/policy-engine/src/server.js";
 import { signJwt } from "../../services/policy-engine/src/rbac.js";
+import { PolicyAuditStore } from "../../services/policy-engine/src/audit.js";
 
 describe("Policy Engine Server Auth & Claims Gating", () => {
   let server: FastifyInstance;
@@ -16,6 +17,7 @@ describe("Policy Engine Server Auth & Claims Gating", () => {
     process.env.POLICY_JWT_SECRET = testSecret;
     const engine = buildPolicyEngineServer({
       jwtSecret: testSecret,
+      auditStore: new PolicyAuditStore(),
     });
     server = engine.server;
     await server.ready();

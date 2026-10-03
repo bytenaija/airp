@@ -18,15 +18,21 @@ export const RoleCredentialsConfigSchema = z.object({
 
 export type RoleCredentialsConfig = z.infer<typeof RoleCredentialsConfigSchema>;
 
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export function resolveCredentialsConfigPath(customPath?: string): string {
   if (customPath) return path.resolve(customPath);
   if (process.env.AIRP_CREDENTIALS_CONFIG_PATH) {
     return path.resolve(process.env.AIRP_CREDENTIALS_CONFIG_PATH);
   }
   const candidates = [
+    path.resolve(process.cwd(), "config/credentials.yaml"),
     path.resolve(__dirname, "../../../config/credentials.yaml"),
     path.resolve(__dirname, "../../config/credentials.yaml"),
-    path.resolve(process.cwd(), "config/credentials.yaml"),
+    "/app/config/credentials.yaml",
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {

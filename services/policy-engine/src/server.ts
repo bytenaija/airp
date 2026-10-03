@@ -51,7 +51,9 @@ export function buildPolicyEngineServer(
   const auditStore =
     options.auditStore ||
     new PolicyAuditStore(
-      process.env.DATABASE_URL ? new PrismaClient() : undefined,
+      process.env.NODE_ENV !== "test" && process.env.DATABASE_URL
+        ? new PrismaClient()
+        : undefined,
     );
 
   const slackProvider = new StubSlackProvider();
@@ -211,6 +213,13 @@ export function buildPolicyEngineServer(
       });
     }
 
+    const state = approvalManager.getPlan(planId);
+    if (!state) {
+      return reply.status(404).send({
+        error: `Plan '${planId}' not found`,
+      });
+    }
+
     const requestedRole = (body.role || body.by || "code_owner") as string;
 
     try {
@@ -224,7 +233,7 @@ export function buildPolicyEngineServer(
         recordedApprovals: result.state.recordedApprovals,
       });
     } catch (err: any) {
-      if (err instanceof AuthorizationError) {
+      if (err instanceof AuthorizationError || err?.name === "AuthorizationError") {
         return reply.status(403).send({
           error: "Forbidden",
           reason: err.message,
