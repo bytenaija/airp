@@ -24,8 +24,9 @@ on every cold start, and instances stop after an inactivity timeout.
   limiting in front of the services.
 - Cloudflare Containers: the stateless services listed above.
 - R2: artifacts, air-gap bundles, handoff reports, eval data. On VPS
-  and AWS production deployments the same BlobStore interface is backed
-  by S3. Blobs never live on a local disk mount on any target.
+  and AWS production deployments the same object-storage requirement
+  applies via S3 once the BlobStore abstraction lands in Epic 20.
+  Blobs never live on a local disk mount on any target.
 - Cloudflare Queues: changefeed and outbox delivery.
 - Postgres/pgvector: Hyperdrive to managed Postgres, or D1 plus
   Vectorize for embeddings. The exact choice is an Epic 20 decision,
@@ -100,9 +101,10 @@ on the server at all. Combine it with the firewall guidance in
   reported; Cloudflare fixed it within days with no evidence of
   exploitation. Treat container disks as untrusted for sensitive data
   regardless.
-- The mandatory pre-exposure checklist (Grafana credentials, flags
-  admin token, no demo services in production, closed ports) applies
-  to every deployment guide in this directory.
+- Before exposing anything: replace the Grafana default
+  credentials, set the flags admin token, never run demo or
+  checkout-canary services in production, and keep non-public ports
+  closed. This applies to every deployment guide in this directory.
 
 ## Open decisions (Epic 20)
 

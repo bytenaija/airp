@@ -19,8 +19,10 @@ everything except 80/443/22.
    reasonable starting point).
 
    Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
-   eval data) do not go on disk at all: create an S3 bucket (or use R2)
-   and point the stack at it with the documented environment variables.
+   eval data) do not go on disk at all: create an S3 bucket (or use
+   R2). The BlobStore abstraction and its S3/R2 implementations are
+   Epic 20 work; the environment variables to point the stack at the
+   bucket will be documented when it lands.
 3. Associate a static public IP and point your DNS A record at it.
 
 ## NSG rules

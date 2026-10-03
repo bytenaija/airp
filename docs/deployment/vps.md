@@ -48,9 +48,10 @@ This covers `postgres_data`, `loki_data`, `tempo_data`,
 retention: 100 GB is a reasonable starting point.
 
 Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
-eval data) do not go on disk at all. Create an S3 bucket and point
-the stack at it with the documented environment variables; the
-services use the BlobStore S3 implementation in production.
+eval data) must go to object storage (S3 on AWS and VPS), never a
+local disk mount. The BlobStore abstraction and its S3
+implementation are Epic 20 work; the environment variables will be
+documented when it lands.
 
 ## Clone and start the stack
 

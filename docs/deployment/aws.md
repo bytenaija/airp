@@ -25,8 +25,10 @@ noted at the end, but not detailed here.
    ```
 
    Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
-   eval data) do not go on disk at all: create an S3 bucket and point
-   the stack at it with the documented environment variables.
+   eval data) do not go on disk at all: create an S3 bucket. The
+   BlobStore abstraction and its S3 implementation are Epic 20 work;
+   the environment variables to point the stack at the bucket will be
+   documented when it lands.
 3. Allocate an Elastic IP and point your DNS A record at it.
 
 ## Security groups
