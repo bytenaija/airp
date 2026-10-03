@@ -4,6 +4,7 @@ export interface FaultConfig {
   latencyMs: number;
   errorRate: number;
   npeActive: boolean;
+  saturationActive: boolean;
 }
 
 export class FaultManager {
@@ -11,6 +12,7 @@ export class FaultManager {
     latencyMs: 0,
     errorRate: 0,
     npeActive: false,
+    saturationActive: false,
   };
 
   private readonly enabled: boolean;
@@ -41,17 +43,31 @@ export class FaultManager {
     this.config.npeActive = active;
   }
 
+  setSaturation(active: boolean) {
+    this.config.saturationActive = active;
+  }
+
   reset() {
     this.config = {
       latencyMs: 0,
       errorRate: 0,
       npeActive: false,
+      saturationActive: false,
     };
   }
 
   async applyLatency(): Promise<void> {
     if (!this.enabled || this.config.latencyMs <= 0) return;
     await new Promise((resolve) => setTimeout(resolve, this.config.latencyMs));
+  }
+
+  async applySaturation(durationMs: number = 30): Promise<void> {
+    if (!this.enabled || !this.config.saturationActive) return;
+    const start = Date.now();
+    // Burn CPU in a compute loop for durationMs
+    while (Date.now() - start < durationMs) {
+      Math.sqrt(Math.random() * 100000);
+    }
   }
 
   shouldInjectError(): boolean {
@@ -61,6 +77,10 @@ export class FaultManager {
 
   isNpeActive(): boolean {
     return this.enabled && this.config.npeActive;
+  }
+
+  isSaturationActive(): boolean {
+    return this.enabled && this.config.saturationActive;
   }
 }
 
@@ -122,6 +142,27 @@ export function registerFaultRoutes(
           : true;
     faultManager.setNpe(active);
     return reply.send({ status: "npe fault set", npeActive: active });
+  });
+
+  server.all("/fault/saturation", async (req, reply) => {
+    if (!faultManager.isEnabled()) {
+      return reply
+        .status(403)
+        .send({ error: "Fault injection is disabled (FAULTS_ENABLED != 1)" });
+    }
+    const query = req.query as { active?: string };
+    const body = req.body as { active?: boolean } | undefined;
+    const active =
+      body?.active !== undefined
+        ? body.active
+        : query.active !== undefined
+          ? query.active === "1" || query.active === "true"
+          : true;
+    faultManager.setSaturation(active);
+    return reply.send({
+      status: "saturation fault set",
+      saturationActive: active,
+    });
   });
 
   server.all("/fault/reset", async (_req, reply) => {
