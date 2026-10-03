@@ -6,6 +6,7 @@ import {
   TopologyGraph,
   IllegalStateTransitionError,
   type IncidentStatus,
+  buildServiceLoggerOptions,
 } from "@airp/common";
 import { normalizeAlerts } from "./normalizer.js";
 import { Correlator } from "./correlator.js";
@@ -26,6 +27,7 @@ import {
 
 export interface GatewayServerOptions {
   port?: number;
+  logger?: boolean;
   host?: string;
   prisma?: PrismaClient;
   topologyPath?: string;
@@ -37,7 +39,9 @@ export interface GatewayServerOptions {
 export function buildGatewayServer(
   options: GatewayServerOptions = {},
 ): FastifyInstance {
-  const fastify = Fastify({ logger: false });
+  const fastify = Fastify({
+    logger: buildServiceLoggerOptions("ingest-gateway", options.logger ?? false),
+  });
 
   const prisma = options.prisma ?? new PrismaClient();
   const alertQueue = new AlertQueue(prisma);
@@ -163,10 +167,12 @@ export function buildGatewayServer(
 
   // Ingest alerts endpoint
   fastify.post("/alerts", async (req, reply) => {
+    const tenantId =
+      (req.headers["x-tenant-id"] as string) || defaultTenantId;
+    let receivedCount = 0;
     try {
       const normalizedAlerts = normalizeAlerts(req.body);
-      const tenantId =
-        (req.headers["x-tenant-id"] as string) || defaultTenantId;
+      receivedCount = normalizedAlerts.length;
 
       // 1. Push to internal Postgres-backed queue
       await alertQueue.pushAlerts(normalizedAlerts, tenantId, req.body);
@@ -182,7 +188,10 @@ export function buildGatewayServer(
         incidents: result.createdIncidents,
       });
     } catch (err) {
-      req.log.error(err);
+      req.log.error(
+        { err, tenantId, receivedCount },
+        "Alert ingestion failed",
+      );
       const msg = err instanceof Error ? err.message : String(err);
       return reply
         .status(400)
@@ -334,7 +343,7 @@ export async function startGatewayServer(
   port = Number(process.env.PORT || 8005),
   host = "0.0.0.0",
 ): Promise<FastifyInstance> {
-  const app = buildGatewayServer();
+  const app = buildGatewayServer({ logger: true });
   await app.listen({ port, host });
   console.log(`AIRP Ingest Gateway listening on http://${host}:${port}`);
   return app;

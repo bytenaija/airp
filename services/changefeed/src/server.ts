@@ -1,6 +1,6 @@
 import Fastify, { FastifyInstance } from "fastify";
 import { PrismaClient } from "@prisma/client";
-import { ChangeEventSchema } from "@airp/common";
+import { ChangeEventSchema, buildServiceLoggerOptions } from "@airp/common";
 import { z } from "zod";
 
 export interface ChangeFeedServerOptions {
@@ -12,7 +12,7 @@ export function buildChangeFeedServer(
   options: ChangeFeedServerOptions = {},
 ): FastifyInstance {
   const server = Fastify({
-    logger: options.logger ?? false,
+    logger: buildServiceLoggerOptions("changefeed", options.logger ?? false),
   });
 
   const prisma = options.prisma ?? new PrismaClient();
