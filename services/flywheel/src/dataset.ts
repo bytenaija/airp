@@ -2,7 +2,7 @@ import {
   ClefTrainingTuple,
   OutcomeRecord,
 } from "./schemas.js";
-import { OutcomeStore } from "./store.js";
+import { IOutcomeStore } from "./store.js";
 
 /**
  * Training-dataset export. Only reviewed outcomes are exported; unreviewed
@@ -70,17 +70,26 @@ function toJsonlRow(record: OutcomeRecord): Record<string, unknown> {
 /**
  * Export reviewed outcomes as JSONL (one JSON object per line).
  * Returns the document string; empty string when nothing is eligible.
+ * Returns Promise<string> if store.list() is async, or string if synchronous.
  */
 export function exportDataset(
-  store: OutcomeStore,
+  store: IOutcomeStore,
   format: DatasetFormat = "jsonl",
-): string {
-  const eligible = store.list().filter((r) => r.reviewed);
-  const lines =
-    format === "clef-jsonl"
-      ? eligible.map((r) => JSON.stringify(toClefTuple(r)))
-      : eligible.map((r) => JSON.stringify(toJsonlRow(r)));
-  return lines.length > 0 ? lines.join("\n") + "\n" : "";
+): string | Promise<string> {
+  const listResult = store.list();
+  const formatLines = (records: OutcomeRecord[]) => {
+    const eligible = records.filter((r) => r.reviewed);
+    const lines =
+      format === "clef-jsonl"
+        ? eligible.map((r) => JSON.stringify(toClefTuple(r)))
+        : eligible.map((r) => JSON.stringify(toJsonlRow(r)));
+    return lines.length > 0 ? lines.join("\n") + "\n" : "";
+  };
+
+  if (listResult instanceof Promise) {
+    return listResult.then((records) => formatLines(records));
+  }
+  return formatLines(listResult);
 }
 
 /** Validate that every line of a clef-jsonl export parses and carries the schema version. */

@@ -4,7 +4,7 @@ import {
   ResolutionInputSchema,
 } from "./schemas.js";
 import { deriveReward } from "./reward.js";
-import { OutcomeStore } from "./store.js";
+import { IOutcomeStore } from "./store.js";
 
 /**
  * Writes an outcome record when an incident is resolved.
@@ -23,7 +23,7 @@ export interface EmbedderLike {
 }
 
 export interface LabelerDeps {
-  store: OutcomeStore;
+  store: IOutcomeStore;
   embedder: EmbedderLike;
 }
 
@@ -71,13 +71,14 @@ export async function labelOutcome(
 
   const reviewed = input.reviewed || input.feedback_verdict !== undefined;
 
+  const trailing = await deps.store.trailingMttrs();
   const derived = deriveReward(
     {
       diagnosis_correct,
       fix_merged_unmodified: input.fix_merged_unmodified,
       mttr_seconds,
     },
-    deps.store.trailingMttrs(),
+    trailing,
   );
 
   const symptom_embedding = await deps.embedder.embedText(input.symptoms);
@@ -109,7 +110,7 @@ export async function labelOutcome(
     labeled_at: new Date().toISOString(),
   };
 
-  return deps.store.add(record);
+  return await deps.store.add(record);
 }
 
 /**

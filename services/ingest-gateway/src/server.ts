@@ -18,7 +18,8 @@ import {
 import { AlertQueue, type QueueAlert } from "./alert-queue.js";
 import {
   FlywheelEmbedder,
-  OutcomeStore,
+  IOutcomeStore,
+  createOutcomeStore,
   labelOutcome,
   type ResolutionInput,
 } from "@airp/flywheel";
@@ -29,7 +30,7 @@ export interface GatewayServerOptions {
   prisma?: PrismaClient;
   topologyPath?: string;
   tenantId?: string;
-  outcomeStore?: OutcomeStore;
+  outcomeStore?: IOutcomeStore;
   embedder?: FlywheelEmbedder;
 }
 
@@ -42,7 +43,7 @@ export function buildGatewayServer(
   const alertQueue = new AlertQueue(prisma);
   const incidentStore = new IncidentStore(prisma);
   const defaultTenantId = options.tenantId ?? "local";
-  const outcomeStore = options.outcomeStore ?? new OutcomeStore();
+  const outcomeStore = options.outcomeStore ?? createOutcomeStore();
   let embedder: FlywheelEmbedder | undefined = options.embedder;
 
   // Resolve topology
