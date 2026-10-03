@@ -123,6 +123,13 @@ The compose file sets sane local defaults. The ones you may need to know:
 - `DATABASE_URL` - Postgres connection, set per service in compose.
 - `LLM_PROVIDER=ollama` - agent-runtime uses Ollama by default; point at
   your provider per `CONTEXT.md` if you use something else.
+- `LLM_MODEL` - model name (default `llama3.2` for Ollama).
+- `OLLAMA_BASE_URL` - defaults to `http://host.docker.internal:11434/api`,
+  so the agent-runtime container reaches an Ollama running on the host
+  (`extra_hosts: host-gateway` makes this work on Linux Docker Engine too).
+- `LLM_STEP_TIMEOUT_MS` - per-call LLM timeout for the agent loop (default
+  `30000`). On timeout the investigation falls back to the deterministic
+  policy and records an `llm_step_fallback` timeline event.
 - `FLAGS_ADMIN_TOKEN` / `ADMIN_TOKEN` - required to call the demo
   `POST /admin/flags` endpoint; the shipped compose does not set one, so
   set it yourself before using flag writes.

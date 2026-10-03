@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { buildAgentRuntimeServer } from "../../services/agent-runtime/src/server.js";
-import { globalLLMMetrics, type IncidentRecord } from "@airp/common";
+import { LLMClient, globalLLMMetrics, type IncidentRecord } from "@airp/common";
 
 describe("Agent Self-RED Metrics & Grafana Prometheus Integration", () => {
   function createSampleIncident(id = "11111111-1111-1111-1111-111111111111"): IncidentRecord {
@@ -183,5 +183,71 @@ describe("Agent Self-RED Metrics & Grafana Prometheus Integration", () => {
     const metricsBody = metricsRes.body;
     expect(metricsBody).toContain('airp_llm_tokens_total{provider="openai",model="gpt-4o"} 2500');
     expect(metricsBody).toContain('airp_llm_cost_dollars{provider="openai",model="gpt-4o"} 0.025');
+  });
+
+  it("accounts tokens and cost for a real LLM tool choice even when that tool then fails", async () => {
+    let call = 0;
+    const offeredTools: string[][] = [];
+    const mockModel: any = {
+      specificationVersion: "v1",
+      defaultObjectGenerationMode: "json",
+      provider: "mock-provider",
+      modelId: "gpt-4o-mini-red-test",
+      doGenerate: vi.fn().mockImplementation(async (options: any) => {
+        call += 1;
+        offeredTools.push((options.mode?.tools ?? []).map((t: any) => t.name));
+        const usage = { promptTokens: 400, completionTokens: 100 };
+        if (call === 1) {
+          return {
+            toolCalls: [
+              {
+                toolCallType: "function",
+                toolCallId: "call-1",
+                toolName: "code_read",
+                args: JSON.stringify({ path: "src/missing.ts", start_line: 1, end_line: 5 }),
+              },
+            ],
+            finishReason: "tool-calls",
+            usage,
+            rawCall: { rawPrompt: null, rawSettings: {} },
+          };
+        }
+        return { text: "", finishReason: "stop", usage, rawCall: { rawPrompt: null, rawSettings: {} } };
+      }),
+    };
+
+    const { server } = buildAgentRuntimeServer({
+      llmClient: new LLMClient({
+        provider: "openai",
+        model: "gpt-4o-mini-red-test",
+        customModel: mockModel,
+      }),
+      toolsOptions: { codeIndexUrl: "http://127.0.0.1:1", changeFeedUrl: "http://127.0.0.1:1" },
+      logger: false,
+    });
+
+    const res = await server.inject({
+      method: "POST",
+      url: "/investigate",
+      payload: { incident: createSampleIncident("33333333-3333-3333-3333-333333333333") },
+    });
+    expect(res.statusCode).toBe(200);
+    const timeline: Array<{ action: string; detail?: string }> = res.json().timeline;
+
+    // The model's tool choice is executed by the loop, not inside generateText,
+    // so the failing tool does not knock the investigation off the LLM path.
+    expect(offeredTools[0]).toContain("code_read");
+    expect(timeline.some((e) => e.action === "llm_step_fallback")).toBe(false);
+    expect(timeline.some((e) => e.action === "tool_call" && e.detail?.includes("code_read("))).toBe(true);
+
+    const metricsBody = (await server.inject({ method: "GET", url: "/metrics" })).body;
+    const tokens = metricsBody.match(
+      /airp_llm_tokens_total\{provider="openai",model="gpt-4o-mini-red-test"\} (\d+)/,
+    );
+    const cost = metricsBody.match(
+      /airp_llm_cost_dollars\{provider="openai",model="gpt-4o-mini-red-test"\} ([\d.e-]+)/,
+    );
+    expect(Number(tokens?.[1])).toBeGreaterThanOrEqual(500);
+    expect(Number(cost?.[1])).toBeGreaterThan(0);
   });
 });

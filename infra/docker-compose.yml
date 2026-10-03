@@ -313,8 +313,14 @@ services:
       - TEMPO_URL=http://tempo:3200
       - CODE_INDEX_URL=http://code-index:8006
       - CHANGEFEED_URL=http://changefeed:8004
-      - LLM_PROVIDER=ollama
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_MODEL=${LLM_MODEL:-llama3.2}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/api}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - LOG_DIR=/var/log/airp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - app_logs:/var/log/airp
     depends_on:
