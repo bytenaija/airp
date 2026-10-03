@@ -50,6 +50,14 @@ BUILD:
 13. Sandbox escape monitoring: syscall/egress anomaly fixtures; canary
     secrets per tenant with a leakage probe (`airp leakage-probe`) that
     pages on escape.
+14. Container image publishing: on every merge to main, CI builds and
+    publishes versioned multi-arch (linux/amd64, linux/arm64) images for
+    every AIRP service to GHCR (ghcr.io/bytenaija/airp-<service>:<version>
+    plus :latest), with Cosign signatures and SBOMs attached (extends
+    step 12). infra/docker-compose.yml references the published images via
+    `image:`, keeping the local `build:` section as the dev fallback. No
+    deployment target (VPS production, air-gap install, Cloudflare
+    Containers) may depend on building from source at deploy time.
 
 ACCEPTANCE CRITERIA:
 - Redaction fixtures: 100% redacted, 0% false-positive on normal log lines
@@ -64,6 +72,8 @@ ACCEPTANCE CRITERIA:
 - Escape-attempt fixture detected and alerted; canary leakage probe pages
   on simulated escape.
 - `airp sbom` produces a valid SBOM; release artifacts signed and verifiable.
+- `docker compose pull` on a fresh machine without repo source starts the full
+  stack from published images; image signatures verify with Cosign.
 
 ---
 ## Standing operational requirements (apply to every epic)
