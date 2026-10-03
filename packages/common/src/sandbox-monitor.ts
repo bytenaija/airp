@@ -43,7 +43,7 @@ export class SandboxEscapeMonitor {
   }
 
   private dispatchAlert(alertData: Omit<EscapeAlert, "id" | "timestamp" | "pagedOnCall">): EscapeAlert {
-    let pagedOnCall = true;
+    let pagedOnCall = false;
     const alert: EscapeAlert = {
       ...alertData,
       id: crypto.randomUUID(),

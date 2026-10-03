@@ -54,7 +54,17 @@ describe("Redaction Pipeline (Epic 14)", () => {
     const result = redact(REDACTION_FIXTURES.multipleSecrets.input);
     expect(result).not.toContain("admin@example.com");
     expect(result).not.toContain("MyP@ssw0rd!");
+    expect(result).not.toContain("ssw0rd!");
     expect(result).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(result).toBe(REDACTION_FIXTURES.multipleSecrets.expected);
+  });
+
+  it("redacts URI passwords with embedded special characters and @ symbols", () => {
+    const uri = "postgresql://user:MyP@ssw0rd!@db.internal:5432/mydb";
+    const redacted = redact(uri);
+    expect(redacted).not.toContain("MyP@ssw0rd!");
+    expect(redacted).not.toContain("ssw0rd!");
+    expect(redacted).toBe("postgresql://user:[REDACTED]@db.internal:5432/mydb");
   });
 
   it("Acceptance Criterion: 0% false positives on normal log lines (none modified)", () => {

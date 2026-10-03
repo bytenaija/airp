@@ -20,7 +20,8 @@ import {
   rotateDemoCredentials,
   globalKMS,
   generateSbom,
-  globalSandboxMonitor,
+  SandboxEscapeMonitor,
+  type EscapeAlert,
 } from "@airp/common";
 
 dotenv.config();
@@ -1155,14 +1156,43 @@ program
   .command("leakage-probe")
   .description("Execute simulated sandbox escape and canary leakage probe")
   .option("--tenant <tenantId>", "Tenant ID to probe", "demo-tenant")
-  .action((options) => {
+  .option("--alertmanager <url>", "Alertmanager URL for live on-call paging", process.env.ALERTMANAGER_URL)
+  .action(async (options) => {
     try {
-      const token = globalSandboxMonitor.generateCanarySecret(options.tenant);
+      const monitor = new SandboxEscapeMonitor();
+      if (options.alertmanager) {
+        monitor.setNotifier(async (alert: EscapeAlert) => {
+          try {
+            const res = await fetch(`${options.alertmanager}/api/v2/alerts`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify([
+                {
+                  labels: {
+                    alertname: "SandboxCanaryLeakage",
+                    severity: alert.severity,
+                    tenant: options.tenant,
+                  },
+                  annotations: {
+                    summary: alert.title,
+                    description: alert.summary,
+                  },
+                },
+              ]),
+            });
+            return res.ok;
+          } catch {
+            return false;
+          }
+        });
+      }
+
+      const token = monitor.generateCanarySecret(options.tenant);
       console.log(`Generated canary token for tenant '${options.tenant}': ${token.slice(0, 20)}...`);
 
       // Simulate leakage into unconfined payload
       const simulatedLeakedPayload = `ALERT_NOTIFICATION: External egress observed with secret ${token}`;
-      const detection = globalSandboxMonitor.detectCanaryLeakage(simulatedLeakedPayload, options.tenant);
+      const detection = monitor.detectCanaryLeakage(simulatedLeakedPayload, options.tenant);
 
       if (detection.leaked) {
         console.log(`[CANARY PROBE ALERT] Critical leakage detected!`);

@@ -51,12 +51,12 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t ghcr.io/bytenaija/airp-agent-runtime:0.1.0 \
   --push .
 
-# 3. Attach SBOM to the published image
+# 3. Attach SBOM to the published image by immutable build digest
 cosign attach sbom --sbom /tmp/sbom.json \
-  ghcr.io/bytenaija/airp-agent-runtime:0.1.0
+  ghcr.io/bytenaija/airp-agent-runtime@sha256:...
 
-# 4. Sign image with Cosign keyless signing (using GitHub Actions OIDC token)
-cosign sign --yes ghcr.io/bytenaija/airp-agent-runtime:0.1.0
+# 4. Sign image by immutable build digest with Cosign keyless signing
+cosign sign --yes ghcr.io/bytenaija/airp-agent-runtime@sha256:...
 ```
 
 ### Verification (Consumer / Air-Gap Install)

@@ -2,7 +2,7 @@ groups:
   - name: airp_agent_alerts
     rules:
       - alert: AgentDown
-        expr: up{job="agent-runtime"} == 0
+        expr: absent(up{job="agent-runtime"}) == 1 or up{job="agent-runtime"} == 0
         for: 15s
         labels:
           severity: critical

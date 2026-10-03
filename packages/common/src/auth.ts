@@ -65,6 +65,17 @@ export function signJwt(
   return `${signatureInput}.${signature}`;
 }
 
+export function isDevOrTestEnvironment(): boolean {
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
+  return (
+    process.env.AIRP_LOCAL_MODE === "true" ||
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV === "test"
+  );
+}
+
 export function verifyJwt(token: string, secret: string): TokenClaims {
   const parts = token.split(".");
   if (parts.length !== 3) {
@@ -72,6 +83,24 @@ export function verifyJwt(token: string, secret: string): TokenClaims {
   }
 
   const [encodedHeader, encodedPayload, signature] = parts;
+
+  let header: { alg?: string; typ?: string };
+  try {
+    header = JSON.parse(base64UrlDecode(encodedHeader));
+  } catch {
+    throw new Error("Invalid JWT header: malformed JSON");
+  }
+
+  if (!header || typeof header !== "object") {
+    throw new Error("Invalid JWT header");
+  }
+
+  if (header.alg !== "HS256") {
+    throw new Error(
+      `Unsupported or missing JWT algorithm: '${header.alg}'. Only HS256 is supported.`,
+    );
+  }
+
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
 
   const hmac = crypto.createHmac("sha256", secret);
@@ -88,10 +117,20 @@ export function verifyJwt(token: string, secret: string): TokenClaims {
     throw new Error("Invalid JWT signature");
   }
 
-  const payload: TokenClaims = JSON.parse(base64UrlDecode(encodedPayload));
+  let payload: TokenClaims;
+  try {
+    payload = JSON.parse(base64UrlDecode(encodedPayload));
+  } catch {
+    throw new Error("Invalid JWT payload: malformed JSON");
+  }
+
+  if (typeof payload.exp !== "number") {
+    throw new Error("JWT token missing mandatory 'exp' claim");
+  }
+
   const now = Math.floor(Date.now() / 1000);
 
-  if (payload.exp && payload.exp < now) {
+  if (payload.exp < now) {
     throw new Error(`JWT token expired at ${new Date(payload.exp * 1000).toISOString()}`);
   }
 
@@ -318,11 +357,22 @@ export class BetterAuthProvider implements AuthProvider {
   readonly betterAuth: any;
 
   constructor(options: BetterAuthOptions = {}) {
-    this.secret =
+    const configuredSecret =
       options.secret ||
       process.env.BETTER_AUTH_SECRET ||
-      process.env.JWT_SECRET ||
-      "airp-better-auth-secret-key-do-not-use-in-prod";
+      process.env.JWT_SECRET;
+
+    if (!configuredSecret) {
+      if (!isDevOrTestEnvironment()) {
+        throw new Error(
+          "Configuration error: Missing BETTER_AUTH_SECRET or JWT_SECRET. Secret must be explicitly configured in production mode.",
+        );
+      }
+      this.secret = "airp-better-auth-secret-key-do-not-use-in-prod";
+    } else {
+      this.secret = configuredSecret;
+    }
+
     const baseURL =
       options.baseURL ||
       process.env.BETTER_AUTH_URL ||
@@ -348,6 +398,11 @@ export class BetterAuthProvider implements AuthProvider {
 
   async authenticate(token: string): Promise<UserIdentity> {
     if (token === "demo-token" || token === "Bearer demo-token") {
+      if (!isDevOrTestEnvironment()) {
+        throw new Error(
+          "Unauthorized: demo-token authentication bypass is strictly disabled in production mode",
+        );
+      }
       return {
         id: "demo-user-1",
         email: "operator@example.com",
@@ -394,11 +449,21 @@ export class LocalAuth implements AuthProvider {
   private readonly secret: string;
 
   constructor(secret?: string) {
+    if (!isDevOrTestEnvironment()) {
+      throw new Error(
+        "LocalAuth is strictly prohibited in production mode; configure BetterAuthProvider or OIDCAuth.",
+      );
+    }
     this.secret = secret || process.env.JWT_SECRET || "airp-local-dev-secret-key-do-not-use-in-prod";
   }
 
   async authenticate(token: string): Promise<UserIdentity> {
     if (token === "demo-token" || token === "Bearer demo-token") {
+      if (!isDevOrTestEnvironment()) {
+        throw new Error(
+          "Unauthorized: demo-token authentication bypass is strictly disabled in production mode",
+        );
+      }
       return {
         id: "demo-user-1",
         email: "operator@example.com",
@@ -451,21 +516,98 @@ export interface OIDCConfig {
 export class OIDCAuth implements AuthProvider {
   readonly name = "OIDCAuth";
   private readonly config: OIDCConfig;
+  private jwksCache = new Map<string, string>();
 
   constructor(config: OIDCConfig) {
+    if (!config.issuer) {
+      throw new Error("OIDC configuration must provide an issuer");
+    }
+    if (!config.clientId) {
+      throw new Error("OIDC configuration must provide a clientId");
+    }
+    const hasSecretOrJwks = config.signingSecret || config.clientSecret || config.jwksUri;
+    if (!hasSecretOrJwks && !isDevOrTestEnvironment()) {
+      throw new Error(
+        "OIDC configuration error: signingSecret, clientSecret, or jwksUri must be explicitly configured in production mode.",
+      );
+    }
     this.config = config;
+  }
+
+  private async resolveKeyFromJwks(token: string): Promise<string> {
+    if (!this.config.jwksUri) {
+      throw new Error("OIDCAuth jwksUri is not configured");
+    }
+
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      throw new Error("Invalid JWT token format");
+    }
+    let header: any;
+    try {
+      header = JSON.parse(base64UrlDecode(parts[0]));
+    } catch {
+      throw new Error("Invalid JWT header");
+    }
+    const kid = header?.kid;
+
+    if (kid && this.jwksCache.has(kid)) {
+      return this.jwksCache.get(kid)!;
+    }
+
+    const res = await fetch(this.config.jwksUri, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch JWKS from ${this.config.jwksUri}: HTTP ${res.status}`);
+    }
+    const jwks = (await res.json()) as { keys?: Array<Record<string, any>> };
+    if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) {
+      throw new Error(`Invalid JWKS returned from ${this.config.jwksUri}: no keys found`);
+    }
+
+    const matchedKey = kid ? jwks.keys.find((k) => k.kid === kid) : jwks.keys[0];
+    if (!matchedKey) {
+      throw new Error(`No matching key in JWKS for kid '${kid}'`);
+    }
+
+    const keyVal =
+      (matchedKey.k && Buffer.from(matchedKey.k, "base64url").toString("utf8")) ||
+      matchedKey.k ||
+      matchedKey.secret ||
+      JSON.stringify(matchedKey);
+
+    if (kid) {
+      this.jwksCache.set(kid, keyVal);
+    }
+    return keyVal;
   }
 
   async authenticate(token: string): Promise<UserIdentity> {
     const cleanToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
-    const secret = this.config.signingSecret || this.config.clientSecret || "oidc-verification-key";
+
+    let secret = this.config.signingSecret || this.config.clientSecret;
+    if (!secret && this.config.jwksUri) {
+      secret = await this.resolveKeyFromJwks(cleanToken);
+    }
+
+    if (!secret) {
+      if (!isDevOrTestEnvironment()) {
+        throw new Error(
+          "OIDC authentication failed: missing signing key or unreachable jwksUri in production",
+        );
+      }
+      secret = "oidc-verification-key";
+    }
+
     const claims = verifyJwt(cleanToken, secret);
 
-    if (claims.iss && claims.iss !== this.config.issuer) {
+    if (!claims.iss || claims.iss !== this.config.issuer) {
       throw new Error(`Issuer mismatch: expected ${this.config.issuer}, got ${claims.iss}`);
     }
 
-    if (claims.aud && claims.aud !== this.config.clientId) {
+    if (!claims.aud || claims.aud !== this.config.clientId) {
       throw new Error(`Audience mismatch: expected ${this.config.clientId}, got ${claims.aud}`);
     }
 
@@ -483,7 +625,10 @@ export class OIDCAuth implements AuthProvider {
     identity: Partial<UserIdentity>,
     expiresInSeconds = 3600,
   ): Promise<string> {
-    const secret = this.config.signingSecret || this.config.clientSecret || "oidc-verification-key";
+    const secret =
+      this.config.signingSecret ||
+      this.config.clientSecret ||
+      "oidc-verification-key";
     const payload = {
       sub: identity.id || "oidc-user",
       email: identity.email || "user@enterprise.com",
@@ -504,6 +649,7 @@ export function getAuthProvider(): AuthProvider {
       issuer: process.env.OIDC_ISSUER || "https://accounts.example.com",
       clientId: process.env.OIDC_CLIENT_ID || "airp-default-client",
       clientSecret: process.env.OIDC_CLIENT_SECRET,
+      jwksUri: process.env.OIDC_JWKS_URI,
     });
   }
 
@@ -515,6 +661,7 @@ export function getAuthProvider(): AuthProvider {
       issuer,
       clientId,
       clientSecret: process.env.OIDC_CLIENT_SECRET,
+      jwksUri: process.env.OIDC_JWKS_URI,
     });
   }
 
@@ -540,9 +687,15 @@ export function mintServiceAccountToken(options: ServiceAccountMintOptions): str
   const secret =
     options.secret ||
     process.env.SERVICE_ACCOUNT_SECRET ||
-    process.env.JWT_SECRET ||
-    "airp-service-account-secret-key-300s";
+    process.env.JWT_SECRET;
 
+  if (!secret && !isDevOrTestEnvironment()) {
+    throw new Error(
+      "Configuration error: SERVICE_ACCOUNT_SECRET or JWT_SECRET must be explicitly configured in production mode.",
+    );
+  }
+
+  const key = secret || "airp-service-account-secret-key-300s";
   const expiresInSeconds = options.expiresInSeconds ?? 300; // 5-minute short-lived token
   const payload = {
     sub: options.serviceId,
@@ -552,15 +705,22 @@ export function mintServiceAccountToken(options: ServiceAccountMintOptions): str
     iss: "airp:service-account-issuer",
   };
 
-  return signJwt(payload, secret, expiresInSeconds);
+  return signJwt(payload, key, expiresInSeconds);
 }
 
 export function verifyServiceAccountToken(token: string, secret?: string): TokenClaims {
-  const key =
+  const resolvedSecret =
     secret ||
     process.env.SERVICE_ACCOUNT_SECRET ||
-    process.env.JWT_SECRET ||
-    "airp-service-account-secret-key-300s";
+    process.env.JWT_SECRET;
+
+  if (!resolvedSecret && !isDevOrTestEnvironment()) {
+    throw new Error(
+      "Configuration error: SERVICE_ACCOUNT_SECRET or JWT_SECRET must be explicitly configured in production mode.",
+    );
+  }
+
+  const key = resolvedSecret || "airp-service-account-secret-key-300s";
   const cleanToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
   const claims = verifyJwt(cleanToken, key);
 

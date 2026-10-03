@@ -53,12 +53,12 @@ route:
 receivers:
   - name: "default-receiver"
     webhook_configs:
-      - url: "http://ingest-gateway:8000/alerts"
+      - url: "http://ingest-gateway:8005/alerts"
         send_resolved: true
 
   - name: "human-oncall"
     webhook_configs:
-      - url: "http://host.docker.internal:9999/fallback-pager"
+      - url: "http://fallback-pager:9095/webhook"
         send_resolved: true
 ```
 
@@ -67,7 +67,7 @@ receivers:
 To start the fallback alerting stack alongside the main services:
 
 ```bash
-docker compose --profile fallback up -d alertmanager
+docker compose --profile fallback up -d alertmanager fallback-pager
 ```
 
 To simulate an agent outage and verify human alerting:
@@ -77,9 +77,9 @@ To simulate an agent outage and verify human alerting:
    docker stop airp-agent-runtime
    ```
 
-2. Verify Prometheus detects `up{job="agent-runtime"} == 0` within 15 seconds at `http://localhost:9090/alerts`.
+2. Verify Prometheus detects `absent(up{job="agent-runtime"}) == 1 or up{job="agent-runtime"} == 0` within 15 seconds at `http://localhost:9090/alerts`.
 
-3. Verify Alertmanager fires the `AgentDown` alert and dispatches to the `human-oncall` receiver at `http://localhost:9093`.
+3. Verify Alertmanager fires the `AgentDown` alert and dispatches to the `human-oncall` receiver at `http://fallback-pager:9095/webhook`. Logs can be viewed via `docker logs airp-fallback-pager`.
 
 4. Restore the agent container:
    ```bash

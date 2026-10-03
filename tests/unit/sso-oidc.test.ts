@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
+import crypto from "node:crypto";
 import {
   LocalAuth,
   OIDCAuth,
@@ -386,6 +387,165 @@ describe("SSO, OIDC, Better Auth, and Workspace Roles Authentication", () => {
       expect(() => verifyServiceAccountToken(normalUserToken, testSecret)).toThrow(
         "Token is not an authorized service account token",
       );
+    });
+  });
+
+  describe("Security Hardening & Fail-Closed Invariants", () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it("strictly rejects demo-token authentication in production mode (BetterAuthProvider)", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.AIRP_LOCAL_MODE = "false";
+      const provider = new BetterAuthProvider({ secret: testSecret });
+
+      await expect(provider.authenticate("demo-token")).rejects.toThrow(
+        "demo-token authentication bypass is strictly disabled in production mode",
+      );
+      await expect(provider.authenticate("Bearer demo-token")).rejects.toThrow(
+        "demo-token authentication bypass is strictly disabled in production mode",
+      );
+    });
+
+    it("strictly prohibits LocalAuth in production mode", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AIRP_LOCAL_MODE = "false";
+
+      expect(() => new LocalAuth(testSecret)).toThrow(
+        "LocalAuth is strictly prohibited in production mode",
+      );
+    });
+
+    it("fails closed when required secrets are missing in production mode", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AIRP_LOCAL_MODE = "false";
+      delete process.env.BETTER_AUTH_SECRET;
+      delete process.env.JWT_SECRET;
+      delete process.env.SERVICE_ACCOUNT_SECRET;
+
+      expect(() => new BetterAuthProvider({})).toThrow(
+        "Missing BETTER_AUTH_SECRET or JWT_SECRET",
+      );
+
+      expect(() => mintServiceAccountToken({ serviceId: "worker" })).toThrow(
+        "SERVICE_ACCOUNT_SECRET or JWT_SECRET must be explicitly configured in production mode",
+      );
+
+      expect(() => verifyServiceAccountToken("token")).toThrow(
+        "SERVICE_ACCOUNT_SECRET or JWT_SECRET must be explicitly configured in production mode",
+      );
+
+      expect(
+        () =>
+          new OIDCAuth({
+            issuer: "https://auth.enterprise.com",
+            clientId: "airp-client",
+          }),
+      ).toThrow(
+        "signingSecret, clientSecret, or jwksUri must be explicitly configured in production mode",
+      );
+    });
+
+    it("rejects JWT tokens with unsupported algorithms (e.g. alg: none or RS256)", () => {
+      const headerNone = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+      const payload = Buffer.from(JSON.stringify({ sub: "hacker", exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url");
+      const fakeToken = `${headerNone}.${payload}.`;
+
+      expect(() => verifyJwt(fakeToken, testSecret)).toThrow("Unsupported or missing JWT algorithm");
+
+      const headerRS256 = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+      const fakeRsaToken = `${headerRS256}.${payload}.invalidsig`;
+      expect(() => verifyJwt(fakeRsaToken, testSecret)).toThrow("Unsupported or missing JWT algorithm: 'RS256'");
+    });
+
+    it("rejects JWT tokens missing mandatory 'exp' claim", () => {
+      const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+      const payloadNoExp = Buffer.from(JSON.stringify({ sub: "no-exp-user" })).toString("base64url");
+      const hmac = crypto.createHmac("sha256", testSecret);
+      hmac.update(`${header}.${payloadNoExp}`);
+      const sig = hmac.digest().toString("base64url");
+      const token = `${header}.${payloadNoExp}.${sig}`;
+
+      expect(() => verifyJwt(token, testSecret)).toThrow("JWT token missing mandatory 'exp' claim");
+    });
+
+    it("strictly requires matching iss and aud claims in OIDCAuth", async () => {
+      const auth = new OIDCAuth({
+        issuer: "https://auth.corp.com",
+        clientId: "client-xyz",
+        signingSecret: testSecret,
+      });
+
+      // Token missing iss
+      const tokenNoIss = signJwt(
+        { sub: "u1", aud: "client-xyz", tenant_id: "default" },
+        testSecret,
+        3600,
+      );
+      await expect(auth.authenticate(tokenNoIss)).rejects.toThrow("Issuer mismatch");
+
+      // Token missing aud
+      const tokenNoAud = signJwt(
+        { sub: "u1", iss: "https://auth.corp.com", tenant_id: "default" },
+        testSecret,
+        3600,
+      );
+      await expect(auth.authenticate(tokenNoAud)).rejects.toThrow("Audience mismatch");
+    });
+
+    it("resolves signing key from jwksUri when configured", async () => {
+      const jwksSecret = "remote-jwks-secret-32-chars-long";
+      const originalFetch = globalThis.fetch;
+
+      globalThis.fetch = async (url: any) => {
+        if (url === "https://auth.corp.com/.well-known/jwks.json") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              keys: [
+                {
+                  kid: "key-prod-1",
+                  k: Buffer.from(jwksSecret).toString("base64url"),
+                },
+              ],
+            }),
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      };
+
+      try {
+        const auth = new OIDCAuth({
+          issuer: "https://auth.corp.com",
+          clientId: "client-prod",
+          jwksUri: "https://auth.corp.com/.well-known/jwks.json",
+        });
+
+        // Sign token using jwksSecret with kid in header
+        const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT", kid: "key-prod-1" })).toString("base64url");
+        const payload = Buffer.from(JSON.stringify({
+          sub: "enterprise-employee",
+          iss: "https://auth.corp.com",
+          aud: "client-prod",
+          tenant_id: "corp",
+          roles: ["admin"],
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        })).toString("base64url");
+        const hmac = crypto.createHmac("sha256", jwksSecret);
+        hmac.update(`${header}.${payload}`);
+        const sig = hmac.digest().toString("base64url");
+        const token = `${header}.${payload}.${sig}`;
+
+        const user = await auth.authenticate(token);
+        expect(user.id).toBe("enterprise-employee");
+        expect(user.roles).toContain("admin");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 });

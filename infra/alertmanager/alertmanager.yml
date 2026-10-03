@@ -21,10 +21,10 @@ route:
 receivers:
   - name: "default-receiver"
     webhook_configs:
-      - url: "http://ingest-gateway:8000/alerts"
+      - url: "http://ingest-gateway:8005/alerts"
         send_resolved: true
 
   - name: "human-oncall"
     webhook_configs:
-      - url: "http://host.docker.internal:9999/fallback-pager"
+      - url: "http://fallback-pager:9095/webhook"
         send_resolved: true

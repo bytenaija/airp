@@ -101,6 +101,18 @@ services:
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
 
+  fallback-pager:
+    image: ghcr.io/bytenaija/airp-fallback-pager:0.1.0
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-fallback-pager
+    profiles: ["fallback"]
+    restart: unless-stopped
+    command: ["node", "-e", "const http = require('http'); const server = http.createServer((req, res) => { let body = ''; req.on('data', chunk => { body += chunk; }); req.on('end', () => { console.log('[FALLBACK PAGER] Human page received: ' + req.method + ' ' + req.url); if (body) console.log('[FALLBACK PAGER] Body: ' + body); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'paged', receivedAt: new Date().toISOString() })); }); }); server.listen(9095, '0.0.0.0', () => console.log('Fallback pager webhook receiver listening on port 9095'));"]
+    ports:
+      - "9095:9095"
+
   grafana:
     image: grafana/grafana:10.4.2@sha256:7d5faae481a4c6f436c99e98af11534f7fd5e8d3e35213552dd1dd02bc393d2e
     container_name: airp-grafana

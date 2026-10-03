@@ -50,7 +50,7 @@ const DEFAULT_PATTERNS: RedactionPattern[] = [
   {
     name: "uri-password",
     pattern:
-      /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/:\s@]+:)([^@\s/]+)(@)/g,
+      /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/:\s@]*:)(.+?)(@[^/?#\s@]+(?::\d+)?(?:[/?#\s]|$))/g,
     replacement: "$1[REDACTED]$3",
   },
   // Key-value API keys and tokens in JSON, configs, or queries (e.g. "api_key": "sk_live_...", api_key=sk_...)

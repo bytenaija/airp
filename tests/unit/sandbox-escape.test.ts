@@ -29,7 +29,7 @@ describe("Sandbox Escape Monitoring & Canary Leakage Detection", () => {
     expect(dispatched.length).toBe(1);
     expect(dispatched[0].type).toBe("sandbox_escape_attempt");
     expect(dispatched[0].severity).toBe("critical");
-    expect(dispatched[0].pagedOnCall).toBe(true);
+    expect(dispatched[0].pagedOnCall).toBe(false); // No notifier configured: defaults to false
     expect(dispatched[0].details.syscalls).toContain("ptrace");
     expect(dispatched[0].details.syscalls).toContain("unshare");
     expect(dispatched[0].details.syscalls).toContain("mount");
@@ -57,8 +57,8 @@ describe("Sandbox Escape Monitoring & Canary Leakage Detection", () => {
     expect(monitor.getDispatchedAlerts()).toHaveLength(0);
   });
 
-  it("generates canary secrets and pages on simulated leakage probe", () => {
-    const monitor = new SandboxEscapeMonitor();
+  it("generates canary secrets and pages on simulated leakage probe with active notifier", () => {
+    const monitor = new SandboxEscapeMonitor({ notifier: () => true });
     const tenantId = "tenant-fintech-9";
 
     const canaryToken = monitor.generateCanarySecret(tenantId);
