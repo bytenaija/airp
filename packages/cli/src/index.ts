@@ -3,6 +3,7 @@ import { Command } from "commander";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
@@ -14,7 +15,7 @@ import {
   listDrafts,
   type DatasetFormat,
 } from "@airp/flywheel";
-import { SweepMiner, SweepWorker } from "@airp/sweep";
+import { SweepMiner, SweepWorker, type SweepCandidate } from "@airp/sweep";
 
 dotenv.config();
 
@@ -969,6 +970,40 @@ program
   });
 
 // Command: sweep
+async function runSweepWorker(
+  candidates: SweepCandidate[],
+  maxPerDay: number,
+): Promise<void> {
+  const worker = new SweepWorker({
+    maxDailyCandidates: maxPerDay,
+    quotaStorePath:
+      process.env.AIRP_SWEEP_QUOTA_PATH ||
+      path.join(os.homedir(), ".airp", "sweep-quota.json"),
+  });
+  try {
+    const results = await worker.processCandidates(candidates);
+    let anyFailed = false;
+    for (const r of results) {
+      const label = `${r.candidate.service} | ${r.candidate.signature}`;
+      if (r.status === "processed") {
+        console.log(`${label} -> processed`);
+      } else {
+        console.log(
+          `${label} -> ${r.status}${r.reason ? `: ${r.reason}` : ""}`,
+        );
+      }
+      if (r.status === "failed") {
+        anyFailed = true;
+      }
+    }
+    if (anyFailed) {
+      process.exitCode = 1;
+    }
+  } finally {
+    worker.cleanup();
+  }
+}
+
 program
   .command("sweep")
   .description(
@@ -1012,10 +1047,10 @@ program
           .split(",")
           .map((s: string) => s.trim())
           .filter((s: string) => s.length > 0)
-      : [];
-    if (services.length === 0) {
+      : undefined;
+    if (!services && !process.env.SWEEP_SERVICES) {
       console.warn(
-        "Warning: no services specified (--services); the miner will scan nothing.",
+        "Warning: no services specified (--services or SWEEP_SERVICES); the miner will scan nothing.",
       );
     }
 
@@ -1037,25 +1072,7 @@ program
         return;
       }
 
-      const worker = new SweepWorker({ maxDailyCandidates: maxPerDay });
-      const results = await worker.processCandidates(candidates);
-      let anyFailed = false;
-      for (const r of results) {
-        const label = `${r.candidate.service} | ${r.candidate.signature}`;
-        if (r.status === "processed") {
-          console.log(`${label} -> processed`);
-        } else {
-          console.log(
-            `${label} -> ${r.status}${r.reason ? `: ${r.reason}` : ""}`,
-          );
-        }
-        if (r.status === "failed") {
-          anyFailed = true;
-        }
-      }
-      if (anyFailed) {
-        process.exitCode = 1;
-      }
+      await runSweepWorker(candidates, maxPerDay);
     } catch (err: any) {
       console.error(`Error: sweep failed: ${err.message}`);
       process.exitCode = 1;
