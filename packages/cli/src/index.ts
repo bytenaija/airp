@@ -1021,28 +1021,36 @@ program
       );
 
       // Preflight: fail fast with actionable errors.
+      // In dry-run mode nothing is executed, so checks are listed, not run.
       const checks =
         target === "compose"
           ? composePreflightChecks()
           : cloudflarePreflightChecks();
+      const isDryRun = options.dryRun === true;
       consoleOutput.log("Preflight checks:");
-      const outcomes = await runPreflight(checks, defaultExec);
-      for (const o of outcomes) {
-        if (o.ok) {
-          consoleOutput.log(`  [ok] ${o.title}`);
-        } else {
-          consoleOutput.error(`  [FAIL] ${o.title}`);
-          if (o.detail) consoleOutput.error(`         ${o.detail}`);
-          if (o.hint) consoleOutput.error(`         Fix: ${o.hint}`);
-          throw new DeployError(
-            `Preflight failed: ${o.title}. See the fix above, then re-run.`,
-          );
+      if (isDryRun) {
+        for (const check of checks) {
+          consoleOutput.log(`  [would check] ${check.title}`);
+        }
+      } else {
+        const outcomes = await runPreflight(checks, defaultExec);
+        for (const o of outcomes) {
+          if (o.ok) {
+            consoleOutput.log(`  [ok] ${o.title}`);
+          } else {
+            consoleOutput.error(`  [FAIL] ${o.title}`);
+            if (o.detail) consoleOutput.error(`         ${o.detail}`);
+            if (o.hint) consoleOutput.error(`         Fix: ${o.hint}`);
+            throw new DeployError(
+              `Preflight failed: ${o.title}. See the fix above, then re-run.`,
+            );
+          }
         }
       }
       consoleOutput.log("");
 
       await executePlan(plan, defaultExec, {
-        dryRun: options.dryRun === true,
+        dryRun: isDryRun,
         repoRoot,
         out: consoleOutput,
       });
