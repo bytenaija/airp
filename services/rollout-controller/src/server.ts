@@ -1,5 +1,9 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { type RemediationPlan, type IncidentRecord } from "@airp/common";
+import {
+  type RemediationPlan,
+  type IncidentRecord,
+  buildServiceLoggerOptions,
+} from "@airp/common";
 import { RolloutController, RolloutControllerOptions } from "./controller.js";
 import { CircuitBreaker } from "./circuitBreaker.js";
 import { WeightUpdater, NginxTemplateWeightUpdater } from "./weightUpdater.js";
@@ -17,7 +21,9 @@ export function buildRolloutServer(options: RolloutServerOptions = {}): {
   weightUpdater: WeightUpdater;
   sloEvaluator: SLOGateEvaluator;
 } {
-  const server = Fastify({ logger: options.logger ?? false });
+  const server = Fastify({
+    logger: buildServiceLoggerOptions("rollout-controller", options.logger ?? false),
+  });
   const controller = new RolloutController(options);
   const breaker = controller.getCircuitBreaker();
   const weightUpdater = controller.getWeightUpdater();

@@ -4,6 +4,7 @@ import {
   RemediationPlanSchema,
   type RemediationPlan,
   type PolicyDecision,
+  buildServiceLoggerOptions,
 } from "@airp/common";
 import { PolicyEngineEvaluator, EvaluationContext } from "./evaluator.js";
 import { RbacManager, UserClaims, verifyJwt, AuthorizationError } from "./rbac.js";
@@ -40,7 +41,9 @@ export function buildPolicyEngineServer(
   breaker: CircuitBreakerManager;
   clefProvider: DecisionModelProvider;
 } {
-  const server = Fastify({ logger: options.logger ?? false });
+  const server = Fastify({
+    logger: buildServiceLoggerOptions("policy-engine", options.logger ?? false),
+  });
 
   const evaluator = new PolicyEngineEvaluator({
     defaultRulesPath: options.rulesPath,
@@ -439,6 +442,7 @@ if (
   const host = process.env.HOST || "0.0.0.0";
   const { server, auditStore } = buildPolicyEngineServer({
     useDatabaseAudit: !!process.env.DATABASE_URL,
+    logger: true,
   });
 
   auditStore.ensureDatabaseTrigger().catch((err) => {

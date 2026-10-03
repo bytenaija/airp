@@ -4,6 +4,7 @@ import {
   IncidentRecordSchema,
   type IncidentRecord,
   applyRoleCredentialSeparation,
+  buildServiceLoggerOptions,
 } from "@airp/common";
 import { InvestigationAgentRuntime, type RuntimeOptions } from "./runtime.js";
 
@@ -24,7 +25,9 @@ export function buildAgentRuntimeServer(
   // Enforce credential separation: agent runtime loads ONLY agent_ro credentials
   const credentials = applyRoleCredentialSeparation("agent_ro");
 
-  const server = Fastify({ logger: options.logger ?? false });
+  const server = Fastify({
+    logger: buildServiceLoggerOptions("agent-runtime", options.logger ?? false),
+  });
   const registry = new Registry();
 
   const runtime = new InvestigationAgentRuntime(options);

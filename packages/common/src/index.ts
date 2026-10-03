@@ -5,3 +5,4 @@ export * from "./llm.js";
 export * from "./vcs.js";
 export * from "./credentials.js";
 export * from "./notify.js";
+export * from "./logging.js";

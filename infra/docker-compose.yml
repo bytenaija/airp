@@ -208,6 +208,9 @@ services:
       - NODE_ENV=production
       - PORT=8004
       - DATABASE_URL=postgresql://airp:airp_password@postgres:5432/airp
+      - LOG_DIR=/var/log/airp
+    volumes:
+      - app_logs:/var/log/airp
     depends_on:
       postgres:
         condition: service_healthy
@@ -226,8 +229,10 @@ services:
       - PORT=8005
       - DATABASE_URL=postgresql://airp:airp_password@postgres:5432/airp
       - TOPOLOGY_PATH=/app/infra/topology.yaml
+      - LOG_DIR=/var/log/airp
     volumes:
       - ./topology.yaml:/app/infra/topology.yaml:ro
+      - app_logs:/var/log/airp
     depends_on:
       postgres:
         condition: service_healthy
@@ -274,6 +279,9 @@ services:
       - CODE_INDEX_URL=http://code-index:8006
       - CHANGEFEED_URL=http://changefeed:8004
       - LLM_PROVIDER=ollama
+      - LOG_DIR=/var/log/airp
+    volumes:
+      - app_logs:/var/log/airp
     depends_on:
       - code-index
       - changefeed
@@ -295,9 +303,11 @@ services:
       - OWNERSHIP_PATH=/app/infra/ownership.yaml
       - TIER0_PATH=/app/infra/tier0.yaml
       - ROLLOUT_CONTROLLER_URL=http://rollout-controller:8009
+      - LOG_DIR=/var/log/airp
     volumes:
       - ./ownership.yaml:/app/infra/ownership.yaml:ro
       - ./tier0.yaml:/app/infra/tier0.yaml:ro
+      - app_logs:/var/log/airp
     depends_on:
       postgres:
         condition: service_healthy
@@ -321,9 +331,11 @@ services:
       - CANARY_UPSTREAM=checkout-canary:8001
       - NGINX_PORT=8001
       - CANARY_REPO_PATH=/app/demo
+      - LOG_DIR=/var/log/airp
     volumes:
       - ./canary/nginx-canary.conf.template:/app/infra/canary/nginx-canary.conf.template:ro
       - nginx_conf:/etc/nginx/conf.d
+      - app_logs:/var/log/airp
     depends_on:
       - prometheus
       - nginx
