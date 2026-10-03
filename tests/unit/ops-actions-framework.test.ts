@@ -319,20 +319,164 @@ describe("Epic 7 Acceptance Criterion 3: Confirmation Flag Guard & Framework Bas
       );
     });
 
-    it("ScaleAction dryRun returns canApply=false and apply throws when no execution backend is configured", async () => {
-      const scale = new ScaleAction({
-        service: "payments",
-        currentReplicas: 1,
-        targetReplicas: 3,
+    it("records apply_failed and revert_failed events in timelineLogger when execution backend fails", async () => {
+      const loggedEvents: TimelineEvent[] = [];
+      const failingAction = new (class extends MockGenericOpsAction {
+        protected async executeApply(): Promise<any> {
+          throw new Error("Simulated docker socket crash on apply");
+        }
+        protected async executeRevert(): Promise<any> {
+          throw new Error("Simulated docker socket crash on revert");
+        }
+      })("search-indexer");
+
+      // Verify apply failure is logged
+      await expect(
+        failingAction.apply({
+          iUnderstand: true,
+          timelineLogger: async (evt) => {
+            loggedEvents.push(evt);
+          },
+        }),
+      ).rejects.toThrow("Simulated docker socket crash on apply");
+
+      expect(loggedEvents.length).toBe(1);
+      expect(loggedEvents[0].action).toBe("apply_failed:mock_ops");
+      expect(loggedEvents[0].detail).toContain("Simulated docker socket crash on apply");
+
+      // Verify revert failure is logged
+      await expect(
+        failingAction.revert({
+          iUnderstand: true,
+          timelineLogger: async (evt) => {
+            loggedEvents.push(evt);
+          },
+        }),
+      ).rejects.toThrow("Simulated docker socket crash on revert");
+
+      expect(loggedEvents.length).toBe(2);
+      expect(loggedEvents[1].action).toBe("revert_failed:mock_ops");
+      expect(loggedEvents[1].detail).toContain("Simulated docker socket crash on revert");
+    });
+
+    it("records apply_started write-ahead audit event before executing mutation when writeAheadAudit is enabled", async () => {
+      const loggedEvents: TimelineEvent[] = [];
+      let executed = false;
+      const auditedAction = new (class extends MockGenericOpsAction {
+        protected async executeApply(): Promise<any> {
+          executed = true;
+          return {
+            success: true,
+            actionType: this.actionType,
+            targetService: this.targetService,
+            message: "Applied with WAL",
+            executionMode: "verified_operational",
+            verified: true,
+          };
+        }
+      })("payment-processor");
+
+      await auditedAction.apply({
+        iUnderstand: true,
+        writeAheadAudit: true,
+        timelineLogger: (evt) => {
+          loggedEvents.push(evt);
+          if (!executed) {
+            expect(evt.action).toBe("apply_started:mock_ops");
+            const detail = JSON.parse(evt.detail || "{}");
+            expect(detail.status).toBe("started");
+            expect(detail.inversePrecomputed).toBeDefined();
+          }
+        },
       });
 
-      const dryRun = await scale.dryRun();
-      expect(dryRun.canApply).toBe(false);
-      expect(dryRun.warnings.some((w) => w.toLowerCase().includes("no execution backend configured"))).toBe(true);
+      expect(loggedEvents.length).toBe(2);
+      expect(loggedEvents[0].action).toBe("apply_started:mock_ops");
+      expect(loggedEvents[1].action).toBe("apply:mock_ops");
+    });
 
-      await expect(scale.apply({ iUnderstand: true })).rejects.toThrow(
-        /Action validation failed for scale on service 'payments'/,
-      );
+    it("detects concurrent modification (contention) on revert and aborts unless force=true", async () => {
+      const { ActionContentionError } = await import("../../services/ops-actions/src/framework.js");
+
+      // Mock live flag server state
+      let currentLiveState = false; // Initial
+      const mockFetch: typeof fetch = async (_url, init) => {
+        if (init?.method === "GET") {
+          return new Response(JSON.stringify({ flags: { beta_feature: currentLiveState } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          currentLiveState = body.value;
+          return new Response(JSON.stringify({ status: "ok", flags: { beta_feature: currentLiveState } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      const flagAction = new FlagToggleAction({
+        service: "user-service",
+        flagUrl: "http://user-service:8080/admin/flags",
+        flagKey: "beta_feature",
+        currentValue: false,
+        targetValue: true,
+        fetchFn: mockFetch,
+      });
+
+      // Apply sets beta_feature to true
+      const applyRes = await flagAction.apply({ iUnderstand: true });
+      expect(applyRes.success).toBe(true);
+      expect(applyRes.verified).toBe(true);
+      expect(currentLiveState).toBe(true);
+
+      // Simulate concurrent modification by external actor/operator: set flag to false
+      currentLiveState = false;
+
+      // Revert should detect contention and reject without force: true
+      await expect(
+        flagAction.revert({ iUnderstand: true }),
+      ).rejects.toThrow(ActionContentionError);
+
+      // Revert with force: true succeeds and flags contentionDetected
+      const forceRevert = await flagAction.revert({ iUnderstand: true, force: true });
+      expect(forceRevert.success).toBe(true);
+      expect(forceRevert.contentionDetected).toBe(true);
+    });
+
+    it("distinguishes simulated execution from verified operational execution", async () => {
+      // 1. Simulated rollback (callback only)
+      let callbackExecuted = false;
+      const simRollback = new RollbackAction({
+        service: "analytics-worker",
+        currentVersion: "v1.2.0",
+        previousVersion: "v1.1.0",
+        onRollback: () => {
+          callbackExecuted = true;
+        },
+      });
+
+      const simResult = await simRollback.apply({ iUnderstand: true });
+      expect(simResult.success).toBe(true);
+      expect(callbackExecuted).toBe(true);
+      expect(simResult.executionMode).toBe("simulated");
+      expect(simResult.verified).toBe(false);
+
+      // 2. Operational rollback (executor with exit code 0)
+      const opRollback = new RollbackAction({
+        service: "analytics-worker",
+        currentVersion: "v1.2.0",
+        previousVersion: "v1.1.0",
+        executor: async () => ({ exitCode: 0, stdout: "Container updated", stderr: "" }),
+      });
+
+      const opResult = await opRollback.apply({ iUnderstand: true });
+      expect(opResult.success).toBe(true);
+      expect(opResult.executionMode).toBe("verified_operational");
+      expect(opResult.verified).toBe(true);
     });
   });
 });

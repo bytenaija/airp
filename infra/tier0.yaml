@@ -1,0 +1,7 @@
+version: "1"
+services:
+  - payments-db
+  - checkout-db
+  - auth
+  - gateway
+  - user-vault

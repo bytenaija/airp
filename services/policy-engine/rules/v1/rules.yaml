@@ -1,0 +1,141 @@
+version: "v1"
+name: "default_policy"
+description: "AIRP Authoritative Policy Rules v1"
+
+tier0_file: "infra/tier0.yaml"
+
+rules:
+  # Hard stop rules (Allowed = false, handoff or halted)
+  - id: "breaker_tripped"
+    description: "When circuit breaker is tripped, halt all autonomous actions"
+    when:
+      breaker_tripped: true
+    decision:
+      allowed: false
+      auto_merge_eligible: false
+      required_approvals: []
+      reason: "Circuit breaker is tripped: autonomous actuation is halted"
+
+  - id: "low_confidence_handoff"
+    description: "Confidence below 0.7 cannot act; must hand off to human"
+    when:
+      confidence_lt: 0.7
+    decision:
+      allowed: false
+      auto_merge_eligible: false
+      required_approvals: []
+      reason: "Diagnosis confidence < 0.7: handoff to human required"
+
+  - id: "human_only_fixability"
+    description: "Diagnoses classified as human_only cannot act autonomously"
+    when:
+      fixability: "human_only"
+    decision:
+      allowed: false
+      auto_merge_eligible: false
+      required_approvals: []
+      reason: "Diagnosis classified as human_only: handoff to human required"
+
+  # Absolute non-auto-merge overrides
+  - id: "proactive_never_auto_merge"
+    description: "Proactive sweep plans can never auto-merge; require human approval"
+    when:
+      proactive: true
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner"]
+      reason: "Proactive plans are never auto-merge eligible"
+
+  - id: "off_hours_no_auto_merge"
+    description: "Changes during off-hours (e.g. 3 AM) require human approval"
+    when:
+      off_hours: true
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner", "oncall"]
+      reason: "Off-hours change window requires explicit human approvals"
+
+  - id: "tier0_requires_two_approvers"
+    description: "Tier-0 critical services require two distinct team approvers"
+    when:
+      is_tier0: true
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner", "oncall"]
+      requires_distinct_teams: true
+      min_approvals: 2
+      reason: "Service '${service}' is tier-0 critical infrastructure: requires two distinct approvers from distinct teams"
+
+  - id: "large_diff_requires_approval"
+    description: "Diffs exceeding 50 lines require human review and approvals"
+    when:
+      diff_lines_gt: 50
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner", "oncall"]
+      reason: "Diff exceeds 50 lines threshold (diff_lines > 50)"
+
+  - id: "failing_tests_require_approval"
+    description: "Plans with failing tests cannot auto-merge"
+    when:
+      tests_green: false
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner", "oncall"]
+      reason: "Tests are not green"
+
+  - id: "ops_actionable_requires_approval"
+    description: "Operational remediations require code_owner and oncall approvals"
+    when:
+      fixability: "ops_actionable"
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner", "oncall"]
+      reason: "Operational remediations require code_owner and oncall approvals"
+
+  # Auto-merge eligibility rule
+  - id: "auto_merge_eligible"
+    description: "Small, verified, high-confidence non-tier0 code fixes can auto-merge"
+    when:
+      tests_green: true
+      diff_lines_lte: 50
+      is_tier0: false
+      confidence_gte: 0.8
+      fixability: "code_fixable"
+      proactive: false
+      off_hours: false
+      breaker_tripped: false
+    decision:
+      allowed: true
+      auto_merge_eligible: true
+      required_approvals: []
+      reason: "Plan satisfies all auto-merge eligibility criteria (tests green, diff <= 50, not tier-0, confidence >= 0.8, code_fixable)"
+
+  # Default fallback rule
+  - id: "default_fallback"
+    description: "All other plans require standard code_owner and oncall approvals"
+    when: {}
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["code_owner", "oncall"]
+      reason: "Plan does not satisfy all auto-merge criteria; requires standard [code_owner, oncall] approvals"
+
+abac_rules:
+  - id: "abac_restricted_pii"
+    when:
+      data_classification: ["restricted", "pii"]
+    additional_approvals: ["security_auditor"]
+    reason: "Plan touches '${data_classification}' data (restricted/pii): requires security_auditor approval"
+
+  - id: "abac_high_clearance"
+    when:
+      clearance: ["secret", "top_secret"]
+    additional_approvals: ["security_auditor"]
+    reason: "Plan touches '${clearance}' clearance requirement: requires security_auditor approval"

@@ -11,13 +11,16 @@ COPY services/changefeed/package*.json ./services/changefeed/
 COPY services/ingest-gateway/package*.json ./services/ingest-gateway/
 COPY services/code-index/package*.json ./services/code-index/
 COPY services/agent-runtime/package*.json ./services/agent-runtime/
+COPY services/policy-engine/package*.json ./services/policy-engine/
 COPY demo/package*.json ./demo/
 
 RUN npm install
 
 COPY tsconfig.json ./
+COPY config ./config
 COPY infra/topology.yaml ./infra/topology.yaml
 COPY infra/ownership.yaml ./infra/ownership.yaml
+COPY infra/tier0.yaml ./infra/tier0.yaml
 COPY docs/runbooks ./docs/runbooks
 COPY agent ./agent
 COPY packages/common ./packages/common
@@ -26,6 +29,7 @@ COPY services/changefeed ./services/changefeed
 COPY services/ingest-gateway ./services/ingest-gateway
 COPY services/code-index ./services/code-index
 COPY services/agent-runtime ./services/agent-runtime
+COPY services/policy-engine ./services/policy-engine
 COPY demo ./demo
 
 RUN npm run build

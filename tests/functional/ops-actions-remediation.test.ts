@@ -29,7 +29,7 @@ describe("Epic 7 Acceptance Criterion 1: Action Execution & Reversibility", () =
     mockPaymentsPort = pAddr.port;
 
     // 2. Start demo checkout server pointing to mock payments
-    const faultManager = new FaultManager();
+    const faultManager = new FaultManager(true);
     const flagsManager = new FlagsManager();
     const { server } = buildCheckoutServer(
       faultManager,
@@ -179,6 +179,67 @@ describe("Epic 7 Acceptance Criterion 1: Action Execution & Reversibility", () =
       expect(res.status).toBe(400);
       const data = (await res.json()) as any;
       expect(data.error).toContain("Bad Request");
+    });
+
+    it("rejects enabling failure-inducing flag (new_payment_flow) when fault injection is disabled", async () => {
+      // Create server with faults explicitly disabled
+      const disabledFaultManager = new FaultManager(false);
+      const disabledFlagsManager = new FlagsManager();
+      const disabledServer = buildCheckoutServer(
+        disabledFaultManager,
+        `http://127.0.0.1:${mockPaymentsPort}`,
+        disabledFlagsManager,
+      );
+      await disabledServer.server.listen({ port: 0, host: "127.0.0.1" });
+      const addr = disabledServer.server.server.address() as any;
+      const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+      try {
+        const res = await fetch(`${baseUrl}/admin/flags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flag: "new_payment_flow", value: true }),
+        });
+        expect(res.status).toBe(403);
+        const data = (await res.json()) as any;
+        expect(data.error).toContain("Fault injection is disabled");
+      } finally {
+        await disabledServer.server.close();
+      }
+    });
+
+    it("enforces admin token authentication on POST /admin/flags when FLAGS_ADMIN_TOKEN is configured", async () => {
+      const origToken = process.env.FLAGS_ADMIN_TOKEN;
+      process.env.FLAGS_ADMIN_TOKEN = "super_secret_admin_token";
+
+      try {
+        // 1. Unauthenticated request -> 401
+        const unauthRes = await fetch(`${checkoutBaseUrl}/admin/flags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flag: "new_payment_flow", value: false }),
+        });
+        expect(unauthRes.status).toBe(401);
+        const err = (await unauthRes.json()) as any;
+        expect(err.error).toContain("Unauthorized");
+
+        // 2. Authenticated request with Bearer token -> 200
+        const authRes = await fetch(`${checkoutBaseUrl}/admin/flags`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer super_secret_admin_token",
+          },
+          body: JSON.stringify({ flag: "new_payment_flow", value: false }),
+        });
+        expect(authRes.status).toBe(200);
+      } finally {
+        if (origToken !== undefined) {
+          process.env.FLAGS_ADMIN_TOKEN = origToken;
+        } else {
+          delete process.env.FLAGS_ADMIN_TOKEN;
+        }
+      }
     });
   });
 

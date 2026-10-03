@@ -81,3 +81,24 @@ model IncidentTimelineEvent {
   @@index([incidentId, ts])
   @@map("incident_timeline_events")
 }
+
+model PolicyAuditLog {
+  id                String   @id @default(uuid())
+  tenantId          String   @default("local") @map("tenant_id")
+  timestamp         DateTime @default(now())
+  eventType         String   @map("event_type")
+  identity          String
+  policyVersion     String   @map("policy_version")
+  targetId          String   @map("target_id")
+  actionOrDecision  String   @map("action_or_decision")
+  autoMergeEligible Boolean? @map("auto_merge_eligible")
+  requiredApprovals Json     @default("[]") @map("required_approvals")
+  reasons           Json     @default("[]")
+  advisory          Json?
+  metadata          Json?    @default("{}")
+
+  @@index([tenantId, eventType])
+  @@index([targetId])
+  @@index([timestamp])
+  @@map("policy_audit_logs")
+}

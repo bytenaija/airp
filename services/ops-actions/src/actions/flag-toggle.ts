@@ -22,6 +22,7 @@ export class FlagToggleAction extends ReversibleAction {
   readonly currentValue: boolean;
   readonly targetValue: boolean;
   private readonly fetchFn: typeof fetch;
+  verifiedPriorValue?: boolean;
 
   constructor(params: FlagToggleActionParams) {
     super();
@@ -34,12 +35,16 @@ export class FlagToggleAction extends ReversibleAction {
   }
 
   computeInverse(): ReversibleAction {
+    const prior =
+      this.verifiedPriorValue !== undefined
+        ? this.verifiedPriorValue
+        : this.currentValue;
     const inverse = new FlagToggleAction({
       service: this.targetService,
       flagUrl: this.flagUrl,
       flagKey: this.flagKey,
       currentValue: this.targetValue,
-      targetValue: this.currentValue,
+      targetValue: prior,
       fetchFn: this.fetchFn,
     });
     inverse.setInverse(this);
@@ -109,9 +114,25 @@ export class FlagToggleAction extends ReversibleAction {
     };
   }
 
-  protected async executeApply(): Promise<
+  protected async executeApply(_options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
+    // Attempt to inspect live prior state to ensure inverse restores actual prior state
+    try {
+      const getRes = await this.fetchFn(this.flagUrl, { method: "GET" });
+      if (getRes.ok) {
+        const body = (await getRes.json().catch(() => ({}))) as any;
+        if (body?.flags && typeof body.flags[this.flagKey] === "boolean") {
+          this.verifiedPriorValue = body.flags[this.flagKey];
+          if (this._precomputedInverse instanceof FlagToggleAction) {
+            (this._precomputedInverse as any).targetValue = this.verifiedPriorValue;
+          }
+        }
+      }
+    } catch {
+      // Live GET inspection not supported; rely on provided currentValue
+    }
+
     const response = await this.fetchFn(this.flagUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -136,18 +157,53 @@ export class FlagToggleAction extends ReversibleAction {
       targetService: this.targetService,
       message: `Toggled flag '${this.flagKey}' on '${this.targetService}' to ${this.targetValue}.`,
       output: responseBody,
+      executionMode: "verified_operational",
+      verified: true,
+      verifiedPriorState: this.verifiedPriorValue,
     };
   }
 
-  protected async executeRevert(): Promise<
+  protected async executeRevert(options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
+    const revertTarget =
+      this.verifiedPriorValue !== undefined
+        ? this.verifiedPriorValue
+        : this.currentValue;
+
+    let contentionDetected = false;
+    try {
+      const getRes = await this.fetchFn(this.flagUrl, { method: "GET" });
+      if (getRes.ok) {
+        const body = (await getRes.json().catch(() => ({}))) as any;
+        if (body?.flags && typeof body.flags[this.flagKey] === "boolean") {
+          const liveValue = body.flags[this.flagKey];
+          if (liveValue !== this.targetValue) {
+            contentionDetected = true;
+            if (!options?.force) {
+              const { ActionContentionError } = await import("../framework.js");
+              throw new ActionContentionError(
+                `Concurrent modification detected on flag '${this.flagKey}' on '${this.targetService}': live value is ${liveValue}, but expected applied value was ${this.targetValue}. Revert aborted to prevent restoring stale state. Pass force: true to override.`,
+                liveValue,
+                this.targetValue,
+              );
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === "ActionContentionError") {
+        throw err;
+      }
+      // Ignore GET error if endpoint does not support inspection
+    }
+
     const response = await this.fetchFn(this.flagUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         flag: this.flagKey,
-        value: this.currentValue,
+        value: revertTarget,
       }),
     });
 
@@ -158,14 +214,20 @@ export class FlagToggleAction extends ReversibleAction {
       );
     }
 
-    const responseBody = await response.json().catch(() => ({}));
+    const responseBody = (await response.json().catch(() => ({}))) as any;
+    if (contentionDetected) {
+      responseBody.contentionDetected = true;
+    }
 
     return {
       success: true,
       actionType: this.actionType,
       targetService: this.targetService,
-      message: `Reverted flag '${this.flagKey}' on '${this.targetService}' back to ${this.currentValue}.`,
+      message: `Reverted flag '${this.flagKey}' on '${this.targetService}' back to ${revertTarget}.${contentionDetected ? " (Warning: flag was modified concurrently prior to revert)" : ""}`,
       output: responseBody,
+      executionMode: "verified_operational",
+      verified: true,
+      contentionDetected,
     };
   }
 }

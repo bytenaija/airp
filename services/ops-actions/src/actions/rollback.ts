@@ -19,6 +19,7 @@ export interface RollbackActionParams {
   versionEnvVar?: string;
   executor?: CommandExecutor;
   onRollback?: (service: string, targetVersion: string) => Promise<void> | void;
+  getLiveVersion?: (service: string) => Promise<string | null>;
 }
 
 export class RollbackAction extends ReversibleAction {
@@ -33,6 +34,8 @@ export class RollbackAction extends ReversibleAction {
     service: string,
     targetVersion: string,
   ) => Promise<void> | void;
+  private readonly getLiveVersion?: (service: string) => Promise<string | null>;
+  verifiedPriorVersion?: string;
 
   constructor(params: RollbackActionParams) {
     super();
@@ -45,17 +48,20 @@ export class RollbackAction extends ReversibleAction {
       `${params.service.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_IMAGE_TAG`;
     this.executor = params.executor;
     this.onRollback = params.onRollback;
+    this.getLiveVersion = params.getLiveVersion;
   }
 
   computeInverse(): ReversibleAction {
+    const prior = this.verifiedPriorVersion || this.currentVersion;
     const inverse = new RollbackAction({
       service: this.targetService,
       currentVersion: this.previousVersion,
-      previousVersion: this.currentVersion,
+      previousVersion: prior,
       composeFilePath: this.composeFilePath,
       versionEnvVar: this.versionEnvVar,
       executor: this.executor,
       onRollback: this.onRollback,
+      getLiveVersion: this.getLiveVersion,
     });
     inverse.setInverse(this);
     return inverse;
@@ -134,7 +140,7 @@ export class RollbackAction extends ReversibleAction {
     };
   }
 
-  protected async executeApply(): Promise<
+  protected async executeApply(_options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
     if (!this.onRollback && !this.executor) {
@@ -143,17 +149,31 @@ export class RollbackAction extends ReversibleAction {
       );
     }
 
-    let output: unknown = null;
-
-    if (this.onRollback) {
-      await this.onRollback(this.targetService, this.previousVersion);
+    if (this.getLiveVersion) {
+      try {
+        const live = await this.getLiveVersion(this.targetService);
+        if (live) {
+          this.verifiedPriorVersion = live;
+          if (this._precomputedInverse instanceof RollbackAction) {
+            (this._precomputedInverse as any).previousVersion = this.verifiedPriorVersion;
+          }
+        }
+      } catch {
+        // Live inspection optional
+      }
     }
+
+    let output: unknown = null;
+    let executionMode: "verified_operational" | "simulated" | "hybrid" = "simulated";
 
     if (this.executor) {
       const env = {
         [this.versionEnvVar]: this.previousVersion,
         SERVICE_VERSION: this.previousVersion,
         TARGET_VERSION: this.previousVersion,
+        VERSION: this.previousVersion,
+        TAG: this.previousVersion,
+        IMAGE_TAG: this.previousVersion,
       };
 
       const execResult = await this.executor(
@@ -175,6 +195,11 @@ export class RollbackAction extends ReversibleAction {
         );
       }
       output = execResult;
+      executionMode = this.onRollback ? "hybrid" : "verified_operational";
+    }
+
+    if (this.onRollback) {
+      await this.onRollback(this.targetService, this.previousVersion);
     }
 
     return {
@@ -183,10 +208,13 @@ export class RollbackAction extends ReversibleAction {
       targetService: this.targetService,
       message: `Rolled back service '${this.targetService}' from '${this.currentVersion}' to '${this.previousVersion}'.`,
       output: output ?? { activeVersion: this.previousVersion },
+      executionMode,
+      verified: !!this.executor,
+      verifiedPriorState: this.verifiedPriorVersion,
     };
   }
 
-  protected async executeRevert(): Promise<
+  protected async executeRevert(options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
     if (!this.onRollback && !this.executor) {
@@ -195,17 +223,39 @@ export class RollbackAction extends ReversibleAction {
       );
     }
 
-    let output: unknown = null;
+    const revertTarget = this.verifiedPriorVersion || this.currentVersion;
+    let contentionDetected = false;
 
-    if (this.onRollback) {
-      await this.onRollback(this.targetService, this.currentVersion);
+    if (this.getLiveVersion) {
+      try {
+        const live = await this.getLiveVersion(this.targetService);
+        if (live && live !== this.previousVersion) {
+          contentionDetected = true;
+          if (!options?.force) {
+            const { ActionContentionError } = await import("../framework.js");
+            throw new ActionContentionError(
+              `Concurrent modification detected on '${this.targetService}': live version is '${live}', but expected applied version was '${this.previousVersion}'. Revert aborted to prevent restoring stale state. Pass force: true to override.`,
+              live,
+              this.previousVersion,
+            );
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === "ActionContentionError") throw err;
+      }
     }
+
+    let output: unknown = null;
+    let executionMode: "verified_operational" | "simulated" | "hybrid" = "simulated";
 
     if (this.executor) {
       const env = {
-        [this.versionEnvVar]: this.currentVersion,
-        SERVICE_VERSION: this.currentVersion,
-        TARGET_VERSION: this.currentVersion,
+        [this.versionEnvVar]: revertTarget,
+        SERVICE_VERSION: revertTarget,
+        TARGET_VERSION: revertTarget,
+        VERSION: revertTarget,
+        TAG: revertTarget,
+        IMAGE_TAG: revertTarget,
       };
 
       const execResult = await this.executor(
@@ -227,14 +277,22 @@ export class RollbackAction extends ReversibleAction {
         );
       }
       output = execResult;
+      executionMode = this.onRollback ? "hybrid" : "verified_operational";
+    }
+
+    if (this.onRollback) {
+      await this.onRollback(this.targetService, revertTarget);
     }
 
     return {
       success: true,
       actionType: this.actionType,
       targetService: this.targetService,
-      message: `Reverted rollback: restored service '${this.targetService}' to '${this.currentVersion}'.`,
-      output: output ?? { activeVersion: this.currentVersion },
+      message: `Reverted rollback: restored service '${this.targetService}' to '${revertTarget}'.`,
+      output: output ?? { activeVersion: revertTarget },
+      executionMode,
+      verified: !!this.executor,
+      contentionDetected,
     };
   }
 }

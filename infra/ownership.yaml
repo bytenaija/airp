@@ -27,6 +27,27 @@ services:
       - "demo/src/payments.ts"
       - "services/payments/**"
 
+  payments-db:
+    team: payments-team
+    owners:
+      - "@team-payments"
+      - "@maya"
+      - "@alice-payments"
+    on_call:
+      primary: "alice-payments"
+      secondary: "bob-payments"
+      pagerduty_schedule: "payments-db-tier0"
+
+  checkout-db:
+    team: checkout-team
+    owners:
+      - "@team-checkout"
+      - "@alice"
+    on_call:
+      primary: "alice"
+      secondary: "bob"
+      pagerduty_schedule: "checkout-db-tier0"
+
   fraud-check:
     team: risk-team
     owners:
