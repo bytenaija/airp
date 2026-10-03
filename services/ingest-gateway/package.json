@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@airp/common": "*",
+    "@airp/flywheel": "*",
     "@prisma/client": "^5.22.0",
     "commander": "^12.1.0",
     "dotenv": "^16.4.5",

@@ -16,6 +16,12 @@ import {
   ConcurrentModificationError,
 } from "./incident-store.js";
 import { AlertQueue, type QueueAlert } from "./alert-queue.js";
+import {
+  FlywheelEmbedder,
+  OutcomeStore,
+  labelOutcome,
+  type ResolutionInput,
+} from "@airp/flywheel";
 
 export interface GatewayServerOptions {
   port?: number;
@@ -23,6 +29,8 @@ export interface GatewayServerOptions {
   prisma?: PrismaClient;
   topologyPath?: string;
   tenantId?: string;
+  outcomeStore?: OutcomeStore;
+  embedder?: FlywheelEmbedder;
 }
 
 export function buildGatewayServer(
@@ -34,6 +42,8 @@ export function buildGatewayServer(
   const alertQueue = new AlertQueue(prisma);
   const incidentStore = new IncidentStore(prisma);
   const defaultTenantId = options.tenantId ?? "local";
+  const outcomeStore = options.outcomeStore ?? new OutcomeStore();
+  let embedder: FlywheelEmbedder | undefined = options.embedder;
 
   // Resolve topology
   let topology: TopologyGraph | undefined;
@@ -251,6 +261,7 @@ export function buildGatewayServer(
       actor?: string;
       detail?: string;
       tenant_id?: string;
+      resolution?: Omit<ResolutionInput, "incident_id">;
     };
     const tenantId =
       body.tenant_id ||
@@ -269,7 +280,27 @@ export function buildGatewayServer(
         actor: body.actor ?? "api",
         detail: body.detail,
       });
-      return reply.send(updated);
+
+      // Epic 11: on resolution, write an outcome record for the flywheel.
+      // Labeling is a learning side-effect: a labeling failure is reported
+      // but never rolls back the resolution itself.
+      let outcome: unknown = undefined;
+      let outcomeError: string | undefined = undefined;
+      if (body.status === "resolved" && body.resolution) {
+        try {
+          if (!embedder) {
+            embedder = new FlywheelEmbedder();
+          }
+          outcome = await labelOutcome(
+            { ...body.resolution, incident_id: id },
+            { store: outcomeStore, embedder },
+          );
+        } catch (err: any) {
+          outcomeError = err?.message ?? String(err);
+        }
+      }
+
+      return reply.send({ ...updated, outcome, outcomeError });
     } catch (err) {
       if (err instanceof IllegalStateTransitionError) {
         return reply.status(422).send({

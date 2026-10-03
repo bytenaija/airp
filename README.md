@@ -144,6 +144,10 @@ own:
 
 Deeper operator procedures live in `docs/runbooks/` (checkout errors,
 deploy rollback, payment timeouts, and the full end-to-end runbook).
+Resolved incidents feed the learning flywheel: `airp flywheel list` shows
+labeled outcomes, `airp flywheel export --format clef-jsonl` exports training
+data, and `airp runbook publish <draft>` approves draft runbooks. See
+`docs/learning-flywheel.md`.
 
 ### 7. Deploy somewhere real
 

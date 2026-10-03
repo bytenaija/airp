@@ -1,5 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { FlywheelEmbedder, OutcomeStore } from "@airp/flywheel";
+import { findSimilarIncidents } from "./incidentsSimilar.js";
 import {
   QueryClient,
   type LogEntry,
@@ -49,6 +51,8 @@ export interface AgentToolsOptions {
   changeFeedUrl?: string;
   defaultTimeoutMs?: number;
   changeEvents?: ChangeEvent[];
+  outcomeStore?: OutcomeStore;
+  embedder?: FlywheelEmbedder;
 }
 
 export function withTimeout<T>(
@@ -99,6 +103,8 @@ export class AgentTools {
   private readonly changeFeedUrl: string;
   private readonly defaultTimeoutMs: number;
   private changeEvents: ChangeEvent[] = [];
+  private readonly outcomeStore: OutcomeStore;
+  private readonly embedder: FlywheelEmbedder;
 
   private static readonly READ_ONLY_OPERATIONS = new Set([
     "logs_query",
@@ -131,6 +137,8 @@ export class AgentTools {
     ).replace(/\/$/, "");
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 5000;
     this.changeEvents = options.changeEvents ?? [];
+    this.outcomeStore = options.outcomeStore || new OutcomeStore();
+    this.embedder = options.embedder || new FlywheelEmbedder();
   }
 
   setChangeEvents(events: ChangeEvent[]): void {
@@ -418,8 +426,11 @@ export class AgentTools {
     top_k?: number;
   }): Promise<any[]> {
     this.assertReadOnly("incidents_similar");
-    // TODO: Epic 11 implements historical incident similarity
-    return [];
+    return findSimilarIncidents(
+      _args.symptoms,
+      { store: this.outcomeStore, embedder: this.embedder },
+      _args.top_k ?? 5,
+    );
   }
 
   // 10. change_point
@@ -755,7 +766,7 @@ export class AgentTools {
 
       incidents_similar: tool({
         description:
-          "Search historical incident records for similar prior symptoms and root causes (Stub - returns empty list).",
+          "Search historical incident records for similar prior symptoms and root causes, with their recorded outcomes.",
         parameters: z.object({
           symptoms: z.string().describe("Incident symptoms or query"),
           top_k: z

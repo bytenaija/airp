@@ -1,0 +1,133 @@
+{
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "title": "Checkout 500 Error Spike",
+  "service": "checkout",
+  "severity": "SEV2",
+  "status": "diagnosed",
+  "detected_at": "2026-10-03T09:29:28.301Z",
+  "root_cause": "Deployment v2.14.3 by dev@example.com at foo.ts:1 caused Checkout 500 Error Spike",
+  "confidence": 0.5384615384615384,
+  "confidence_rationale": "Confidence is 53.8% based on supporting evidence in telemetry and code analysis.",
+  "evidence_trail": [
+    {
+      "tool": "code_blame",
+      "query": "foo.ts:1",
+      "observation": "Git blame for foo.ts:1 (commit unrelated-commit) does not match deploy v2.14.3",
+      "supports": false
+    }
+  ],
+  "ruled_out": [
+    {
+      "item": "code_blame: foo.ts:1",
+      "reason": "Observation indicated normal or disproven: Git blame for foo.ts:1 (commit unrelated-commit) does not match deploy v2.14.3"
+    }
+  ],
+  "recommended_actions": [
+    "Investigate checkout logs and application traces around 2026-10-03T09:29:28.301Z.",
+    "Inspect recent configuration or environmental changes outside code repo.",
+    "Consult on-call runbook for checkout."
+  ],
+  "runbook_links": [
+    {
+      "title": "CHECKOUT Errors Runbook",
+      "url": "docs/runbooks/checkout-errors.md",
+      "path": "docs/runbooks/checkout-errors.md"
+    },
+    {
+      "title": "Deployment & Rollback Runbook",
+      "url": "docs/runbooks/deploy-rollback.md",
+      "path": "docs/runbooks/deploy-rollback.md"
+    }
+  ],
+  "owner_on_call": {
+    "team": "checkout-team",
+    "owners": [
+      "@team-checkout",
+      "@alice"
+    ],
+    "primary": "alice",
+    "secondary": "bob",
+    "pagerduty_schedule": "checkout-tier1"
+  },
+  "timeline": [
+    {
+      "ts": "2026-10-03T09:57:28.302Z",
+      "actor": "agent",
+      "action": "investigation_started",
+      "detail": "Investigation started for incident b0000000-0000-0000-0000-000000000002 (SEV2)"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "plan_formulated",
+      "detail": "Initial hypothesis priors: [{\"class\":\"change_caused\",\"prior\":0.7,\"logOdds\":0.847},{\"class\":\"dependency\",\"prior\":0.1,\"logOdds\":-2.197},{\"class\":\"infra\",\"prior\":0.1,\"logOdds\":-2.197},{\"class\":\"unknown\",\"prior\":0.1,\"logOdds\":-2.197}]"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "tool_call",
+      "detail": "[1/25] metrics_query({\"metric\":\"checkout_error_rate\"})"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "tool_observation",
+      "detail": "Observation from metrics_query: {\"resultType\":\"matrix\",\"series\":[]}"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "hypothesis_updated",
+      "detail": "Leading: change_caused (confidence: 70.0%, log-odds: 0.85)"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "tool_call",
+      "detail": "[2/25] logs_query({\"service\":\"checkout\",\"pattern\":\"npe\"})"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "tool_observation",
+      "detail": "Observation from logs_query: []"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "hypothesis_updated",
+      "detail": "Leading: change_caused (confidence: 70.0%, log-odds: 0.85)"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "tool_call",
+      "detail": "[3/25] code_blame({\"path\":\"foo.ts\",\"line\":1})"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.303Z",
+      "actor": "agent",
+      "action": "tool_observation",
+      "detail": "Observation from code_blame: {\"commit\":\"unrelated-commit\",\"author\":\"unknown\",\"date\":\"now\"}"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.304Z",
+      "actor": "agent",
+      "action": "hypothesis_updated",
+      "detail": "Leading: change_caused (confidence: 53.8%, log-odds: 0.15)"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.304Z",
+      "actor": "agent",
+      "action": "investigation_concluded",
+      "detail": "Diagnosis produced: Deployment v2.14.3 by dev@example.com at foo.ts:1 caused Checkout 500 Error Spike (confidence: 53.8%, fixability: human_only)"
+    },
+    {
+      "ts": "2026-10-03T09:57:28.305Z",
+      "actor": "agent",
+      "action": "human_handoff_initiated",
+      "detail": "Autonomous fixability is human_only (confidence: 53.8%). Handoff report generated and incident escalated to checkout-team."
+    }
+  ],
+  "generated_at": "2026-10-03T09:57:28.306Z"
+}
