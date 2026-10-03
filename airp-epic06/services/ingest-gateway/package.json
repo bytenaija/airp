@@ -1,0 +1,27 @@
+{
+  "name": "@airp/ingest-gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "prisma generate && tsc -b",
+    "start": "node dist/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push"
+  },
+  "dependencies": {
+    "@airp/common": "*",
+    "@prisma/client": "^5.22.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.27.0",
+    "js-yaml": "^4.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prisma": "^5.22.0",
+    "typescript": "^5.4.5"
+  }
+}

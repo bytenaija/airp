@@ -1,0 +1,38 @@
+{
+  "name": "airp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AIRP - Autonomous Incident Remediation Platform",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "demo"
+  ],
+  "bin": {
+    "airp": "./packages/cli/dist/index.js"
+  },
+  "prisma": {
+    "schema": "services/changefeed/prisma/schema.prisma"
+  },
+  "scripts": {
+    "build": "npm run --workspaces --if-present build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.{ts,json,yaml,yml}\""
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "fast-check": "^4.10.2",
+    "js-yaml": "^5.4.2",
+    "prettier": "^3.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

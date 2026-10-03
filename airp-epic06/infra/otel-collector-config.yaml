@@ -1,0 +1,75 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  filelog:
+    include:
+      - /var/log/airp/*.log
+    include_file_path: true
+    start_at: beginning
+    operators:
+      - type: regex_parser
+        regex: '^.*/(?P<service>[^/]+)\.log$'
+        parse_from: attributes["log.file.path"]
+      - type: json_parser
+        parse_to: body
+      - type: copy
+        from: body.level
+        to: attributes.level
+      - type: copy
+        from: body.service
+        to: attributes.service
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 256
+
+  resource:
+    attributes:
+      - action: insert
+        key: loki.format
+        value: json
+      - action: insert
+        key: loki.attribute.labels
+        value: service, level
+      - action: insert
+        key: loki.resource.labels
+        value: service.name, service
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: airp
+
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, debug]
+
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+
+    logs:
+      receivers: [otlp, filelog]
+      processors: [batch, resource]
+      exporters: [loki, debug]

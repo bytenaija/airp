@@ -1,0 +1,5 @@
+# Unregistered grammar file to verify line-window fallback
+environment=staging
+deployment_region=us-east-1
+max_worker_concurrency=16
+health_check_endpoint=/status

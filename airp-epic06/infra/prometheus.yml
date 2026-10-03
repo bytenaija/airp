@@ -1,0 +1,31 @@
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: "checkout"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["checkout:8001", "host.docker.internal:8001"]
+        labels:
+          service: "checkout"
+
+  - job_name: "payments"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["payments:8002", "host.docker.internal:8002"]
+        labels:
+          service: "payments"
+
+  - job_name: "fraud-check"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["fraud-check:8003", "host.docker.internal:8003"]
+        labels:
+          service: "fraud-check"
+
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+        labels:
+          service: "otel-collector"

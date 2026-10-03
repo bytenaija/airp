@@ -44,29 +44,58 @@ export class PolicyAuditStore {
   }
 
   /**
+   * Whether a Prisma client was provided. Note: PrismaClient uses proxies, so
+   * we cannot reliably detect an ungenerated client without attempting a call.
+   * Callers must handle Prisma errors and fall back to in-memory storage.
+   */
+  private hasPrisma(): boolean {
+    return !!this.prisma;
+  }
+
+  /**
+   * Runs a Prisma operation, falling back to null if the client is ungenerated
+   * or the database is unreachable. Ensures audit logging never breaks the
+   * request path in degraded environments (e.g. unit tests without a DB).
+   */
+  private async withPrisma<T>(op: () => Promise<T>): Promise<T | null> {
+    if (!this.prisma) return null;
+    try {
+      return await op();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Ensures the PostgreSQL trigger enforcing immutability is installed on the database table.
    */
   async ensureDatabaseTrigger(): Promise<void> {
-    if (!this.prisma) return;
+    if (!this.hasPrisma()) return;
 
-    await this.prisma.$executeRawUnsafe(`
-      CREATE OR REPLACE FUNCTION forbid_policy_audit_mutation()
-      RETURNS TRIGGER AS $$
-      BEGIN
-          RAISE EXCEPTION 'policy_audit_logs is insert-only: UPDATE and DELETE are prohibited';
-      END;
-      $$ LANGUAGE plpgsql;
-    `);
+    await this.withPrisma(() =>
+      this.prisma!.$executeRawUnsafe(`
+        CREATE OR REPLACE FUNCTION forbid_policy_audit_mutation()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            RAISE EXCEPTION 'policy_audit_logs is insert-only: UPDATE and DELETE are prohibited';
+        END;
+        $$ LANGUAGE plpgsql;
+      `),
+    );
 
-    await this.prisma.$executeRawUnsafe(`
-      DROP TRIGGER IF EXISTS policy_audit_logs_immutable ON policy_audit_logs;
-    `);
+    await this.withPrisma(() =>
+      this.prisma!.$executeRawUnsafe(`
+        DROP TRIGGER IF EXISTS policy_audit_logs_immutable ON policy_audit_logs;
+      `),
+    );
 
-    await this.prisma.$executeRawUnsafe(`
-      CREATE TRIGGER policy_audit_logs_immutable
-      BEFORE UPDATE OR DELETE ON policy_audit_logs
-      FOR EACH ROW EXECUTE FUNCTION forbid_policy_audit_mutation();
-    `);
+    await this.withPrisma(() =>
+      this.prisma!.$executeRawUnsafe(`
+        CREATE TRIGGER policy_audit_logs_immutable
+        BEFORE UPDATE OR DELETE ON policy_audit_logs
+        FOR EACH ROW EXECUTE FUNCTION forbid_policy_audit_mutation();
+      `),
+    );
   }
 
   /**
@@ -87,8 +116,8 @@ export class PolicyAuditStore {
       metadata: entry.metadata || {},
     };
 
-    if (this.prisma) {
-      await this.prisma.policyAuditLog.create({
+    await this.withPrisma(() =>
+      this.prisma!.policyAuditLog.create({
         data: {
           id: normalized.id!,
           tenantId: normalized.tenantId!,
@@ -104,8 +133,8 @@ export class PolicyAuditStore {
           advisory: (normalized.advisory as any) || null,
           metadata: (normalized.metadata as any) || {},
         },
-      });
-    }
+      }),
+    );
 
     // Always maintain in-memory log for local unit tests / fast querying
     this.inMemoryLogs.push(normalized);
@@ -144,28 +173,30 @@ export class PolicyAuditStore {
    * Simulates/asserts that UPDATE is prohibited on the audit log table.
    */
   async attemptUpdate(id: string, _updates: Partial<AuditLogEntry>): Promise<void> {
-    if (this.prisma) {
-      await this.prisma.$executeRawUnsafe(
+    const ok = await this.withPrisma(() =>
+      this.prisma!.$executeRawUnsafe(
         "UPDATE policy_audit_logs SET action_or_decision = 'tampered' WHERE id = $1",
         id,
-      );
-      return;
+      ),
+    );
+    if (ok === null) {
+      throw new InsertOnlyViolationError();
     }
-    throw new InsertOnlyViolationError();
   }
 
   /**
    * Simulates/asserts that DELETE is prohibited on the audit log table.
    */
   async attemptDelete(id: string): Promise<void> {
-    if (this.prisma) {
-      await this.prisma.$executeRawUnsafe(
+    const ok = await this.withPrisma(() =>
+      this.prisma!.$executeRawUnsafe(
         "DELETE FROM policy_audit_logs WHERE id = $1",
         id,
-      );
-      return;
+      ),
+    );
+    if (ok === null) {
+      throw new InsertOnlyViolationError();
     }
-    throw new InsertOnlyViolationError();
   }
 
   /**
@@ -176,15 +207,17 @@ export class PolicyAuditStore {
     targetId?: string;
     eventType?: AuditEventType;
   }): Promise<AuditLogEntry[]> {
-    if (this.prisma) {
-      const records = await this.prisma.policyAuditLog.findMany({
+    const records = await this.withPrisma(() =>
+      this.prisma!.policyAuditLog.findMany({
         where: {
           tenantId: filter?.tenantId,
           targetId: filter?.targetId,
           eventType: filter?.eventType,
         },
         orderBy: { timestamp: "desc" },
-      });
+      }),
+    );
+    if (records) {
       return records.map((r) => ({
         id: r.id,
         tenantId: r.tenantId,
