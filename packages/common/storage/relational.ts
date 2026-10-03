@@ -32,6 +32,44 @@ export interface StatusTransitionOptions {
   actor?: string;
   detail?: string;
   ts?: string;
+  /**
+   * Optimistic concurrency: only apply the transition if the incident's
+   * current status equals this. Backends throw ConcurrentModificationError
+   * when the status does not match.
+   */
+  expectedStatus?: IncidentStatus;
+}
+
+/**
+ * Thrown by IncidentRepository methods when the incident does not exist.
+ * Services may catch this to map to 404 responses.
+ */
+export class IncidentNotFoundError extends Error {
+  constructor(public readonly incidentId: string) {
+    super(`Incident not found: ${incidentId}`);
+    this.name = "IncidentNotFoundError";
+  }
+}
+
+/**
+ * Thrown by IncidentRepository.transitionStatus when the incident's
+ * current status does not match options.expectedStatus (optimistic
+ * concurrency conflict). Services may catch this to map to 409 responses.
+ */
+export class ConcurrentModificationError extends Error {
+  constructor(
+    public readonly incidentId: string,
+    public readonly expectedStatus: string,
+    public readonly actualStatus?: string,
+  ) {
+    super(
+      `Incident ${incidentId} was modified concurrently` +
+        (actualStatus
+          ? ` (expected status '${expectedStatus}', found '${actualStatus}')`
+          : ` (expected status '${expectedStatus}')`),
+    );
+    this.name = "ConcurrentModificationError";
+  }
 }
 
 export interface IncidentRepository {
@@ -76,8 +114,13 @@ export interface AlertRepository {
   countActiveAlertsForIncident(
     incidentId: string,
     tenantId?: string,
+    excludeIds?: string[],
   ): Promise<number>;
-  markProcessed(ids: string[], tenantId?: string): Promise<void>;
+  markProcessed(
+    ids: string[],
+    tenantId?: string,
+    options?: { incidentId?: string | null },
+  ): Promise<void>;
 }
 
 export interface AuditRecord {

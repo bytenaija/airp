@@ -3,19 +3,17 @@ import { buildChangeFeedServer } from "../../services/changefeed/src/server.js";
 import { program } from "../../services/changefeed/src/cli.js";
 
 describe("ChangeFeed Server", () => {
-  let mockPrisma: any;
+  let mockChangeEvents: any;
 
   beforeEach(() => {
-    mockPrisma = {
-      changeEvent: {
-        create: vi.fn(),
-        findMany: vi.fn(),
-      },
+    mockChangeEvents = {
+      recordEvent: vi.fn(),
+      listEvents: vi.fn(),
     };
   });
 
   it("responds to /health", async () => {
-    const server = buildChangeFeedServer({ prisma: mockPrisma });
+    const server = buildChangeFeedServer({ changeEvents: mockChangeEvents });
     const res = await server.inject({
       method: "GET",
       url: "/health",
@@ -25,7 +23,7 @@ describe("ChangeFeed Server", () => {
   });
 
   it("rejects invalid event payload", async () => {
-    const server = buildChangeFeedServer({ prisma: mockPrisma });
+    const server = buildChangeFeedServer({ changeEvents: mockChangeEvents });
     const res = await server.inject({
       method: "POST",
       url: "/events",
@@ -35,23 +33,22 @@ describe("ChangeFeed Server", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe("Validation failed");
-    expect(mockPrisma.changeEvent.create).not.toHaveBeenCalled();
+    expect(mockChangeEvents.recordEvent).not.toHaveBeenCalled();
   });
 
   it("accepts valid change event and stores in database", async () => {
-    const server = buildChangeFeedServer({ prisma: mockPrisma });
+    const server = buildChangeFeedServer({ changeEvents: mockChangeEvents });
     const createdEvent = {
       id: "test-uuid",
       type: "deploy",
       service: "checkout",
       revision: "v2.14.3",
-      ts: new Date("2026-10-02T10:00:00Z"),
+      ts: "2026-10-02T10:00:00.000Z",
       author: "payments-team",
       metadata: {},
-      createdAt: new Date(),
     };
 
-    mockPrisma.changeEvent.create.mockResolvedValueOnce(createdEvent);
+    mockChangeEvents.recordEvent.mockResolvedValueOnce(createdEvent);
 
     const res = await server.inject({
       method: "POST",
@@ -66,15 +63,13 @@ describe("ChangeFeed Server", () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(mockPrisma.changeEvent.create).toHaveBeenCalledWith({
-      data: {
-        type: "deploy",
-        service: "checkout",
-        revision: "v2.14.3",
-        ts: new Date("2026-10-02T10:00:00.000Z"),
-        author: "payments-team",
-        metadata: {},
-      },
+    expect(mockChangeEvents.recordEvent).toHaveBeenCalledWith({
+      type: "deploy",
+      service: "checkout",
+      revision: "v2.14.3",
+      ts: "2026-10-02T10:00:00.000Z",
+      author: "payments-team",
+      metadata: {},
     });
   });
 });

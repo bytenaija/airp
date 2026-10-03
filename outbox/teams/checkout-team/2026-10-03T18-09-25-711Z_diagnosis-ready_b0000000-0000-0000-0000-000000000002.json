@@ -1,0 +1,17 @@
+{
+  "id": "56ba3215-ec2c-46f0-9dc5-238316db8dfd",
+  "type": "diagnosis-ready",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Diagnosis concluded for b0000000-0000-0000-0000-000000000002: Investigation budget exhausted (wall-clock timeout (0ms) exceeded) before conclusive diagnosis (confidence: 0.0%, fixability: human_only)",
+  "details": {
+    "diagnosis_id": "23aabf0b-c475-4737-907c-280b37d7acca",
+    "confidence": 0,
+    "fixability": "human_only",
+    "root_cause": "Investigation budget exhausted (wall-clock timeout (0ms) exceeded) before conclusive diagnosis"
+  },
+  "timestamp": "2026-10-03T18:09:25.711Z"
+}

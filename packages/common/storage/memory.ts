@@ -25,6 +25,10 @@ import type {
   RelationalStore,
   StatusTransitionOptions,
 } from "./relational.js";
+import {
+  ConcurrentModificationError,
+  IncidentNotFoundError,
+} from "./relational.js";
 import type { ListOptions, Page } from "./types.js";
 import { assertTenant } from "./types.js";
 import type {
@@ -345,7 +349,17 @@ class MemoryIncidentRepository implements IncidentRepository {
     const key = this.key(options.tenantId, id);
     const record = this.records.get(key);
     if (!record) {
-      throw new Error(`Incident not found: ${id}`);
+      throw new IncidentNotFoundError(id);
+    }
+    if (
+      options.expectedStatus !== undefined &&
+      record.status !== options.expectedStatus
+    ) {
+      throw new ConcurrentModificationError(
+        id,
+        options.expectedStatus,
+        record.status,
+      );
     }
     record.status = newStatus;
     record.timeline = [
@@ -368,7 +382,7 @@ class MemoryIncidentRepository implements IncidentRepository {
     const key = this.key(tenantId, id);
     const record = this.records.get(key);
     if (!record) {
-      throw new Error(`Incident not found: ${id}`);
+      throw new IncidentNotFoundError(id);
     }
     record.timeline = [...(record.timeline || []), event];
   }
@@ -430,24 +444,39 @@ class MemoryAlertRepository implements AlertRepository {
 
   async countActiveAlertsForIncident(
     incidentId: string,
-    tenantId = "local",
+    tenantId?: string,
+    excludeIds: string[] = [],
   ): Promise<number> {
-    const tid = assertTenant(tenantId);
+    const tid = assertTenant(tenantId ?? "local");
+    const excluded = new Set(excludeIds);
     let count = 0;
     for (const a of this.alerts.values()) {
-      if (a.tenantId === tid && a.incidentId === incidentId && !a.processed) {
+      if (
+        a.tenantId === tid &&
+        a.incidentId === incidentId &&
+        !a.processed &&
+        a.id !== undefined &&
+        !excluded.has(a.id)
+      ) {
         count++;
       }
     }
     return count;
   }
 
-  async markProcessed(ids: string[], tenantId = "local"): Promise<void> {
+  async markProcessed(
+    ids: string[],
+    tenantId = "local",
+    options?: { incidentId?: string | null },
+  ): Promise<void> {
     const tid = assertTenant(tenantId);
     for (const id of ids) {
       const alert = this.alerts.get(id);
       if (alert && alert.tenantId === tid) {
         alert.processed = true;
+        if (options && "incidentId" in options) {
+          alert.incidentId = options.incidentId ?? undefined;
+        }
       }
     }
   }

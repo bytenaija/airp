@@ -1,0 +1,17 @@
+{
+  "id": "c225db76-82ac-42ec-9e94-3d97b950f1d3",
+  "type": "diagnosis-ready",
+  "incident_id": "f3d30923-f269-4e19-96c0-7b8759e24f49",
+  "service": "checkout",
+  "team": "payments-team",
+  "severity": "SEV1",
+  "title": "checkout incident: CheckoutHighErrorRate (1 alert correlated)",
+  "summary": "Diagnosis concluded for f3d30923-f269-4e19-96c0-7b8759e24f49: NullPointerException in demo/src/payments.ts:47 introduced by deploy v2.14.3 (confidence: 92.0%, fixability: code_fixable)",
+  "details": {
+    "diagnosis_id": "4cfcb4e8-38d4-4879-9ee4-61cedfc8e3a2",
+    "confidence": 0.92,
+    "fixability": "code_fixable",
+    "root_cause": "NullPointerException in demo/src/payments.ts:47 introduced by deploy v2.14.3"
+  },
+  "timestamp": "2026-10-03T18:03:13.061Z"
+}

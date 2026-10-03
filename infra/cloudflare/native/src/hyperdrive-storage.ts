@@ -48,7 +48,11 @@ import type {
   StatusTransitionOptions,
   TimelineEvent,
 } from "@airp/common";
-import { assertTenant } from "@airp/common";
+import {
+  assertTenant,
+  ConcurrentModificationError,
+  IncidentNotFoundError,
+} from "@airp/common";
 
 // ---------------------------------------------------------------------------
 // Driver surface
@@ -418,15 +422,34 @@ class PgIncidentRepository implements IncidentRepository {
       action: "status_transition",
       detail: options.detail || `Status changed to ${newStatus}`,
     };
+    const params: unknown[] = [tenant, id, newStatus, JSON.stringify([event])];
+    let statusPredicate = "";
+    if (options.expectedStatus !== undefined) {
+      params.push(options.expectedStatus);
+      statusPredicate = ` AND status = $${params.length}`;
+    }
     const res = await this.db.query(
       `UPDATE incidents
        SET status = $3, timeline = timeline || $4::jsonb
-       WHERE tenant_id = $1 AND id = $2
+       WHERE tenant_id = $1 AND id = $2${statusPredicate}
        RETURNING *`,
-      [tenant, id, newStatus, JSON.stringify([event])],
+      params,
     );
     if (res.rows.length === 0) {
-      throw new Error(`Incident not found: ${id}`);
+      // Distinguish "not found" from "modified concurrently" so the
+      // service layer can map to the right domain error.
+      const existing = await this.db.query(
+        `SELECT status FROM incidents WHERE tenant_id = $1 AND id = $2`,
+        [tenant, id],
+      );
+      if (existing.rows.length === 0) {
+        throw new IncidentNotFoundError(id);
+      }
+      throw new ConcurrentModificationError(
+        id,
+        String(options.expectedStatus),
+        String(existing.rows[0].status),
+      );
     }
     return rowToIncident(res.rows[0]);
   }
@@ -442,7 +465,7 @@ class PgIncidentRepository implements IncidentRepository {
       [assertTenant(tenantId), id, JSON.stringify([event])],
     );
     if ((res.rowCount ?? 0) === 0) {
-      throw new Error(`Incident not found: ${id}`);
+      throw new IncidentNotFoundError(id);
     }
   }
 
@@ -549,23 +572,40 @@ class PgAlertRepository implements AlertRepository {
   async countActiveAlertsForIncident(
     incidentId: string,
     tenantId = "local",
+    excludeIds: string[] = [],
   ): Promise<number> {
+    const params: unknown[] = [assertTenant(tenantId), incidentId];
+    let excludePredicate = "";
+    if (excludeIds.length > 0) {
+      params.push(excludeIds);
+      excludePredicate = ` AND NOT (id = ANY($${params.length}))`;
+    }
     const res = await this.db.query(
       `SELECT COUNT(*)::int AS count FROM alerts
-       WHERE tenant_id = $1 AND incident_id = $2 AND processed = FALSE`,
-      [assertTenant(tenantId), incidentId],
+       WHERE tenant_id = $1 AND incident_id = $2 AND processed = FALSE${excludePredicate}`,
+      params,
     );
     return Number(res.rows[0]?.count ?? 0);
   }
 
-  async markProcessed(ids: string[], tenantId = "local"): Promise<void> {
+  async markProcessed(
+    ids: string[],
+    tenantId = "local",
+    options?: { incidentId?: string | null },
+  ): Promise<void> {
     if (ids.length === 0) {
       return;
     }
+    const params: unknown[] = [assertTenant(tenantId), ids];
+    let incidentSet = "";
+    if (options && "incidentId" in options) {
+      params.push(options.incidentId ?? null);
+      incidentSet = `, incident_id = $${params.length}`;
+    }
     await this.db.query(
-      `UPDATE alerts SET processed = TRUE
+      `UPDATE alerts SET processed = TRUE${incidentSet}
        WHERE tenant_id = $1 AND id = ANY($2)`,
-      [assertTenant(tenantId), ids],
+      params,
     );
   }
 }

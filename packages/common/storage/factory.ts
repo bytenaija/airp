@@ -26,6 +26,7 @@ import {
   MemoryRelationalStore,
   MemoryVectorStore,
 } from "./memory.js";
+import { PrismaRelationalStore, type PrismaStoreClient } from "./prisma.js";
 import { R2BlobStore } from "./r2.js";
 import type { RelationalStore } from "./relational.js";
 import { S3BlobStore } from "./s3.js";
@@ -88,22 +89,56 @@ export interface StorageBundle {
   queue: Queue;
 }
 
+export interface StorageFactoryOptions {
+  /**
+   * PrismaClient for the relational store when DATABASE_URL is set.
+   * Services pass their own client; the factory selects the backend
+   * from the environment.
+   */
+  prisma?: PrismaStoreClient;
+}
+
+/**
+ * Select the relational backend from the environment.
+ * - DATABASE_URL set (and a PrismaClient provided): PrismaRelationalStore
+ *   (compose / VPS production, real Postgres).
+ * - otherwise: MemoryRelationalStore (tests, local dev without a DB).
+ *
+ * The Cloudflare-native path does not use this factory for relational
+ * state; it wires HyperdriveRelationalStore from Worker bindings (see
+ * infra/cloudflare/native/src/).
+ */
+export function createRelationalStoreFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  options: StorageFactoryOptions = {},
+): RelationalStore {
+  if (env.DATABASE_URL) {
+    if (!options.prisma) {
+      throw new Error(
+        "DATABASE_URL is set but no PrismaClient was provided; " +
+          "pass { prisma } to createRelationalStoreFromEnv",
+      );
+    }
+    return new PrismaRelationalStore(options.prisma);
+  }
+  return new MemoryRelationalStore();
+}
+
 /**
  * Build the full storage bundle from the environment. Relational,
- * vector, and queue surfaces resolve to in-memory fakes here because
- * their production backends (Hyperdrive Postgres, Vectorize,
- * Cloudflare Queues) need Worker bindings, not env vars: the native
- * Worker wires them through the binding adapters in
- * infra/cloudflare/native/src/ (native-storage.ts,
- * hyperdrive-storage.ts, vectorize-storage.ts). See
- * docs/storage-backends.md.
+ * vector, and queue surfaces resolve from env: DATABASE_URL selects
+ * the Prisma Postgres backend for relational; vectors and queues
+ * currently resolve to in-memory fakes (their Node production
+ * backends are wired per-service; Cloudflare uses Worker bindings).
+ * See docs/storage-backends.md.
  */
 export function createStorageFromEnv(
   env: NodeJS.ProcessEnv = process.env,
+  options: StorageFactoryOptions = {},
 ): StorageBundle {
   return {
     blobs: createBlobStoreFromEnv(env),
-    relational: new MemoryRelationalStore(),
+    relational: createRelationalStoreFromEnv(env, options),
     vectors: new MemoryVectorStore(),
     queue: new MemoryQueue(),
   };

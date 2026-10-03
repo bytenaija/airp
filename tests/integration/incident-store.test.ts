@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import crypto from "node:crypto";
-import { type IncidentRecord, IllegalStateTransitionError } from "@airp/common";
+import { type IncidentRecord, IllegalStateTransitionError, PrismaRelationalStore } from "@airp/common";
 import {
   IncidentStore,
   TenantScopeError,
@@ -25,7 +25,9 @@ describe("IncidentStore Database Integration Tests", () => {
         },
       },
     });
-    store = new IncidentStore(prisma);
+    store = new IncidentStore(
+      new PrismaRelationalStore(prisma).incidents,
+    );
   });
 
   afterAll(async () => {

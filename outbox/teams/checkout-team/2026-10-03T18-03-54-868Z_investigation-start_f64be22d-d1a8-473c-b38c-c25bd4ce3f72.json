@@ -1,0 +1,12 @@
+{
+  "id": "80d346ef-f132-4704-a22b-a716bf11a9a3",
+  "type": "investigation-start",
+  "incident_id": "f64be22d-d1a8-473c-b38c-c25bd4ce3f72",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout Latency and Error Anomaly",
+  "summary": "Investigation started for incident f64be22d-d1a8-473c-b38c-c25bd4ce3f72 (SEV2) on service 'checkout'",
+  "details": {},
+  "timestamp": "2026-10-03T18:03:54.868Z"
+}

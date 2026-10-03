@@ -1,0 +1,17 @@
+{
+  "id": "f999706d-66d0-4334-9c07-89a3173797d9",
+  "type": "diagnosis-ready",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Diagnosis concluded for b0000000-0000-0000-0000-000000000002: Deployment v2.14.3 by dev@example.com at foo.ts:1 caused Checkout 500 Error Spike (confidence: 53.8%, fixability: human_only)",
+  "details": {
+    "diagnosis_id": "809c1622-bec0-4f01-b1b7-b27bb82ce53c",
+    "confidence": 0.5384615384615384,
+    "fixability": "human_only",
+    "root_cause": "Deployment v2.14.3 by dev@example.com at foo.ts:1 caused Checkout 500 Error Spike"
+  },
+  "timestamp": "2026-10-03T17:59:17.487Z"
+}

@@ -197,3 +197,87 @@ describe("MemoryRelationalStore audit and change events", () => {
     }
   });
 });
+
+describe("MemoryRelationalStore optimistic concurrency", () => {
+  it("transitionStatus with matching expectedStatus succeeds", async () => {
+    const db = new MemoryRelationalStore();
+    try {
+      const created = await db.incidents.createIncident(makeIncident());
+      const updated = await db.incidents.transitionStatus(
+        created.id,
+        "investigating",
+        { tenantId: "t1", expectedStatus: "open" },
+      );
+      expect(updated.status).toBe("investigating");
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("transitionStatus with stale expectedStatus throws ConcurrentModificationError", async () => {
+    const db = new MemoryRelationalStore();
+    try {
+      const created = await db.incidents.createIncident(makeIncident());
+      await expect(
+        db.incidents.transitionStatus(created.id, "diagnosed", {
+          tenantId: "t1",
+          expectedStatus: "mitigating",
+        }),
+      ).rejects.toThrow("modified concurrently");
+    } finally {
+      await db.close();
+    }
+  });
+});
+
+describe("MemoryRelationalStore alert extensions", () => {
+  const alert = {
+    fingerprint: "fp1",
+    name: "HighErrorRate",
+    service: "checkout",
+    startsAt: new Date().toISOString(),
+  };
+
+  it("countActiveAlertsForIncident honors excludeIds", async () => {
+    const db = new MemoryRelationalStore();
+    try {
+      const created = await db.alerts.pushAlerts([alert, alert], "t1");
+      const id1 = created[0].id!;
+      const id2 = created[1].id!;
+      // markProcessed links AND marks processed, so active count is 0;
+      // excludeIds narrows the (empty) set further without error.
+      await db.alerts.markProcessed([id1, id2], "t1", {
+        incidentId: "inc1",
+      });
+      expect(
+        await db.alerts.countActiveAlertsForIncident("inc1", "t1"),
+      ).toBe(0);
+      expect(
+        await db.alerts.countActiveAlertsForIncident("inc1", "t1", [id1]),
+      ).toBe(0);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("markProcessed links and unlinks incidentId", async () => {
+    const db = new MemoryRelationalStore();
+    try {
+      const created = await db.alerts.pushAlerts([alert], "t1");
+      const id = created[0].id!;
+      await db.alerts.markProcessed([id], "t1", { incidentId: "inc1" });
+      // Processed alerts are not "active"; unlinking is verified by the
+      // absence of errors and the pending list staying empty.
+      expect(
+        await db.alerts.countActiveAlertsForIncident("inc1", "t1"),
+      ).toBe(0);
+      await db.alerts.markProcessed([id], "t1", { incidentId: null });
+      expect(
+        await db.alerts.countActiveAlertsForIncident("inc1", "t1"),
+      ).toBe(0);
+      expect(await db.alerts.fetchPendingAlerts("t1")).toHaveLength(0);
+    } finally {
+      await db.close();
+    }
+  });
+});

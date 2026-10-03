@@ -1,0 +1,17 @@
+{
+  "id": "10e35629-cd50-4bf9-ab29-770aea9db714",
+  "type": "diagnosis-ready",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Diagnosis concluded for b0000000-0000-0000-0000-000000000002: Investigation concluded with low confidence due to malformed model output: ```json { invalid_json_syntax: true, ``` (confidence: 0.0%, fixability: human_only)",
+  "details": {
+    "diagnosis_id": "bd2034fd-9614-4ef8-985b-bcc5e90e2b29",
+    "confidence": 0,
+    "fixability": "human_only",
+    "root_cause": "Investigation concluded with low confidence due to malformed model output: ```json { invalid_json_syntax: true, ```"
+  },
+  "timestamp": "2026-10-03T18:07:46.935Z"
+}

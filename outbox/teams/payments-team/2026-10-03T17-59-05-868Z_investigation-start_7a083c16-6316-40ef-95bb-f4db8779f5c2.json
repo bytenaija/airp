@@ -1,0 +1,12 @@
+{
+  "id": "4c0f3164-b350-4f74-a5d6-1143b0c5f11d",
+  "type": "investigation-start",
+  "incident_id": "7a083c16-6316-40ef-95bb-f4db8779f5c2",
+  "service": "checkout",
+  "team": "payments-team",
+  "severity": "SEV1",
+  "title": "checkout incident: CheckoutHighErrorRate (1 alert correlated)",
+  "summary": "Investigation started for incident 7a083c16-6316-40ef-95bb-f4db8779f5c2 (SEV1) on service 'checkout'",
+  "details": {},
+  "timestamp": "2026-10-03T17:59:05.868Z"
+}

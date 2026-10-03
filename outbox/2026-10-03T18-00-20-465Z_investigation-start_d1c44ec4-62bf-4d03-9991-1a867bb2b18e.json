@@ -1,0 +1,12 @@
+{
+  "id": "96872bd6-469d-4a41-8d1d-b866b0fe8c2d",
+  "type": "investigation-start",
+  "incident_id": "d1c44ec4-62bf-4d03-9991-1a867bb2b18e",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout Latency and Error Anomaly",
+  "summary": "Investigation started for incident d1c44ec4-62bf-4d03-9991-1a867bb2b18e (SEV2) on service 'checkout'",
+  "details": {},
+  "timestamp": "2026-10-03T18:00:20.465Z"
+}

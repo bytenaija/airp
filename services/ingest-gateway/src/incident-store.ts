@@ -1,173 +1,126 @@
-import { PrismaClient } from "@prisma/client";
+/**
+ * Incident storage for the ingest-gateway.
+ *
+ * This is a thin domain wrapper over the IncidentRepository storage
+ * interface (Epic 20 work package 6). The repository is injected:
+ * compose/VPS wires the Prisma backend, Cloudflare wires Hyperdrive,
+ * and tests inject the in-memory fake. All persistence, transactions,
+ * and tenant scoping live in the backend; this class keeps the
+ * ingest-gateway's domain rules (tenant scoping, status-machine
+ * validation, timeline stamping) in one place.
+ */
 import {
+  IncidentRecordSchema,
+  validateStatusTransition,
   type IncidentRecord,
   type IncidentStatus,
   type TimelineEvent,
-  IncidentRecordSchema,
-  validateStatusTransition,
+  type IncidentRepository,
+  type IncidentFilter,
+  ConcurrentModificationError,
+  IncidentNotFoundError,
 } from "@airp/common";
 
+// Re-export the domain errors so existing import sites keep working.
+export { ConcurrentModificationError, IncidentNotFoundError };
+
 export class TenantScopeError extends Error {
-  constructor(message = "Store access requires a non-empty tenant scope") {
+  constructor(message: string) {
     super(message);
     this.name = "TenantScopeError";
-    Object.setPrototypeOf(this, TenantScopeError.prototype);
   }
 }
 
-export class IncidentNotFoundError extends Error {
-  constructor(id: string) {
-    super(`Incident not found: ${id}`);
-    this.name = "IncidentNotFoundError";
-    Object.setPrototypeOf(this, IncidentNotFoundError.prototype);
-  }
-}
+export type IncidentRow = IncidentRecord;
 
-export class ConcurrentModificationError extends Error {
-  constructor(id: string, currentStatus: string) {
-    super(
-      `Incident ${id} was modified concurrently (expected status '${currentStatus}')`,
-    );
-    this.name = "ConcurrentModificationError";
-    Object.setPrototypeOf(this, ConcurrentModificationError.prototype);
-  }
+export interface CreateIncidentInput {
+  id?: string;
+  title: string;
+  severity: IncidentRecord["severity"];
+  status?: IncidentStatus;
+  startedAt?: string;
+  detectedAt?: string;
+  started_at?: string;
+  detected_at?: string;
+  signals?: unknown[];
+  enrichment?: Record<string, unknown>;
+  timeline?: TimelineEvent[];
+  tenant_id?: string;
 }
 
 export interface TransitionOptions {
   tenantId: string;
+  expectedStatus?: IncidentStatus;
   actor?: string;
   detail?: string;
   ts?: string;
 }
 
-export interface ListIncidentsFilter {
-  status?: IncidentStatus;
-  service?: string;
-  limit?: number;
-}
-
+/**
+ * Domain wrapper over an injected IncidentRepository.
+ *
+ * @param repository storage backend (Prisma on compose, Hyperdrive on
+ * Cloudflare, memory fake in tests).
+ */
 export class IncidentStore {
-  private readonly prisma: PrismaClient;
+  constructor(private readonly repository: IncidentRepository) {}
 
-  constructor(prismaClient?: PrismaClient) {
-    this.prisma = prismaClient ?? new PrismaClient();
-  }
-
-  getPrisma(): PrismaClient {
-    return this.prisma;
-  }
-
-  private assertTenant(tenantId?: string): string {
-    if (!tenantId || typeof tenantId !== "string" || tenantId.trim() === "") {
-      throw new TenantScopeError();
+  private assertTenant(tenantId: unknown): string {
+    if (typeof tenantId !== "string" || tenantId.trim() === "") {
+      throw new TenantScopeError(
+        "tenantId is required; refusing unscoped incident operation",
+      );
     }
     return tenantId;
   }
 
-  /**
-   * Creates a new incident record in the store.
-   * Requires tenant_id. Fails if tenant_id is missing.
-   */
-  async createIncident(record: IncidentRecord): Promise<IncidentRecord> {
-    const tenantId = this.assertTenant(record.tenant_id);
-
-    // Save incident and its timeline events in a transaction
-    const saved: any = await this.prisma.$transaction(async (tx: any) => {
-      const incident = await tx.incident.create({
-        data: {
-          id: record.id,
-          tenantId,
-          title: record.title,
-          severity: record.severity,
-          status: record.status,
-          startedAt: new Date(record.started_at),
-          detectedAt: new Date(record.detected_at),
-          signals: record.signals as object,
-          enrichment: record.enrichment as object,
+  async createIncident(
+    input: CreateIncidentInput & { tenant_id?: string },
+    tenantId?: string,
+  ): Promise<IncidentRecord> {
+    const validTenantId = this.assertTenant(tenantId ?? input.tenant_id);
+    const record: IncidentRecord = {
+      id: input.id ?? crypto.randomUUID(),
+      tenant_id: validTenantId,
+      title: input.title,
+      severity: input.severity,
+      status: input.status ?? "investigating",
+      started_at: input.startedAt ?? input.started_at ?? new Date().toISOString(),
+      detected_at: input.detectedAt ?? input.detected_at ?? new Date().toISOString(),
+      signals: (input.signals ?? []) as any,
+      enrichment: (input.enrichment ?? {}) as any,
+      timeline: input.timeline ?? [
+        {
+          ts: new Date().toISOString(),
+          actor: "system",
+          action: "incident_created",
+          detail: `Incident created: ${input.title}`,
         },
-      });
+      ],
+    };
 
-      if (record.timeline && record.timeline.length > 0) {
-        await tx.incidentTimelineEvent.createMany({
-          data: record.timeline.map((evt) => ({
-            incidentId: incident.id,
-            ts: new Date(evt.ts),
-            actor: evt.actor,
-            action: evt.action,
-            detail: evt.detail,
-          })),
-        });
-      }
-
-      return incident;
-    });
-
-    const full = await this.getIncident(saved.id, tenantId);
-    if (!full) {
-      throw new Error(`Failed to retrieve newly created incident: ${saved.id}`);
-    }
-    return full;
+    // Validate against the shared incident schema before persisting.
+    IncidentRecordSchema.parse(record);
+    return this.repository.createIncident(record);
   }
 
-  /**
-   * Retrieves an incident by ID within a tenant scope.
-   * Returns null if not found or if belonging to another tenant (enforcing tenant isolation).
-   */
   async getIncident(
     id: string,
     tenantId: string,
   ): Promise<IncidentRecord | null> {
-    const validTenantId = this.assertTenant(tenantId);
-
-    const record = await this.prisma.incident.findFirst({
-      where: {
-        id,
-        tenantId: validTenantId,
-      },
-      include: {
-        timeline: {
-          orderBy: { ts: "asc" },
-        },
-      },
-    });
-
-    if (!record) return null;
-
-    return this.formatRecord(record);
+    return this.repository.getIncident(id, this.assertTenant(tenantId));
   }
 
-  /**
-   * Lists incidents for a tenant with optional filtering.
-   */
   async listIncidents(
     tenantId: string,
-    filter?: ListIncidentsFilter,
+    filter?: IncidentFilter,
   ): Promise<IncidentRecord[]> {
-    const validTenantId = this.assertTenant(tenantId);
-
-    const records = await this.prisma.incident.findMany({
-      where: {
-        tenantId: validTenantId,
-        ...(filter?.status ? { status: filter.status } : {}),
-      },
-      include: {
-        timeline: {
-          orderBy: { ts: "asc" },
-        },
-      },
-      orderBy: { startedAt: "desc" },
-      take: filter?.limit ?? 100,
-    });
-
-    return records.map((r: any) => this.formatRecord(r));
+    return this.repository.listIncidents(
+      this.assertTenant(tenantId),
+      filter,
+    );
   }
 
-  /**
-   * Validates and performs an incident status transition according to the state machine:
-   * open -> investigating -> diagnosed -> mitigating -> resolved (or resolved -> open).
-   * Appends an audit event to the timeline.
-   * Raises IllegalStateTransitionError on invalid transition.
-   */
   async transitionStatus(
     id: string,
     newStatus: IncidentStatus,
@@ -175,143 +128,42 @@ export class IncidentStore {
   ): Promise<IncidentRecord> {
     const tenantId = this.assertTenant(options.tenantId);
 
-    const existing: any = await this.prisma.incident.findFirst({
-      where: { id, tenantId },
-    });
-
+    const existing = await this.repository.getIncident(id, tenantId);
     if (!existing) {
       throw new IncidentNotFoundError(id);
     }
 
-    const currentStatus = existing.status as IncidentStatus;
+    validateStatusTransition(existing.status, newStatus);
 
-    // Validate state transition (raises IllegalStateTransitionError if illegal)
-    validateStatusTransition(currentStatus, newStatus);
-
-    const transitionTs = options.ts ? new Date(options.ts) : new Date();
-    const actor = options.actor ?? "system";
-    const detail =
-      options.detail ??
-      `Status changed from '${currentStatus}' to '${newStatus}'`;
-
-    await this.prisma.$transaction(async (tx: any) => {
-      const updateResult = await tx.incident.updateMany({
-        where: {
-          id,
-          tenantId,
-          status: currentStatus,
-        },
-        data: { status: newStatus },
-      });
-
-      if (updateResult.count === 0) {
-        throw new ConcurrentModificationError(id, currentStatus);
-      }
-
-      await tx.incidentTimelineEvent.create({
-        data: {
-          incidentId: id,
-          ts: transitionTs,
-          actor,
-          action: "status_changed",
-          detail,
-        },
-      });
+    // expectedStatus is only used for optimistic concurrency in the
+    // repository (single source of truth for the race).
+    return this.repository.transitionStatus(id, newStatus, {
+      tenantId,
+      actor: options.actor,
+      detail: options.detail,
+      ts: options.ts,
+      expectedStatus:
+        options.expectedStatus !== undefined
+          ? options.expectedStatus
+          : existing.status,
     });
-
-    const updated = await this.getIncident(id, tenantId);
-    if (!updated) {
-      throw new IncidentNotFoundError(id);
-    }
-    return updated;
   }
 
-  /**
-   * Appends a timeline event to an incident.
-   */
   async appendTimelineEvent(
     id: string,
     event: TimelineEvent,
     tenantId: string,
   ): Promise<IncidentRecord> {
     const validTenantId = this.assertTenant(tenantId);
-
-    const existing = await this.prisma.incident.findFirst({
-      where: { id, tenantId: validTenantId },
-    });
-
-    if (!existing) {
+    await this.repository.appendTimelineEvent(id, validTenantId, event);
+    const updated = await this.repository.getIncident(id, validTenantId);
+    if (!updated) {
       throw new IncidentNotFoundError(id);
     }
-
-    await this.prisma.incidentTimelineEvent.create({
-      data: {
-        incidentId: id,
-        ts: new Date(event.ts),
-        actor: event.actor,
-        action: event.action,
-        detail: event.detail,
-      },
-    });
-
-    const updated = await this.getIncident(id, validTenantId);
-    if (!updated) throw new IncidentNotFoundError(id);
     return updated;
   }
 
-  /**
-   * Deletes an incident by ID within a tenant scope.
-   * Cascade-deletes associated timeline events.
-   * Returns true if deleted, false if not found.
-   */
   async deleteIncident(id: string, tenantId: string): Promise<boolean> {
-    const validTenantId = this.assertTenant(tenantId);
-    const existing = await this.prisma.incident.findFirst({
-      where: { id, tenantId: validTenantId },
-    });
-    if (!existing) return false;
-
-    await this.prisma.incident.delete({
-      where: { id },
-    });
-    return true;
-  }
-
-  private formatRecord(record: {
-    id: string;
-    tenantId: string;
-    title: string;
-    severity: string;
-    status: string;
-    startedAt: Date;
-    detectedAt: Date;
-    signals: unknown;
-    enrichment: unknown;
-    timeline: Array<{
-      ts: Date;
-      actor: string;
-      action: string;
-      detail: string | null;
-    }>;
-  }): IncidentRecord {
-    const timeline: TimelineEvent[] = record.timeline.map((evt) => ({
-      ts: evt.ts.toISOString(),
-      actor: evt.actor,
-      action: evt.action,
-      detail: evt.detail ?? undefined,
-    }));
-
-    return IncidentRecordSchema.parse({
-      id: record.id,
-      tenant_id: record.tenantId,
-      title: record.title,
-      severity: record.severity,
-      status: record.status,
-      started_at: record.startedAt.toISOString(),
-      detected_at: record.detectedAt.toISOString(),
-      signals: record.signals ?? [],
-      enrichment: record.enrichment ?? {},
-      timeline,
-    });
+    return this.repository.deleteIncident(id, this.assertTenant(tenantId));
   }
 }

@@ -1,0 +1,17 @@
+{
+  "id": "21ab06bb-0c3c-4d6e-81b5-7391d23b9d11",
+  "type": "diagnosis-ready",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Diagnosis concluded for b0000000-0000-0000-0000-000000000002: Recovered via real retry model call (confidence: 85.0%, fixability: code_fixable)",
+  "details": {
+    "diagnosis_id": "0da739e6-2559-4c72-a0f2-fa738976d958",
+    "confidence": 0.85,
+    "fixability": "code_fixable",
+    "root_cause": "Recovered via real retry model call"
+  },
+  "timestamp": "2026-10-03T18:06:35.290Z"
+}

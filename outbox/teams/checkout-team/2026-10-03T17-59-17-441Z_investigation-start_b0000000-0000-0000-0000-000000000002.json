@@ -1,0 +1,12 @@
+{
+  "id": "603ffa4b-d3bd-48ce-a8e7-c511aba6c877",
+  "type": "investigation-start",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Investigation started for incident b0000000-0000-0000-0000-000000000002 (SEV2) on service 'checkout'",
+  "details": {},
+  "timestamp": "2026-10-03T17:59:17.441Z"
+}

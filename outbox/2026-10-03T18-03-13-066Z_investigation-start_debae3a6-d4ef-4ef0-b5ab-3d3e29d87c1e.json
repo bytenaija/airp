@@ -1,0 +1,12 @@
+{
+  "id": "47d71e3b-b497-4ccc-aaba-123399523c9b",
+  "type": "investigation-start",
+  "incident_id": "debae3a6-d4ef-4ef0-b5ab-3d3e29d87c1e",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 502 Outage",
+  "summary": "Investigation started for incident debae3a6-d4ef-4ef0-b5ab-3d3e29d87c1e (SEV2) on service 'checkout'",
+  "details": {},
+  "timestamp": "2026-10-03T18:03:13.066Z"
+}

@@ -1,10 +1,24 @@
+/**
+ * Changefeed service (Epic 20 work package 6).
+ *
+ * Serves the change-event log over HTTP. Storage goes through the
+ * ChangeEventRepository interface: compose/VPS wires the Prisma
+ * backend, Cloudflare wires Hyperdrive, tests inject the in-memory
+ * fake. No direct Prisma calls remain here.
+ */
 import Fastify, { FastifyInstance } from "fastify";
 import { PrismaClient } from "@prisma/client";
-import { ChangeEventSchema, buildServiceLoggerOptions } from "@airp/common";
+import {
+  ChangeEventSchema,
+  buildServiceLoggerOptions,
+  createRelationalStoreFromEnv,
+  type ChangeEventRepository,
+} from "@airp/common";
 import { z } from "zod";
 
 export interface ChangeFeedServerOptions {
   prisma?: PrismaClient;
+  changeEvents?: ChangeEventRepository;
   logger?: boolean;
 }
 
@@ -15,7 +29,13 @@ export function buildChangeFeedServer(
     logger: buildServiceLoggerOptions("changefeed", options.logger ?? false),
   });
 
-  const prisma = options.prisma ?? new PrismaClient();
+  const changeEvents: ChangeEventRepository =
+    options.changeEvents ??
+    (() => {
+      const prisma = options.prisma ?? new PrismaClient();
+      return createRelationalStoreFromEnv(process.env, { prisma })
+        .changeEvents;
+    })();
 
   server.get("/health", async () => {
     return { status: "ok" };
@@ -33,15 +53,13 @@ export function buildChangeFeedServer(
     const { type, service, revision, ts, author, metadata } = parseResult.data;
 
     try {
-      const created = await prisma.changeEvent.create({
-        data: {
-          type,
-          service,
-          revision,
-          ts: new Date(ts),
-          author: author ?? null,
-          metadata: metadata ? (metadata as any) : undefined,
-        },
+      const created = await changeEvents.recordEvent({
+        type,
+        service,
+        revision,
+        ts,
+        author,
+        metadata,
       });
 
       return reply.status(201).send(created);
@@ -67,15 +85,12 @@ export function buildChangeFeedServer(
     }
 
     const { service, type, limit } = parsed.data;
-    const where: any = {};
-    if (service) where.service = service;
-    if (type) where.type = type;
 
     try {
-      const events = await prisma.changeEvent.findMany({
-        where,
-        take: Math.min(limit, 100),
-        orderBy: { ts: "desc" },
+      const events = await changeEvents.listEvents({
+        service,
+        type,
+        limit: Math.min(limit, 100),
       });
       return reply.send(events);
     } catch (err: unknown) {

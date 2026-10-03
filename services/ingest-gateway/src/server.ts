@@ -7,6 +7,7 @@ import {
   IllegalStateTransitionError,
   type IncidentStatus,
   buildServiceLoggerOptions,
+  createRelationalStoreFromEnv,
 } from "@airp/common";
 import { normalizeAlerts } from "./normalizer.js";
 import { Correlator } from "./correlator.js";
@@ -44,8 +45,12 @@ export function buildGatewayServer(
   });
 
   const prisma = options.prisma ?? new PrismaClient();
-  const alertQueue = new AlertQueue(prisma);
-  const incidentStore = new IncidentStore(prisma);
+  // Storage backend selected from the environment: Prisma/Postgres when
+  // DATABASE_URL is set (compose/VPS), in-memory fake otherwise (local
+  // dev, tests). Cloudflare wires Hyperdrive directly, not through here.
+  const relational = createRelationalStoreFromEnv(process.env, { prisma });
+  const alertQueue = new AlertQueue(relational.alerts);
+  const incidentStore = new IncidentStore(relational.incidents);
   const defaultTenantId = options.tenantId ?? "local";
   const outcomeStore = options.outcomeStore ?? createOutcomeStore();
   let embedder: FlywheelEmbedder | undefined = options.embedder;

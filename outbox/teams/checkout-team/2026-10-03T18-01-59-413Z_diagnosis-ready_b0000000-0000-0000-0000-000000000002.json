@@ -1,0 +1,17 @@
+{
+  "id": "5a4f11b4-88ca-4eee-a278-7b9e1210bfa6",
+  "type": "diagnosis-ready",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Diagnosis concluded for b0000000-0000-0000-0000-000000000002: Investigation budget exhausted (max tool calls (1) exceeded) before conclusive diagnosis (confidence: 0.0%, fixability: human_only)",
+  "details": {
+    "diagnosis_id": "83f1a29b-4552-484a-8245-aad8c9402180",
+    "confidence": 0,
+    "fixability": "human_only",
+    "root_cause": "Investigation budget exhausted (max tool calls (1) exceeded) before conclusive diagnosis"
+  },
+  "timestamp": "2026-10-03T18:01:59.413Z"
+}

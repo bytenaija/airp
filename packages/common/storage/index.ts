@@ -6,4 +6,5 @@ export * from "./queue.js";
 export * from "./s3.js";
 export * from "./r2.js";
 export * from "./memory.js";
+export * from "./prisma.js";
 export * from "./factory.js";

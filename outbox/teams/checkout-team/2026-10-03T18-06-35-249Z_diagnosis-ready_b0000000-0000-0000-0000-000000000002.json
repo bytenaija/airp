@@ -1,0 +1,17 @@
+{
+  "id": "18e9440e-aed2-4b94-b800-e8c51feb54fc",
+  "type": "diagnosis-ready",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 500 Error Spike",
+  "summary": "Diagnosis concluded for b0000000-0000-0000-0000-000000000002: Deploy v2.14.3 introduced missing check (confidence: 85.0%, fixability: code_fixable)",
+  "details": {
+    "diagnosis_id": "e14ef8c4-cf9a-4ad0-bdf9-8e0dd4402c4a",
+    "confidence": 0.85,
+    "fixability": "code_fixable",
+    "root_cause": "Deploy v2.14.3 introduced missing check"
+  },
+  "timestamp": "2026-10-03T18:06:35.249Z"
+}

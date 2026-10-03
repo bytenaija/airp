@@ -1,0 +1,17 @@
+{
+  "id": "9f581ea4-a2bf-4f95-84e9-1ad847a489f6",
+  "type": "diagnosis-ready",
+  "incident_id": "32e12be5-bdb6-4024-9442-5ad5df47bf4e",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout 502 Outage",
+  "summary": "Diagnosis concluded for 32e12be5-bdb6-4024-9442-5ad5df47bf4e: Deployment v2.14.3 by dev@example.com caused Checkout 502 Outage (confidence: 70.0%, fixability: code_fixable)",
+  "details": {
+    "diagnosis_id": "ff4aa3c0-620e-4abf-bb01-13d7436f9023",
+    "confidence": 0.7,
+    "fixability": "code_fixable",
+    "root_cause": "Deployment v2.14.3 by dev@example.com caused Checkout 502 Outage"
+  },
+  "timestamp": "2026-10-03T17:59:06.195Z"
+}

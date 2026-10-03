@@ -80,11 +80,52 @@ At-least-once with explicit ack and a visibility timeout, which both
 the Postgres outbox and Cloudflare Queues can provide. `MemoryQueue`
 implements the same contract for tests.
 
+## Service migration (Epic 20 work package 6)
+
+Services program against the storage interfaces; the backend is chosen
+per deployment target. The migration is a pure seam change: no service
+behavior changed.
+
+| Service | Surface | Compose / VPS | Cloudflare | Tests |
+|---|---|---|---|---|
+| ingest-gateway incidents | `IncidentRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
+| ingest-gateway alerts | `AlertRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
+| changefeed | `ChangeEventRepository` | `PrismaRelationalStore` | `HyperdriveRelationalStore` | `MemoryRelationalStore` |
+
+Wiring: services build the relational store with
+`createRelationalStoreFromEnv(process.env, { prisma })`, passing their
+own PrismaClient. `DATABASE_URL` set selects the Prisma/Postgres
+backend; unset selects the in-memory fake (local dev, tests). The
+Cloudflare-native path does not use this factory; it constructs
+`HyperdriveRelationalStore` from Worker bindings.
+
+Interface extensions added for the migration (all backward compatible,
+all three backends implement them):
+- `StatusTransitionOptions.expectedStatus`: optimistic concurrency for
+  `transitionStatus`; backends throw `ConcurrentModificationError`
+  (also now a shared class in `@airp/common`) on mismatch.
+- `AlertRepository.countActiveAlertsForIncident(..., excludeIds?)`:
+  exclude already-seen alerts from the active count.
+- `AlertRepository.markProcessed(ids, tenantId?, { incidentId? })`:
+  link processed alerts to an incident (or unlink with `null`).
+
+Deferred (not migrated; documented here with the reason):
+- code-index vectors: the hybrid pgvector plus tsvector BM25 ranking
+  needs `file_path IN (...)` predicates that `VectorQuery.filter`
+  cannot express, and reimplementing the fusion would change ranking.
+  Requires VectorStore filter operators and a Node pgvector backend.
+- policy-engine audit: writes to its own `policy_audit_logs` Prisma
+  table, a different schema from the `audit_log` table the
+  `AuditRepository` backends use.
+- flywheel outcomes: implements its own `IOutcomeStore` interface,
+  not the package-1 storage interfaces.
+
 ## Environment reference
 
 | Variable | Used by | Description |
 |---|---|---|
 | `STORAGE_TARGET` | factory | `memory` (default), `s3`, `r2` |
+| `DATABASE_URL` | factory | Set selects `PrismaRelationalStore`; unset selects in-memory |
 | `BLOB_BUCKET` | s3, r2 | Bucket name |
 | `BLOB_PREFIX` | s3, r2 | Key prefix for every blob operation |
 | `AWS_REGION` | s3 | S3 region (default `us-east-1`) |

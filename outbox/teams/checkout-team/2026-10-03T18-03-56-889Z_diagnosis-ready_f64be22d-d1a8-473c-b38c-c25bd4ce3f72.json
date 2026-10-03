@@ -1,0 +1,17 @@
+{
+  "id": "2deadf63-d090-41e2-9850-b3dea2d4ae57",
+  "type": "diagnosis-ready",
+  "incident_id": "f64be22d-d1a8-473c-b38c-c25bd4ce3f72",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Checkout Latency and Error Anomaly",
+  "summary": "Diagnosis concluded for f64be22d-d1a8-473c-b38c-c25bd4ce3f72: Deployment v2.14.3 by dev@example.com caused Checkout Latency and Error Anomaly (confidence: 70.0%, fixability: code_fixable)",
+  "details": {
+    "diagnosis_id": "eebe306d-2805-43fb-a785-aef0024ec5a9",
+    "confidence": 0.7,
+    "fixability": "code_fixable",
+    "root_cause": "Deployment v2.14.3 by dev@example.com caused Checkout Latency and Error Anomaly"
+  },
+  "timestamp": "2026-10-03T18:03:56.889Z"
+}

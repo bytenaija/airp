@@ -121,6 +121,12 @@ class MiniPgClient implements HyperdriveQueryClient {
       );
       return { rows: rows.map((r) => ({ ...r })), rowCount: rows.length };
     }
+    if (t === "SELECT status FROM incidents WHERE tenant_id = $1 AND id = $2") {
+      const rows = this.tables.incidents
+        .filter((r) => r.tenant_id === params[0] && r.id === params[1])
+        .map((r) => ({ status: r.status }));
+      return { rows, rowCount: rows.length };
+    }
     if (
       t.startsWith("SELECT * FROM incidents WHERE tenant_id = $1 ORDER BY")
     ) {

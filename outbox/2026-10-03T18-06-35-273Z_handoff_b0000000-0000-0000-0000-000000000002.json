@@ -1,0 +1,25 @@
+{
+  "id": "0edcd14f-f7bc-40e3-abea-7f76e7213720",
+  "type": "handoff",
+  "incident_id": "b0000000-0000-0000-0000-000000000002",
+  "service": "checkout",
+  "team": "checkout-team",
+  "severity": "SEV2",
+  "title": "Handoff Escalation: Checkout 500 Error Spike",
+  "summary": "Incident b0000000-0000-0000-0000-000000000002 escalated to checkout-team on-call. Root cause: Deployment v2.14.3 by dev@example.com at foo.ts:1 caused Checkout 500 Error Spike. Handoff report generated at /home/hatch/workspace/airp-epic20/outbox/handoffs/b0000000-0000-0000-0000-000000000002/handoff.md",
+  "details": {
+    "markdown_path": "/home/hatch/workspace/airp-epic20/outbox/handoffs/b0000000-0000-0000-0000-000000000002/handoff.md",
+    "json_path": "/home/hatch/workspace/airp-epic20/outbox/handoffs/b0000000-0000-0000-0000-000000000002/handoff.json",
+    "owner_on_call": {
+      "team": "checkout-team",
+      "owners": [
+        "@team-checkout",
+        "@alice"
+      ],
+      "primary": "alice",
+      "secondary": "bob",
+      "pagerduty_schedule": "checkout-tier1"
+    }
+  },
+  "timestamp": "2026-10-03T18:06:35.273Z"
+}
