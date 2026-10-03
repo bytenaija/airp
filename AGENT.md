@@ -106,7 +106,7 @@ the demo trio.
 ## PR monitoring
 
 Set up a scheduled task (cron) in your own environment that polls your open
-PR: check every 30–60 minutes for reviewer comments or a merge. When you see
+PR: check every 5 minutes for reviewer comments or a merge. When you see
 `APPROVED` or the merge, begin the next epic. When you see
 `CHANGES REQUESTED`, address the feedback first. The cron stops polling a PR
 once it is merged.
