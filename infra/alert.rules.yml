@@ -1,0 +1,12 @@
+groups:
+  - name: airp_agent_alerts
+    rules:
+      - alert: AgentDown
+        expr: up{job="agent-runtime"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          service: agent-runtime
+        annotations:
+          summary: "AIRP Agent Runtime is down"
+          description: "The agent-runtime container failed its healthcheck or is unreachable. Routing alerts to human fallback."

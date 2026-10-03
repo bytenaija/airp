@@ -10,6 +10,7 @@ import {
   LLMClient,
   type LLMClientConfig,
   IncidentCostTracker,
+  TokenBudgetExceededError,
   type NotificationProvider,
   LocalNotify,
 } from "@airp/common";
@@ -268,10 +269,10 @@ export class InvestigationAgentRuntime {
 
     const startTime = Date.now();
     let toolCallCount = 0;
-    const tokenTracker = new IncidentCostTracker(incident.id);
+    const tokenBudget = this.getTokenBudgetForSeverity(incident.severity);
+    const tokenTracker = new IncidentCostTracker(incident.id, { tokenBudget });
     this.llmClient.setTracker(tokenTracker);
 
-    const tokenBudget = this.getTokenBudgetForSeverity(incident.severity);
     const hypothesisManager = new HypothesisManager(incident);
 
     // Initial plan timeline event
@@ -403,6 +404,20 @@ export class InvestigationAgentRuntime {
             context,
           );
         } catch (err: any) {
+          if (err instanceof TokenBudgetExceededError || tokenTracker.isBudgetExceeded()) {
+            this.appendTimeline(
+              incident,
+              "budget_exhausted",
+              `Exceeded token budget (${tokenBudget}) mid-investigation; halting loop with handoff`,
+            );
+            const leading = hypothesisManager.getLeadingHypothesis();
+            const diagnosis = this.createExhaustedBudgetDiagnosis(
+              incident,
+              `token budget (${tokenBudget}) exceeded`,
+              leading.evidence,
+            );
+            return this.postInvestigation(incident, diagnosis);
+          }
           context.llmUnavailable = true;
           // Graceful fallback to generic diagnostic policy when LLM provider is offline
           this.appendTimeline(
@@ -467,11 +482,29 @@ export class InvestigationAgentRuntime {
 
       // Record actual token usage if specified in mock/step
       if (nextStep.usage) {
-        tokenTracker.recordUsage(
-          nextStep.usage,
-          this.llmClient.provider,
-          this.llmClient.modelName,
-        );
+        try {
+          tokenTracker.recordUsage(
+            nextStep.usage,
+            this.llmClient.provider,
+            this.llmClient.modelName,
+          );
+        } catch (err: any) {
+          if (err instanceof TokenBudgetExceededError || tokenTracker.isBudgetExceeded()) {
+            this.appendTimeline(
+              incident,
+              "budget_exhausted",
+              `Exceeded token budget (${tokenBudget}) mid-investigation; halting loop with handoff`,
+            );
+            const leading = hypothesisManager.getLeadingHypothesis();
+            const diagnosis = this.createExhaustedBudgetDiagnosis(
+              incident,
+              `token budget (${tokenBudget}) exceeded`,
+              leading.evidence,
+            );
+            return this.postInvestigation(incident, diagnosis);
+          }
+          throw err;
+        }
       }
 
       // Update investigation context based on observation data

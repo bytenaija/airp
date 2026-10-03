@@ -95,15 +95,16 @@ All ports below are host ports published by `infra/docker-compose.yml`:
 | 8004 | changefeed | Incident/change event feed |
 | 8005 | ingest-gateway | Telemetry ingestion |
 | 8006 | code-index | Code search and indexing |
-| 8007 | agent-runtime | Investigation agent |
+| 8007 | agent-runtime | Investigation agent, healthchecked, exposes self-RED metrics on /metrics |
 | 8008 | policy-engine | Approvals and policy |
 | 8009 | rollout-controller | Progressive delivery, canary weights |
+| 9093 | alertmanager | Fallback alerting router (profiles: fallback) |
 | 5432 | postgres | pgvector/pgvector:pg16 |
 | 3100 | loki | Log store |
 | 3200 | tempo | Trace store |
 | 4317, 4318, 8889 | otel-collector | OTLP gRPC, OTLP HTTP, Prometheus metrics |
-| 9090 | prometheus | Metrics |
-| 3000 | grafana | Dashboards (admin / admin) |
+| 9090 | prometheus | Metrics and alert rules |
+| 3000 | grafana | Dashboards (admin / admin): Service RED and Agent Self-RED |
 
 ### 4. Smoke test
 
@@ -161,6 +162,16 @@ faults, generate patches, and open human-reviewed PRs under a strict
 auto-merge-never policy. Use `--services` to choose which services to scan
 and `--dry-run` to list candidates without processing them.
 See `docs/proactive-sweep.md`.
+
+Platform hardening and operational readiness features safeguard cost,
+security, and fail-safe operations:
+- Secrets rotation drill: `airp secrets rotate` runs a rotation drill for credentials. See `docs/secrets-management.md`.
+- Customer-managed keys (CMEK) and crypto-shredding: `airp tenant destroy <tenantId>` executes tenant key destruction.
+- Supply chain security: `airp sbom` produces CycloneDX 1.5 and SPDX 2.3 SBOMs. See `docs/supply-chain.md`.
+- Sandbox escape monitoring: `airp leakage-probe` tests canary token leakage detection.
+- Fail-safe and outage runbooks: see `docs/runbooks/agent-outage.md` and `docs/runbooks/operator.md`.
+- Authentication and SSO: see `docs/auth-sso.md`.
+- Threat model: see `docs/threat-model.md`.
 
 ### 7. Deploy somewhere real
 
