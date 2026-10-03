@@ -10,3 +10,5 @@ outbox/
 evals/results/
 docs/assets/
 screenshots/
+.neon
+.env.local
