@@ -35,13 +35,6 @@
     "tsx": "^4.23.15",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
-<<<<<<< HEAD
-=======
->>>>>>> 52b54ee (Neon configuration)
-  },
-  "dependencies": {
-    "@types/node-cron": "^3.0.11",
-    "node-cron": "^4.6.0"
   },
   "dependencies": {
     "@neon/config": "^1.8.3",
