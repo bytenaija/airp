@@ -1,9 +1,19 @@
 import pg from "pg";
 import bm25Factory from "wink-bm25-text-search";
+import {
+  MemoryVectorStore,
+  PgVectorStore,
+  type VectorDocument,
+  type VectorStore,
+} from "@airp/common";
 import { CodeSymbolChunk } from "./parser.js";
 import { CodeEmbedder } from "./embedder.js";
 
 const { Pool } = pg;
+
+/** VectorStore namespaces for the two code-index collections. */
+export const CODE_CHUNKS_NAMESPACE = "code-chunks";
+export const RUNBOOK_CHUNKS_NAMESPACE = "runbook-chunks";
 
 export interface StoredChunk extends CodeSymbolChunk {
   commitHash: string;
@@ -66,20 +76,79 @@ export function tokenizeCode(text: string): string[] {
   return Array.from(tokens);
 }
 
+function chunkToDocument(chunk: StoredChunk): VectorDocument {
+  return {
+    id: chunk.id,
+    text: chunk.searchableText,
+    embedding: chunk.embedding,
+    metadata: {
+      repo: chunk.repo,
+      file_path: chunk.filePath,
+      symbol_name: chunk.symbolName,
+      symbol_type: chunk.symbolType,
+      start_line: chunk.startLine,
+      end_line: chunk.endLine,
+      commit_hash: chunk.commitHash,
+    },
+  };
+}
+
+function runbookToDocument(runbook: RunbookChunk): VectorDocument {
+  return {
+    id: runbook.id,
+    text: runbook.searchableText,
+    embedding: runbook.embedding,
+    metadata: {
+      file_path: runbook.filePath,
+      title: runbook.title,
+      section_heading: runbook.sectionHeading,
+    },
+  };
+}
+
+export interface HybridKnowledgeStoreOptions {
+  databaseUrl?: string;
+  embedder?: CodeEmbedder;
+  /**
+   * Injected vector backend. When omitted, the store picks one: a
+   * pgvector-backed store when databaseUrl points at a Postgres with
+   * the vector extension, otherwise the in-memory store. Inject a
+   * fake in tests.
+   */
+  vectorStore?: VectorStore;
+}
+
+/**
+ * Hybrid BM25 + vector knowledge store (Epic 20, work package 7).
+ *
+ * BM25 (wink-bm25-text-search) and the full chunk records stay in memory
+ * exactly as before; only the vector half of the hybrid search moved onto
+ * the VectorStore interface. Backends:
+ * - compose / VPS: PgVectorStore over the shared `vector_documents`
+ *   table (replaces the old `code_index.code_chunks` tables, which are
+ *   superseded; the index is rebuilt from source on reindex).
+ * - Cloudflare: Vectorize via VectorizeVectorStore (injected).
+ * - No database: MemoryVectorStore.
+ * The reciprocal-rank-fusion ranking is unchanged.
+ */
 export class HybridKnowledgeStore {
   private pgPool: pg.Pool | null = null;
+  private vectorStore: VectorStore | null = null;
   private pgvectorAvailable = false;
   private inMemoryChunks: Map<string, StoredChunk> = new Map();
   private inMemoryRunbooks: Map<string, RunbookChunk> = new Map();
   private bm25Engine: any = null;
   private bm25Consolidated = false;
   private embedder: CodeEmbedder;
+  private readonly injectedVectorStore?: VectorStore;
+  private readonly databaseUrl?: string;
 
-  constructor(options?: { databaseUrl?: string; embedder?: CodeEmbedder }) {
+  constructor(options?: HybridKnowledgeStoreOptions) {
     this.embedder = options?.embedder || new CodeEmbedder();
-    const dbUrl = options?.databaseUrl || process.env.DATABASE_URL;
-    if (dbUrl) {
-      this.pgPool = new Pool({ connectionString: dbUrl, max: 5 });
+    this.injectedVectorStore = options?.vectorStore;
+    this.databaseUrl = options?.databaseUrl || process.env.DATABASE_URL;
+    if (this.databaseUrl && !this.injectedVectorStore) {
+      this.pgPool = new Pool({ connectionString: this.databaseUrl, max: 5 });
     }
   }
 
@@ -87,7 +156,12 @@ export class HybridKnowledgeStore {
     await this.embedder.init();
     this.pgvectorAvailable = false;
 
-    if (this.pgPool) {
+    if (this.injectedVectorStore) {
+      this.vectorStore = this.injectedVectorStore;
+      this.pgvectorAvailable = this.vectorStore instanceof PgVectorStore;
+    } else if (this.pgPool) {
+      // Preserve the historical graceful degradation: use pgvector only
+      // when the extension is actually available.
       try {
         const client = await this.pgPool.connect();
         try {
@@ -95,40 +169,7 @@ export class HybridKnowledgeStore {
             "SELECT 1 FROM pg_extension WHERE extname = 'vector';",
           );
           if (extRes.rowCount && extRes.rowCount > 0) {
-            // Ensure tables exist in dedicated code_index schema to avoid Prisma public schema conflict
-            await client.query(`
-              CREATE SCHEMA IF NOT EXISTS code_index;
-              DROP TABLE IF EXISTS public.code_chunks CASCADE;
-              DROP TABLE IF EXISTS public.runbook_chunks CASCADE;
-              CREATE TABLE IF NOT EXISTS code_index.code_chunks (
-                id TEXT PRIMARY KEY,
-                repo TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                symbol_name TEXT NOT NULL,
-                symbol_type TEXT NOT NULL,
-                start_line INT NOT NULL,
-                end_line INT NOT NULL,
-                content TEXT NOT NULL,
-                docstring TEXT,
-                searchable_text TEXT NOT NULL,
-                commit_hash TEXT NOT NULL,
-                embedding vector(384),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-              );
-              CREATE INDEX IF NOT EXISTS idx_code_chunks_repo ON code_index.code_chunks(repo);
-              CREATE INDEX IF NOT EXISTS idx_code_chunks_file ON code_index.code_chunks(file_path);
-
-              CREATE TABLE IF NOT EXISTS code_index.runbook_chunks (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                section_heading TEXT NOT NULL,
-                content TEXT NOT NULL,
-                searchable_text TEXT NOT NULL,
-                embedding vector(384),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-              );
-            `);
+            this.vectorStore = new PgVectorStore(this.pgPool);
             this.pgvectorAvailable = true;
           }
         } finally {
@@ -139,12 +180,23 @@ export class HybridKnowledgeStore {
       }
     }
 
+    if (!this.vectorStore) {
+      this.vectorStore = new MemoryVectorStore();
+    }
+
     this.rebuildBM25();
     return { pgvector: this.pgvectorAvailable };
   }
 
   public isPgVectorAvailable(): boolean {
     return this.pgvectorAvailable;
+  }
+
+  private requireVectorStore(): VectorStore {
+    if (!this.vectorStore) {
+      throw new Error("HybridKnowledgeStore.init() must run before use");
+    }
+    return this.vectorStore;
   }
 
   private rebuildBM25(): void {
@@ -186,61 +238,15 @@ export class HybridKnowledgeStore {
   }
 
   public async upsertChunks(chunks: StoredChunk[]): Promise<void> {
-    if (this.pgvectorAvailable && this.pgPool && chunks.length > 0) {
-      const client = await this.pgPool.connect();
-      try {
-        await client.query("BEGIN");
-        for (const chunk of chunks) {
-          const vectorStr = `[${chunk.embedding.join(",")}]`;
-          await client.query(
-            `
-            INSERT INTO code_index.code_chunks (
-              id, repo, file_path, symbol_name, symbol_type,
-              start_line, end_line, content, docstring,
-              searchable_text, commit_hash, embedding, updated_at
-            ) VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::vector, NOW()
-            )
-            ON CONFLICT (id) DO UPDATE SET
-              repo = EXCLUDED.repo,
-              file_path = EXCLUDED.file_path,
-              symbol_name = EXCLUDED.symbol_name,
-              symbol_type = EXCLUDED.symbol_type,
-              start_line = EXCLUDED.start_line,
-              end_line = EXCLUDED.end_line,
-              content = EXCLUDED.content,
-              docstring = EXCLUDED.docstring,
-              searchable_text = EXCLUDED.searchable_text,
-              commit_hash = EXCLUDED.commit_hash,
-              embedding = EXCLUDED.embedding,
-              updated_at = NOW();
-          `,
-            [
-              chunk.id,
-              chunk.repo,
-              chunk.filePath,
-              chunk.symbolName,
-              chunk.symbolType,
-              chunk.startLine,
-              chunk.endLine,
-              chunk.content,
-              chunk.docstring || null,
-              chunk.searchableText,
-              chunk.commitHash,
-              vectorStr,
-            ],
-          );
-        }
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        throw err;
-      } finally {
-        client.release();
-      }
+    const vectorStore = this.requireVectorStore();
+    if (chunks.length > 0) {
+      // Persist vectors first; in-memory mutation only follows success.
+      await vectorStore.upsert(
+        CODE_CHUNKS_NAMESPACE,
+        chunks.map(chunkToDocument),
+      );
     }
 
-    // Apply in-memory mutation only after successful persistence
     for (const chunk of chunks) {
       this.inMemoryChunks.set(chunk.id, chunk);
     }
@@ -249,64 +255,27 @@ export class HybridKnowledgeStore {
   }
 
   public async deleteFileChunks(repo: string, filePath: string): Promise<void> {
+    const ids: string[] = [];
     for (const [id, chunk] of this.inMemoryChunks.entries()) {
       if (chunk.repo === repo && chunk.filePath === filePath) {
         this.inMemoryChunks.delete(id);
+        ids.push(id);
       }
     }
 
-    if (this.pgvectorAvailable && this.pgPool) {
-      await this.pgPool.query(
-        "DELETE FROM code_index.code_chunks WHERE repo = $1 AND file_path = $2",
-        [repo, filePath],
-      );
+    if (ids.length > 0) {
+      await this.requireVectorStore().delete(CODE_CHUNKS_NAMESPACE, ids);
     }
 
     this.rebuildBM25();
   }
 
   public async upsertRunbooks(runbooks: RunbookChunk[]): Promise<void> {
-    if (this.pgvectorAvailable && this.pgPool && runbooks.length > 0) {
-      const client = await this.pgPool.connect();
-      try {
-        await client.query("BEGIN");
-        for (const rb of runbooks) {
-          const vectorStr = `[${rb.embedding.join(",")}]`;
-          await client.query(
-            `
-            INSERT INTO code_index.runbook_chunks (
-              id, title, file_path, section_heading, content,
-              searchable_text, embedding, updated_at
-            ) VALUES (
-              $1, $2, $3, $4, $5, $6, $7::vector, NOW()
-            )
-            ON CONFLICT (id) DO UPDATE SET
-              title = EXCLUDED.title,
-              file_path = EXCLUDED.file_path,
-              section_heading = EXCLUDED.section_heading,
-              content = EXCLUDED.content,
-              searchable_text = EXCLUDED.searchable_text,
-              embedding = EXCLUDED.embedding,
-              updated_at = NOW();
-          `,
-            [
-              rb.id,
-              rb.title,
-              rb.filePath,
-              rb.sectionHeading,
-              rb.content,
-              rb.searchableText,
-              vectorStr,
-            ],
-          );
-        }
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        throw err;
-      } finally {
-        client.release();
-      }
+    if (runbooks.length > 0) {
+      await this.requireVectorStore().upsert(
+        RUNBOOK_CHUNKS_NAMESPACE,
+        runbooks.map(runbookToDocument),
+      );
     }
 
     for (const rb of runbooks) {
@@ -332,33 +301,17 @@ export class HybridKnowledgeStore {
       }
     }
 
-    // 2. Vector Search
+    // 2. Vector Search (through the VectorStore interface; the backend is
+    // pgvector on compose/VPS, Vectorize on Cloudflare, memory otherwise)
     const queryEmb = await this.embedder.embedText(query);
     const vectorHits: Map<string, number> = new Map();
-
-    if (this.pgvectorAvailable && this.pgPool) {
-      const vectorStr = `[${queryEmb.join(",")}]`;
-      let sql = `
-        SELECT id, 1 - (embedding <=> $1::vector) as similarity
-        FROM code_index.code_chunks
-      `;
-      const params: any[] = [vectorStr];
-      if (repoFilter) {
-        sql += " WHERE repo = $2";
-        params.push(repoFilter);
-      }
-      sql += " ORDER BY embedding <=> $1::vector LIMIT 50;";
-      const res = await this.pgPool.query(sql, params);
-      for (const row of res.rows) {
-        vectorHits.set(row.id, parseFloat(row.similarity));
-      }
-    } else {
-      // In-memory cosine fallback
-      for (const [id, chunk] of this.inMemoryChunks.entries()) {
-        if (repoFilter && chunk.repo !== repoFilter) continue;
-        const sim = CodeEmbedder.cosineSimilarity(queryEmb, chunk.embedding);
-        vectorHits.set(id, sim);
-      }
+    const hits = await this.requireVectorStore().search(CODE_CHUNKS_NAMESPACE, {
+      embedding: queryEmb,
+      topK: 50,
+      filter: repoFilter ? { repo: repoFilter } : undefined,
+    });
+    for (const hit of hits) {
+      vectorHits.set(hit.id, hit.score);
     }
 
     // 3. Reciprocal Rank Fusion (RRF) & Hybrid combination
@@ -454,28 +407,15 @@ export class HybridKnowledgeStore {
     if (this.inMemoryRunbooks.size === 0) return [];
 
     const queryEmb = await this.embedder.embedText(symptoms);
-    const scored: { id: string; score: number; vectorScore: number }[] = [];
-
-    if (this.pgvectorAvailable && this.pgPool) {
-      const vectorStr = `[${queryEmb.join(",")}]`;
-      const res = await this.pgPool.query(
-        `
-        SELECT id, 1 - (embedding <=> $1::vector) as similarity
-        FROM code_index.runbook_chunks
-        ORDER BY embedding <=> $1::vector LIMIT $2;
-      `,
-        [vectorStr, topK * 2],
-      );
-      for (const row of res.rows) {
-        const sim = parseFloat(row.similarity);
-        scored.push({ id: row.id, score: sim, vectorScore: sim });
-      }
-    } else {
-      for (const [id, rb] of this.inMemoryRunbooks.entries()) {
-        const sim = CodeEmbedder.cosineSimilarity(queryEmb, rb.embedding);
-        scored.push({ id, score: sim, vectorScore: sim });
-      }
-    }
+    const hits = await this.requireVectorStore().search(
+      RUNBOOK_CHUNKS_NAMESPACE,
+      { embedding: queryEmb, topK: topK * 2 },
+    );
+    const scored = hits.map((hit) => ({
+      id: hit.id,
+      score: hit.score,
+      vectorScore: hit.score,
+    }));
 
     scored.sort((a, b) => b.score - a.score);
 
@@ -510,6 +450,9 @@ export class HybridKnowledgeStore {
   }
 
   public async close(): Promise<void> {
+    if (this.vectorStore) {
+      await this.vectorStore.close();
+    }
     if (this.pgPool) {
       await this.pgPool.end();
     }
