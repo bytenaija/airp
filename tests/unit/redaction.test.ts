@@ -6,6 +6,7 @@ import {
   clearCustomPatterns,
 } from "../../packages/common/src/redact.js";
 import {
+  FAKE_JWT,
   REDACTION_FIXTURES,
   NON_SECRET_PATTERNS,
 } from "../redaction_fixtures/adversarial_cases.js";
@@ -20,7 +21,9 @@ describe("Redaction Pipeline (Epic 14)", () => {
 
   it("redacts bearer tokens in HTTP headers", () => {
     const result = redact(REDACTION_FIXTURES.bearerTokenInHeader.input);
-    expect(result).not.toContain("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
+    for (const segment of FAKE_JWT.split(".")) {
+      expect(result).not.toContain(segment);
+    }
     expect(result).toContain("Bearer [REDACTED_TOKEN]");
   });
 

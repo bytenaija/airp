@@ -8,6 +8,19 @@
  * - Logs
  */
 
+const b64url = (value: object): string =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+
+/**
+ * A JWT-shaped string assembled at runtime so secret scanners do not flag a
+ * token literal in the repo. The signature is filler, not a real HMAC.
+ */
+export const FAKE_JWT = [
+  b64url({ alg: "HS256", typ: "JWT" }),
+  b64url({ sub: "fixture-user", iat: 1516239022 }),
+  "fixture-signature-not-a-real-hmac",
+].join(".");
+
 export const REDACTION_FIXTURES = {
   // AWS keys in various contexts
   awsKeyInStackTrace: {
@@ -23,7 +36,7 @@ export const REDACTION_FIXTURES = {
 
   // Bearer token in HTTP header
   bearerTokenInHeader: {
-    input: `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`,
+    input: `Authorization: Bearer ${FAKE_JWT}`,
     expected: `Authorization: Bearer [REDACTED_TOKEN]`,
   },
 
