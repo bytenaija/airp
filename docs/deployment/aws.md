@@ -5,6 +5,32 @@ is the honest scope of this document: the EC2 docker-compose path,
 done concretely. Moving to ECS or other managed services later is
 noted at the end, but not detailed here.
 
+## Before you expose anything: mandatory security checklist
+
+Do all of these before this stack touches the internet or any real data.
+Every skipped item is a known open hole.
+
+- [ ] Change the Grafana admin credentials. The compose file ships
+  `GF_SECURITY_ADMIN_USER=admin` and `GF_SECURITY_ADMIN_PASSWORD=admin`.
+  Override both through the environment (a `.env` file or your secret
+  store, never committed) and never ship the defaults.
+- [ ] Set `FLAGS_ADMIN_TOKEN` (or `ADMIN_TOKEN`). `POST /admin/flags`
+  performs no authentication when no token is configured, so without a
+  token anyone who can reach the service can write flags.
+- [ ] Do not start the demo fixture services in production. `demo` and
+  `checkout-canary` in `infra/docker-compose.yml` are local dev and CI
+  fixtures only. Until compose profiles gate them, start only the
+  production service set explicitly:
+
+  ```sh
+  docker compose -f infra/docker-compose.yml up --build -d postgres loki tempo otel-collector prometheus grafana nginx changefeed ingest-gateway code-index agent-runtime policy-engine rollout-controller
+  ```
+
+- [ ] Keep every port except 80/443 on the reverse proxy closed to the
+  internet (or use a tunnel and open nothing). Database, observability,
+  and service-to-service ports stay on the private network.
+
+
 ## Instance and storage
 
 1. Launch an EC2 instance with Ubuntu 22.04 LTS, instance type around
