@@ -338,8 +338,11 @@ describe("Patch Pipeline - Sandbox Hardening & Isolation", () => {
         });
 
         expect(result.success).toBe(false);
-        // Container fails due to read-only repo snapshot
-        expect(result.logs).toMatch(/Read-only file system/i);
+        // Container fails due to read-only repo snapshot. The exact kernel
+        // errno wording is environment-dependent: some kernels report EROFS
+        // ("Read-only file system"), others EACCES ("Permission denied").
+        // Either way the write was denied, which is what this asserts.
+        expect(result.logs).toMatch(/Read-only file system|Permission denied/i);
 
         // Host critical file remains 100% intact and uncorrupted
         expect(fs.existsSync(path.join(tempRepo, "critical-file.txt"))).toBe(
