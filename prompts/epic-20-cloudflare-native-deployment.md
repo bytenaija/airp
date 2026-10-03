@@ -14,7 +14,9 @@ Cloudflare flavors:
 
 ALREADY BUILT: Epics 1-19. The compose stack is the reference deployment:
 stateful Node.js services, Postgres with pgvector, Loki, Tempo,
-Prometheus, Grafana, all on named Docker volumes (local host disk).
+Prometheus, Grafana, all on named Docker volumes. In production those
+volumes live on block storage (never a plain host dir); local dev may
+use plain host mounts.
 Every service speaks HTTP and stores state in Postgres or on local disk.
 
 CLOUDFLARE FACTS THIS EPIC RELIES ON: Cloudflare Containers (Workers
@@ -34,12 +36,15 @@ BUILD:
    data), RelationalStore (the Postgres surface the services use),
    VectorStore (the pgvector surface), Queue (changefeed and outbox
    operations). Up to three backends where it makes sense: Local
-   (Postgres plus filesystem, current behavior, used by compose),
+   (Postgres plus filesystem on block-backed storage in production,
+   current behavior, used by compose),
    Cloudflare-native (R2, D1, Vectorize, Cloudflare Queues), and
    Containers-hybrid (the same Cloudflare-managed state as native; only
    the services themselves run in Containers). No service imports a
    concrete backend; everything goes through the interfaces. The
-   existing test suite runs against every implemented backend.
+   BlobStore Local implementation targets a block-backed mount, not just
+   any host dir. The existing test suite runs against every implemented
+   backend.
 2. Containers-hybrid deployment: ingest-gateway, changefeed, code-index,
    agent-runtime, policy-engine, rollout-controller, ux, and handoff run
    as Cloudflare Containers, fronted by Workers that route traffic and
