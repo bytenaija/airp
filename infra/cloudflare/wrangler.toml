@@ -1,0 +1,102 @@
+# AIRP Containers-hybrid deployment (Epic 20, work package 2).
+#
+# One routing Worker (`router/`) fronts the stateless services, each running
+# as a Cloudflare Container (linux/amd64 images built from
+# infra/cloudflare/Dockerfile). Stateful backing services do NOT run on
+# Containers; they use Cloudflare-managed state instead:
+#   - relational: managed Postgres via Hyperdrive (package 1 decision)
+#   - blobs: R2 (STORAGE_TARGET=r2)
+#   - changefeed/outbox: Cloudflare Queues
+#   - telemetry: Workers Logs + Cloudflare observability (no Loki/Tempo here)
+#
+# Fill in every <placeholder> before deploying. Secrets are set with
+#   wrangler secret put <NAME>
+# never in this file. Then: wrangler deploy
+
+name = "airp-edge-router"
+main = "router/dist/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Non-secret config only.
+STORAGE_TARGET = "r2"
+LOG_LEVEL = "info"
+
+# --- Durable Object bindings: how the router Worker addresses containers ---
+[durable_objects]
+bindings = [
+  { name = "INGEST_GATEWAY", class_name = "IngestGateway" },
+  { name = "CHANGEFEED", class_name = "Changefeed" },
+  { name = "CODE_INDEX", class_name = "CodeIndex" },
+  { name = "AGENT_RUNTIME", class_name = "AgentRuntime" },
+  { name = "POLICY_ENGINE", class_name = "PolicyEngine" },
+  { name = "ROLLOUT_CONTROLLER", class_name = "RolloutController" },
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [
+  "IngestGateway",
+  "Changefeed",
+  "CodeIndex",
+  "AgentRuntime",
+  "PolicyEngine",
+  "RolloutController",
+]
+
+# --- Containers: one class per stateless service ---
+# Build each image with:
+#   docker build --platform linux/amd64 --build-arg SERVICE=<name> \
+#     -t <registry>/airp-<name>:<tag> -f infra/cloudflare/Dockerfile .
+# Push to your registry, then set `image` below.
+
+[[containers]]
+class_name = "IngestGateway"
+image = "<registry>/airp-ingest-gateway:latest"
+instances = 2
+
+[[containers]]
+class_name = "Changefeed"
+image = "<registry>/airp-changefeed:latest"
+instances = 2
+
+[[containers]]
+class_name = "CodeIndex"
+image = "<registry>/airp-code-index:latest"
+instances = 2
+
+[[containers]]
+class_name = "AgentRuntime"
+image = "<registry>/airp-agent-runtime:latest"
+instances = 2
+
+[[containers]]
+class_name = "PolicyEngine"
+image = "<registry>/airp-policy-engine:latest"
+instances = 2
+
+[[containers]]
+class_name = "RolloutController"
+image = "<registry>/airp-rollout-controller:latest"
+instances = 2
+
+# --- Cloudflare-managed state (replaces compose Postgres/Loki/Tempo) ---
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<hyperdrive-id>"
+
+[[r2_buckets]]
+binding = "BLOB_BUCKET"
+bucket_name = "<r2-bucket-name>"
+
+[[queues.producers]]
+binding = "CHANGEFEED_QUEUE"
+queue = "<changefeed-queue-name>"
+
+# Required secrets (wrangler secret put):
+#   AIRP_API_TOKEN        Bearer token the router enforces at the edge
+#   DATABASE_URL          Managed Postgres URL (used via Hyperdrive)
+#   R2_ACCESS_KEY_ID      Only if a service needs S3-API access to R2 directly
+#   R2_SECRET_ACCESS_KEY  Only if a service needs S3-API access to R2 directly
+#   LLM_PROVIDER / provider keys for agent-runtime (same names as compose)
