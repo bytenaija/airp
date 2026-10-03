@@ -58,6 +58,29 @@ describe("Agent Self-RED Metrics & Grafana Prometheus Integration", () => {
     expect(body).toContain("airp_llm_cost_dollars");
   });
 
+  it("seeds every RED and cost series at 0 before any traffic so panels never read No data", async () => {
+    const { server } = buildAgentRuntimeServer({
+      useDeterministicPolicy: true,
+      llmConfig: { provider: "ollama", model: "qwen2.5:7b" },
+      logger: false,
+    });
+
+    const res = await server.inject({ method: "GET", url: "/metrics" });
+    const body = res.body;
+
+    for (const severity of ["SEV1", "SEV2", "SEV3", "SEV4"]) {
+      expect(body).toContain(`airp_investigations_started_total{severity="${severity}"} 0`);
+      expect(body).toContain(`airp_investigations_errored_total{severity="${severity}"} 0`);
+      expect(body).toContain(`airp_time_to_diagnosis_seconds_count{severity="${severity}"} 0`);
+    }
+    for (const tool of ["logs_query", "code_blame", "dependency_walk"]) {
+      expect(body).toContain(`airp_tool_calls_total{tool="${tool}"} 0`);
+    }
+    expect(body).toContain('airp_llm_tokens_total{provider="ollama",model="qwen2.5:7b"} 0');
+    expect(body).toContain('airp_llm_cost_dollars{provider="ollama",model="qwen2.5:7b"} 0');
+    expect(body).toContain("airp_confidence_distribution_count 0");
+  });
+
   it("records investigations started, time-to-diagnosis, confidence, and tool calls during /investigate", async () => {
     const { server } = buildAgentRuntimeServer({
       mockLLMResponses: [

@@ -2,12 +2,14 @@ import Fastify, { FastifyInstance } from "fastify";
 import { Counter, Histogram, Registry } from "prom-client";
 import {
   IncidentRecordSchema,
+  IncidentSeveritySchema,
   type IncidentRecord,
   applyRoleCredentialSeparation,
   buildServiceLoggerOptions,
   globalLLMMetrics,
 } from "@airp/common";
 import { InvestigationAgentRuntime, type RuntimeOptions } from "./runtime.js";
+import { AGENT_TOOL_NAMES } from "./tools/index.js";
 
 export interface AgentRuntimeServerOptions extends RuntimeOptions {
   port?: number;
@@ -112,6 +114,23 @@ export function buildAgentRuntimeServer(
     labelNames: ["provider", "model"],
     registers: [registry],
   });
+
+  // Prometheus emits no series for a labeled metric until a label set is
+  // touched, which makes untouched dashboard panels render "No data". Seed
+  // every known label combination at 0 so a quiet runtime reads as 0.
+  for (const severity of IncidentSeveritySchema.options) {
+    investigationsStartedCounter.inc({ severity }, 0);
+    investigationsErroredCounter.inc({ severity }, 0);
+    timeToDiagnosisHistogram.zero({ severity });
+    durationHistogram.zero({ severity });
+  }
+  for (const tool of AGENT_TOOL_NAMES) {
+    toolCallsCounter.inc({ tool }, 0);
+    toolCallsTotalCounter.inc({ tool }, 0);
+  }
+  const llmIdentity = runtime.getLLMIdentity();
+  llmTokensTotalCounter.inc(llmIdentity, 0);
+  llmCostDollarsCounter.inc(llmIdentity, 0);
 
   const lastReportedTokens = new Map<string, number>();
   const lastReportedCost = new Map<string, number>();

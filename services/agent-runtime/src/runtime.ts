@@ -138,6 +138,11 @@ export class InvestigationAgentRuntime {
     this.llmClient = options.llmClient || new LLMClient(options.llmConfig);
   }
 
+  /** Provider and model this runtime bills LLM usage against. */
+  getLLMIdentity(): { provider: string; model: string } {
+    return { provider: this.llmClient.provider, model: this.llmClient.modelName };
+  }
+
   private loadPrompt(name: string): string {
     const filePath = path.join(this.promptsDir, `${name}.md`);
     if (fs.existsSync(filePath)) {
