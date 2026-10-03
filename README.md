@@ -155,9 +155,11 @@ benchmark, end-to-end scenarios, and CI regression gates. See
 `docs/evaluation-harness.md`.
 
 Recurring non-paging error patterns are uncovered and repaired before
-they escalate via proactive sweep mode: `airp sweep` runs the background
-miner and rate-limited worker (max 3/day) to localize faults, generate
-patches, and open human-reviewed PRs under a strict auto-merge-never policy.
+they escalate via proactive sweep mode: `airp sweep` runs one sweep cycle
+with the background miner and rate-limited worker (max 3/day) to localize
+faults, generate patches, and open human-reviewed PRs under a strict
+auto-merge-never policy. Use `--services` to choose which services to scan
+and `--dry-run` to list candidates without processing them.
 See `docs/proactive-sweep.md`.
 
 ### 7. Deploy somewhere real
