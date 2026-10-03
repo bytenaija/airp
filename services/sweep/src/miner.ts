@@ -20,6 +20,115 @@ export interface SweepCandidate {
   error_name?: string;
 }
 
+/**
+ * SweepEvent: a normalized error event from any sweep source.
+ * Sources (Loki, catalog connectors, error trackers) map their native
+ * payloads into this shape so the miner stays source-agnostic.
+ */
+export interface SweepEvent {
+  service: string;
+  timestamp?: string;
+  message: string;
+  level?: string;
+}
+
+/**
+ * SweepSource: pluggable intake for error events.
+ * The default implementation queries Loki; catalog connectors (Epic 17)
+ * can implement this interface to feed the sweep from their own error
+ * data without any miner changes.
+ */
+export interface SweepSource {
+  name: string;
+  listErrorEvents(window: {
+    start: Date;
+    end: Date;
+  }): Promise<SweepEvent[]>;
+}
+
+/**
+ * LokiSweepSource: the default sweep source.
+ * Queries Loki for log entries across the configured services and emits
+ * normalized error events for error-level or exception-bearing lines.
+ */
+export class LokiSweepSource implements SweepSource {
+  readonly name = "loki";
+  private readonly client: ObservabilityClient;
+  private readonly services: string[];
+
+  constructor(options: { client: ObservabilityClient; services: string[] }) {
+    this.client = options.client;
+    this.services = options.services;
+  }
+
+  async listErrorEvents(window: {
+    start: Date;
+    end: Date;
+  }): Promise<SweepEvent[]> {
+    const events: SweepEvent[] = [];
+
+    for (const service of this.services) {
+      let rawLogs: LogEntry[] = [];
+      try {
+        rawLogs = await this.client.logsQuery(
+          service,
+          window.start,
+          window.end,
+          undefined,
+          500,
+        );
+      } catch (err: any) {
+        console.warn(
+          `[SweepMiner] Failed to query Loki logs for service ${service}: ${err.message}`,
+        );
+        continue;
+      }
+
+      if (!rawLogs || rawLogs.length === 0) {
+        continue;
+      }
+
+      // Filter for error-level or exception-bearing log entries
+      for (const log of rawLogs) {
+        const line = log.line || "";
+        let isError = false;
+
+        if (
+          log.labels?.level === "error" ||
+          log.labels?.level === "warn" ||
+          log.data?.level === "error" ||
+          log.data?.level === "warn"
+        ) {
+          isError = true;
+        } else if (
+          /error|exception|fail|timeout|nullpointer|typeerror|fault/i.test(line)
+        ) {
+          isError = true;
+        }
+
+        if (!isError) {
+          continue;
+        }
+
+        let messageContent = line;
+        if (log.data) {
+          if (log.data.errorText) messageContent = String(log.data.errorText);
+          else if (log.data.message) messageContent = String(log.data.message);
+          else if (log.data.msg) messageContent = String(log.data.msg);
+        }
+        events.push({
+          service,
+          timestamp: log.timestamp,
+          message: messageContent,
+          level: log.labels?.level || (log.data?.level as string) || "error",
+        });
+      }
+    }
+
+    return events;
+  }
+}
+
 export interface SweepMinerOptions {
   cronExpression?: string;
   services?: string[];
@@ -27,6 +136,7 @@ export interface SweepMinerOptions {
   minOccurrences?: number;
   observabilityClient?: ObservabilityClient;
   lokiUrl?: string;
+  sources?: SweepSource[];
   incidentStore?: {
     listIncidents: (tenantId: string, filter?: any) => Promise<IncidentRecord[]>;
   };
@@ -40,8 +150,9 @@ export interface SweepMinerOptions {
 
 /**
  * SweepMiner:
- * In-process scheduled job scanning Loki history for recurring error signatures
- * using log clustering (Epic 5). Emits candidates with no linked incidents.
+ * In-process scheduled job surfacing recurring error signatures from
+ * pluggable sweep sources (Loki by default) using log clustering
+ * (Epic 5). Emits candidates with no linked incidents.
  */
 export class SweepMiner {
   private readonly cronExpression: string;
@@ -50,6 +161,7 @@ export class SweepMiner {
   private readonly minOccurrences: number;
   private readonly client: ObservabilityClient;
   private readonly lokiUrl: string;
+  private readonly sources: SweepSource[];
   private readonly incidentStore?: {
     listIncidents: (tenantId: string, filter?: any) => Promise<IncidentRecord[]>;
   };
@@ -66,6 +178,8 @@ export class SweepMiner {
 
   constructor(options: SweepMinerOptions = {}) {
     this.cronExpression = options.cronExpression || "0 0 * * *"; // Daily at midnight
+    // Services to scan: explicit option wins, then SWEEP_SERVICES env (comma-separated).
+    // No built-in defaults: no hardcoded demo service names in generic code.
     const envServices = process.env.SWEEP_SERVICES
       ? process.env.SWEEP_SERVICES.split(",")
           .map((s) => s.trim())
@@ -79,6 +193,9 @@ export class SweepMiner {
     this.client =
       options.observabilityClient ||
       new ObservabilityClient({ lokiUrl: this.lokiUrl });
+    this.sources = options.sources || [
+      new LokiSweepSource({ client: this.client, services: this.services }),
+    ];
     this.incidentStore = options.incidentStore;
     this.ingestGatewayUrl = (
       options.ingestGatewayUrl ||
@@ -149,15 +266,9 @@ export class SweepMiner {
         if (res.ok) {
           const body = (await res.json()) as { incidents?: IncidentRecord[] };
           incidents = body.incidents || [];
-        } else {
-          console.warn(
-            `[SweepMiner] Ingest gateway incident lookup returned status ${res.status}`,
-          );
         }
-      } catch (err: any) {
-        console.warn(
-          `[SweepMiner] Ingest gateway incident lookup failed: ${err?.message || err}`,
-        );
+      } catch {
+        // Gateway unreachable or offline
       }
     }
 
@@ -181,7 +292,7 @@ export class SweepMiner {
   }
 
   /**
-   * Executes a scan across target services over the lookback window.
+   * Executes a scan across all configured sweep sources over the lookback window.
    */
   async scan(options?: {
     now?: Date | string | number;
@@ -196,65 +307,46 @@ export class SweepMiner {
     try {
       const now = options?.now ? new Date(options.now) : new Date();
       const startTime = new Date(now.getTime() - this.lookbackMs);
-      const servicesToScan = options?.services || this.services;
+      const timeWindow = { start: startTime, end: now };
 
-      const candidates: SweepCandidate[] = [];
-
-      for (const service of servicesToScan) {
-        let rawLogs: LogEntry[] = [];
+      // Collect error events from every configured source
+      const events: SweepEvent[] = [];
+      for (const source of this.sources) {
         try {
-          rawLogs = await this.client.logsQuery(
-            service,
-            startTime,
-            now,
-            undefined,
-            500,
-          );
+          const sourceEvents = await source.listErrorEvents(timeWindow);
+          events.push(...sourceEvents);
         } catch (err: any) {
           console.warn(
-            `[SweepMiner] Failed to query Loki logs for service ${service}: ${err.message}`,
+            `[SweepMiner] Source "${source.name}" failed: ${err?.message || err}; skipping`,
           );
+        }
+      }
+
+      // Group events by service for clustering
+      const eventsByService = new Map<string, SweepEvent[]>();
+      for (const event of events) {
+        const grouped = eventsByService.get(event.service);
+        if (grouped) {
+          grouped.push(event);
+        } else {
+          eventsByService.set(event.service, [event]);
+        }
+      }
+
+      const serviceFilter = options?.services;
+      const candidates: SweepCandidate[] = [];
+
+      for (const [service, serviceEvents] of eventsByService) {
+        if (serviceFilter && !serviceFilter.includes(service)) {
           continue;
         }
 
-        if (!rawLogs || rawLogs.length === 0) {
-          continue;
-        }
-
-        // Filter for error-level or exception-bearing log entries
-        const errorLogs: LogEntryInput[] = [];
-        for (const log of rawLogs) {
-          const line = log.line || "";
-          let isError = false;
-
-          if (
-            log.labels?.level === "error" ||
-            log.labels?.level === "warn" ||
-            log.data?.level === "error" ||
-            log.data?.level === "warn"
-          ) {
-            isError = true;
-          } else if (
-            /error|exception|fail|timeout|nullpointer|typeerror|fault/i.test(line)
-          ) {
-            isError = true;
-          }
-
-          if (isError) {
-            let messageContent = line;
-            if (log.data) {
-              if (log.data.errorText) messageContent = String(log.data.errorText);
-              else if (log.data.message) messageContent = String(log.data.message);
-              else if (log.data.msg) messageContent = String(log.data.msg);
-            }
-            errorLogs.push({
-              message: messageContent,
-              timestamp: log.timestamp,
-              service,
-              level: log.labels?.level || (log.data?.level as string) || "error",
-            });
-          }
-        }
+        const errorLogs: LogEntryInput[] = serviceEvents.map((event) => ({
+          message: event.message,
+          timestamp: event.timestamp,
+          service,
+          level: event.level || "error",
+        }));
 
         if (errorLogs.length === 0) {
           continue;
