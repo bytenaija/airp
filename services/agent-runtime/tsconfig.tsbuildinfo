@@ -1,1 +1,0 @@
-{"root":["./src/hypotheses.ts","./src/index.ts","./src/runtime.ts","./src/server.ts","./src/analysis/changePoint.ts","./src/analysis/dependencyWalk.ts","./src/analysis/index.ts","./src/analysis/logCluster.ts","./src/analysis/traceBisect.ts","./src/tools/incidentsSimilar.ts","./src/tools/index.ts"],"version":"5.9.3"}
