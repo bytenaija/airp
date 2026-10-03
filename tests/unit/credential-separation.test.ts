@@ -30,10 +30,25 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
     expect(config.roles.actuation_rw.env_vars).toContain("FLAGS_ADMIN_TOKEN");
   });
 
-  it("fails closed when credential configuration is missing or malformed", () => {
+  it("fails closed when credential configuration is missing", () => {
     expect(() => loadCredentialsConfig("/non/existent/credentials.yaml")).toThrow(
       /Credentials configuration file not found/i,
     );
+  });
+
+  it("fails closed when credential configuration is malformed or violates schema", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const tmpDir = os.tmpdir();
+    const badYamlPath = path.join(tmpDir, `bad_creds_${Date.now()}.yaml`);
+    fs.writeFileSync(badYamlPath, "roles: not_an_object\nversion: 123");
+    try {
+      expect(() => loadCredentialsConfig(badYamlPath)).toThrow(
+        /Invalid credentials configuration/i,
+      );
+    } finally {
+      fs.unlinkSync(badYamlPath);
+    }
   });
 
   it("agent runtime process loads ONLY agent_ro and ensures actuation credentials are absent from environment", () => {
@@ -44,12 +59,14 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
     process.env.AWS_ACCESS_KEY_ID = "AKIA_AMBIENT_KEY_12345";
     process.env.SSH_AUTH_SOCK = "/tmp/ssh_ambient_socket";
     process.env.PROMETHEUS_READ_TOKEN = "prom_read_token_xyz";
+    process.env.OPENAI_API_KEY = "sk-test-openai-key";
 
     expect(process.env.GITHUB_TOKEN).toBeDefined();
     expect(process.env.DOCKER_AUTH_CONFIG).toBeDefined();
     expect(process.env.FLAGS_ADMIN_TOKEN).toBeDefined();
     expect(process.env.AWS_ACCESS_KEY_ID).toBeDefined();
     expect(process.env.SSH_AUTH_SOCK).toBeDefined();
+    expect(process.env.OPENAI_API_KEY).toBeDefined();
 
     // Boot the agent runtime server
     const { server, credentials } = buildAgentRuntimeServer();
@@ -63,8 +80,9 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
       expect(process.env.AWS_ACCESS_KEY_ID).toBeUndefined();
       expect(process.env.SSH_AUTH_SOCK).toBeUndefined();
 
-      // Assert read-only telemetry credentials remain present
+      // Assert read-only telemetry credentials and authorized LLM keys remain present
       expect(process.env.PROMETHEUS_READ_TOKEN).toBe("prom_read_token_xyz");
+      expect(process.env.OPENAI_API_KEY).toBe("sk-test-openai-key");
 
       // Assert allowedEnvVars is consumed and matches agent_ro specification
       expect(credentials.allowedEnvVars).toEqual([
@@ -72,6 +90,8 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
         "LOKI_READ_TOKEN",
         "TEMPO_READ_TOKEN",
         "CODE_INDEX_READ_TOKEN",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
       ]);
       expect(credentials.scrubbedEnvVars).toContain("GITHUB_TOKEN");
       expect(credentials.scrubbedEnvVars).toContain("AWS_ACCESS_KEY_ID");

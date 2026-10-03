@@ -114,7 +114,7 @@ export class FlagToggleAction extends ReversibleAction {
     };
   }
 
-  protected async executeApply(): Promise<
+  protected async executeApply(_options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
     // Attempt to inspect live prior state to ensure inverse restores actual prior state
@@ -158,10 +158,12 @@ export class FlagToggleAction extends ReversibleAction {
       message: `Toggled flag '${this.flagKey}' on '${this.targetService}' to ${this.targetValue}.`,
       output: responseBody,
       executionMode: "verified_operational",
+      verified: true,
+      verifiedPriorState: this.verifiedPriorValue,
     };
   }
 
-  protected async executeRevert(): Promise<
+  protected async executeRevert(options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
     const revertTarget =
@@ -178,11 +180,22 @@ export class FlagToggleAction extends ReversibleAction {
           const liveValue = body.flags[this.flagKey];
           if (liveValue !== this.targetValue) {
             contentionDetected = true;
+            if (!options?.force) {
+              const { ActionContentionError } = await import("../framework.js");
+              throw new ActionContentionError(
+                `Concurrent modification detected on flag '${this.flagKey}' on '${this.targetService}': live value is ${liveValue}, but expected applied value was ${this.targetValue}. Revert aborted to prevent restoring stale state. Pass force: true to override.`,
+                liveValue,
+                this.targetValue,
+              );
+            }
           }
         }
       }
-    } catch {
-      // Ignore GET error
+    } catch (err: any) {
+      if (err?.name === "ActionContentionError") {
+        throw err;
+      }
+      // Ignore GET error if endpoint does not support inspection
     }
 
     const response = await this.fetchFn(this.flagUrl, {
@@ -213,6 +226,8 @@ export class FlagToggleAction extends ReversibleAction {
       message: `Reverted flag '${this.flagKey}' on '${this.targetService}' back to ${revertTarget}.${contentionDetected ? " (Warning: flag was modified concurrently prior to revert)" : ""}`,
       output: responseBody,
       executionMode: "verified_operational",
+      verified: true,
+      contentionDetected,
     };
   }
 }

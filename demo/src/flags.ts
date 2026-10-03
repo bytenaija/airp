@@ -40,6 +40,20 @@ export function registerFlagRoutes(
   });
 
   server.post("/admin/flags", async (req, reply) => {
+    // Enforce administrative authentication if configured in environment
+    const adminToken = process.env.FLAGS_ADMIN_TOKEN || process.env.ADMIN_TOKEN;
+    if (adminToken) {
+      const authHeader = req.headers.authorization;
+      const token = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : authHeader;
+      if (!token || token !== adminToken) {
+        return reply.status(401).send({
+          error: "Unauthorized: Missing or invalid admin token",
+        });
+      }
+    }
+
     const body = (req.body as any) || {};
 
     // Gating check for failure-inducing flags:

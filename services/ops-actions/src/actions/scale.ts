@@ -13,6 +13,7 @@ export interface ScaleActionParams {
   composeFilePath?: string;
   executor?: CommandExecutor;
   onScale?: (service: string, targetReplicas: number) => Promise<void> | void;
+  getLiveReplicas?: (service: string) => Promise<number | null>;
 }
 
 export class ScaleAction extends ReversibleAction {
@@ -26,6 +27,8 @@ export class ScaleAction extends ReversibleAction {
     service: string,
     targetReplicas: number,
   ) => Promise<void> | void;
+  private readonly getLiveReplicas?: (service: string) => Promise<number | null>;
+  verifiedPriorReplicas?: number;
 
   constructor(params: ScaleActionParams) {
     super();
@@ -35,16 +38,22 @@ export class ScaleAction extends ReversibleAction {
     this.composeFilePath = params.composeFilePath || "infra/docker-compose.yml";
     this.executor = params.executor;
     this.onScale = params.onScale;
+    this.getLiveReplicas = params.getLiveReplicas;
   }
 
   computeInverse(): ReversibleAction {
+    const prior =
+      this.verifiedPriorReplicas !== undefined
+        ? this.verifiedPriorReplicas
+        : this.currentReplicas;
     const inverse = new ScaleAction({
       service: this.targetService,
       currentReplicas: this.targetReplicas,
-      targetReplicas: this.currentReplicas,
+      targetReplicas: prior,
       composeFilePath: this.composeFilePath,
       executor: this.executor,
       onScale: this.onScale,
+      getLiveReplicas: this.getLiveReplicas,
     });
     inverse.setInverse(this);
     return inverse;
@@ -121,13 +130,27 @@ export class ScaleAction extends ReversibleAction {
     };
   }
 
-  protected async executeApply(): Promise<
+  protected async executeApply(_options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
     if (!this.onScale && !this.executor) {
       throw new Error(
         `Cannot execute ScaleAction on '${this.targetService}': no execution backend configured (neither executor nor onScale callback provided).`,
       );
+    }
+
+    if (this.getLiveReplicas) {
+      try {
+        const live = await this.getLiveReplicas(this.targetService);
+        if (typeof live === "number" && live > 0) {
+          this.verifiedPriorReplicas = live;
+          if (this._precomputedInverse instanceof ScaleAction) {
+            (this._precomputedInverse as any).targetReplicas = this.verifiedPriorReplicas;
+          }
+        }
+      } catch {
+        // Live inspection optional
+      }
     }
 
     let output: unknown = null;
@@ -164,16 +187,43 @@ export class ScaleAction extends ReversibleAction {
       message: `Scaled service '${this.targetService}' from ${this.currentReplicas} to ${this.targetReplicas} replicas.`,
       output: output ?? { activeReplicas: this.targetReplicas },
       executionMode,
+      verified: !!this.executor,
+      verifiedPriorState: this.verifiedPriorReplicas,
     };
   }
 
-  protected async executeRevert(): Promise<
+  protected async executeRevert(options?: import("../framework.js").ApplyOptions): Promise<
     Omit<ActionResult, "inverseAction" | "timelineEvent">
   > {
     if (!this.onScale && !this.executor) {
       throw new Error(
         `Cannot execute ScaleAction revert on '${this.targetService}': no execution backend configured (neither executor nor onScale callback provided).`,
       );
+    }
+
+    const revertTarget =
+      this.verifiedPriorReplicas !== undefined
+        ? this.verifiedPriorReplicas
+        : this.currentReplicas;
+    let contentionDetected = false;
+
+    if (this.getLiveReplicas) {
+      try {
+        const live = await this.getLiveReplicas(this.targetService);
+        if (typeof live === "number" && live !== this.targetReplicas) {
+          contentionDetected = true;
+          if (!options?.force) {
+            const { ActionContentionError } = await import("../framework.js");
+            throw new ActionContentionError(
+              `Concurrent modification detected on '${this.targetService}': live replica count is ${live}, but expected applied replicas was ${this.targetReplicas}. Revert aborted to prevent restoring stale state. Pass force: true to override.`,
+              live,
+              this.targetReplicas,
+            );
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === "ActionContentionError") throw err;
+      }
     }
 
     let output: unknown = null;
@@ -187,7 +237,7 @@ export class ScaleAction extends ReversibleAction {
         "up",
         "-d",
         "--scale",
-        `${this.targetService}=${this.currentReplicas}`,
+        `${this.targetService}=${revertTarget}`,
         "--no-recreate",
       ]);
       if (execResult.exitCode !== 0) {
@@ -200,16 +250,18 @@ export class ScaleAction extends ReversibleAction {
     }
 
     if (this.onScale) {
-      await this.onScale(this.targetService, this.currentReplicas);
+      await this.onScale(this.targetService, revertTarget);
     }
 
     return {
       success: true,
       actionType: this.actionType,
       targetService: this.targetService,
-      message: `Reverted scaling: restored service '${this.targetService}' to ${this.currentReplicas} replicas.`,
-      output: output ?? { activeReplicas: this.currentReplicas },
+      message: `Reverted scaling: restored service '${this.targetService}' to ${revertTarget} replicas.`,
+      output: output ?? { activeReplicas: revertTarget },
       executionMode,
+      verified: !!this.executor,
+      contentionDetected,
     };
   }
 }

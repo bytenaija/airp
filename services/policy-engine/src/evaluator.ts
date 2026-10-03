@@ -168,8 +168,10 @@ export class PolicyEngineEvaluator {
         this.tier0Cache = services;
       }
       return services;
-    } catch {
-      return new Set();
+    } catch (error) {
+      throw new Error(
+        `Failed to load or parse tier-0 configuration at '${filePath}': ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
