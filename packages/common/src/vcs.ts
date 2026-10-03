@@ -353,17 +353,27 @@ export class GitHubProvider implements VCSProvider {
 
       if (options.labels && options.labels.length > 0) {
         try {
-          await fetch(`${this.apiBaseUrl}/repos/${this.repo}/issues/${pr.number}/labels`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${this.token}`,
-              Accept: "application/vnd.github.v3+json",
-              "Content-Type": "application/json",
+          const labelRes = await fetch(
+            `${this.apiBaseUrl}/repos/${this.repo}/issues/${pr.number}/labels`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${this.token}`,
+                Accept: "application/vnd.github.v3+json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ labels: options.labels }),
             },
-            body: JSON.stringify({ labels: options.labels }),
-          });
-        } catch {
-          // Non-blocking label failure
+          );
+          if (!labelRes.ok) {
+            console.warn(
+              `[GitHubProvider] Failed to add labels to PR #${pr.number} (status ${labelRes.status})`,
+            );
+          }
+        } catch (err: any) {
+          console.warn(
+            `[GitHubProvider] Error adding labels to PR #${pr.number}: ${err?.message || err}`,
+          );
         }
       }
 

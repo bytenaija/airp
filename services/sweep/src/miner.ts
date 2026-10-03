@@ -66,7 +66,12 @@ export class SweepMiner {
 
   constructor(options: SweepMinerOptions = {}) {
     this.cronExpression = options.cronExpression || "0 0 * * *"; // Daily at midnight
-    this.services = options.services || ["checkout", "payments", "fraud-check"];
+    const envServices = process.env.SWEEP_SERVICES
+      ? process.env.SWEEP_SERVICES.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    this.services = options.services || envServices;
     this.lookbackMs = options.lookbackMs ?? 7 * 24 * 60 * 60 * 1000; // 7 days
     this.minOccurrences = options.minOccurrences ?? 2; // At least 2 occurrences for recurring
     this.lokiUrl =
@@ -130,8 +135,10 @@ export class SweepMiner {
     if (this.incidentStore) {
       try {
         incidents = await this.incidentStore.listIncidents("local");
-      } catch {
-        // Fall back to HTTP if incidentStore fails
+      } catch (err: any) {
+        console.warn(
+          `[SweepMiner] Incident store lookup failed, falling back to HTTP: ${err?.message || err}`,
+        );
       }
     }
 
@@ -142,9 +149,15 @@ export class SweepMiner {
         if (res.ok) {
           const body = (await res.json()) as { incidents?: IncidentRecord[] };
           incidents = body.incidents || [];
+        } else {
+          console.warn(
+            `[SweepMiner] Ingest gateway incident lookup returned status ${res.status}`,
+          );
         }
-      } catch {
-        // Gateway unreachable or offline
+      } catch (err: any) {
+        console.warn(
+          `[SweepMiner] Ingest gateway incident lookup failed: ${err?.message || err}`,
+        );
       }
     }
 

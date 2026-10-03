@@ -78,11 +78,7 @@ export class SweepWorker {
       new PolicyEngineEvaluator({ version: this.policyVersion });
     this.policyRulesPath = options.policyRulesPath;
     this.testCommand = options.testCommand;
-    this.sandboxConfig = options.sandboxConfig ?? {
-      enableDocker: false,
-      allowInsecureDevExecution: true,
-      timeoutMs: 5000,
-    };
+    this.sandboxConfig = options.sandboxConfig;
   }
 
   /**
