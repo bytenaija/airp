@@ -252,7 +252,7 @@ export function generateHandoffReport(input: HandoffInput): HandoffReport {
 
   // 5. REQUIRED SECTION: Runbook Links
   let runbookLinks: RunbookLink[] = [];
-  if (input.runbookLinks && input.runbookLinks.length > 0) {
+  if (input.runbookLinks !== undefined) {
     runbookLinks = input.runbookLinks;
   } else if (
     Array.isArray(incident.enrichment?.runbooks) &&
@@ -265,21 +265,50 @@ export function generateHandoffReport(input: HandoffInput): HandoffReport {
       description: rb.description,
     }));
   } else {
-    // Look up default runbooks in docs/runbooks/
-    const defaultRunbookPath = `docs/runbooks/${serviceName}.md`;
-    const genericDeployRunbook = `docs/runbooks/deploy-rollback.md`;
-    runbookLinks = [
+    // Check real runbook files on disk in docs/runbooks/
+    const candidates = [
       {
-        title: `${serviceName.toUpperCase()} Operational Runbook`,
-        url: defaultRunbookPath,
-        path: defaultRunbookPath,
+        path: `docs/runbooks/${serviceName}-errors.md`,
+        title: `${serviceName.toUpperCase()} Errors Runbook`,
       },
       {
+        path: `docs/runbooks/${serviceName}-timeouts.md`,
+        title: `${serviceName.toUpperCase()} Timeouts Runbook`,
+      },
+      {
+        path: `docs/runbooks/${serviceName}.md`,
+        title: `${serviceName.toUpperCase()} Operational Runbook`,
+      },
+      {
+        path: `docs/runbooks/deploy-rollback.md`,
         title: "Deployment & Rollback Runbook",
-        url: genericDeployRunbook,
-        path: genericDeployRunbook,
       },
     ];
+
+    const matched: RunbookLink[] = [];
+    for (const c of candidates) {
+      const fullPath = path.resolve(process.cwd(), c.path);
+      if (fs.existsSync(fullPath)) {
+        matched.push({
+          title: c.title,
+          url: c.path,
+          path: c.path,
+        });
+      }
+    }
+
+    if (matched.length > 0) {
+      runbookLinks = matched;
+    } else {
+      const genericDeployRunbook = `docs/runbooks/deploy-rollback.md`;
+      runbookLinks = [
+        {
+          title: "Deployment & Rollback Runbook",
+          url: genericDeployRunbook,
+          path: genericDeployRunbook,
+        },
+      ];
+    }
   }
 
   if (runbookLinks.length === 0) {

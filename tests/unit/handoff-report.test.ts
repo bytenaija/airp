@@ -184,6 +184,39 @@ describe("Epic 10 Unit Tests: Handoff Report Generation & Validation", () => {
     expect(paymentsOwner?.primary).toBe("maya");
   });
 
+  it("throws HandoffValidationError when runbook_links is explicitly empty", () => {
+    expect(() =>
+      generateHandoffReport({
+        diagnosis: baseDiagnosis,
+        incident: baseIncident,
+        runbookLinks: [],
+      }),
+    ).toThrow(HandoffValidationError);
+
+    try {
+      generateHandoffReport({
+        diagnosis: baseDiagnosis,
+        incident: baseIncident,
+        runbookLinks: [],
+      });
+    } catch (e: any) {
+      expect(e.section).toBe("runbook_links");
+    }
+  });
+
+  it("synthesizes default runbooks checking file existence on disk", () => {
+    const report = generateHandoffReport({
+      diagnosis: baseDiagnosis,
+      incident: baseIncident,
+    });
+
+    expect(report.json.runbook_links.length).toBeGreaterThan(0);
+    for (const link of report.json.runbook_links) {
+      const fullPath = path.resolve(process.cwd(), link.path || link.url);
+      expect(fs.existsSync(fullPath)).toBe(true);
+    }
+  });
+
   it("writeHandoffFiles writes handoff.md and handoff.json to disk", async () => {
     const result = await writeHandoffFiles(tmpDir, {
       diagnosis: baseDiagnosis,

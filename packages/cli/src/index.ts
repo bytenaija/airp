@@ -618,7 +618,11 @@ program
     process.env.AIRP_VIEWER_URL || "http://localhost:8012",
   )
   .option("--user <user>", "Submitting user identifier", process.env.USER || "human")
-  .option("--team <team>", "Team affiliation of the user")
+  .option(
+    "--team <team>",
+    "Team affiliation of the user",
+    process.env.AIRP_TEAM || process.env.USER_TEAM || "platform-team",
+  )
   .option("--token <token>", "Bearer authentication token")
   .action(async (id, options) => {
     const validVerdicts = ["approve", "override", "correct"];
@@ -644,6 +648,12 @@ program
         secret!,
       );
       headers.Authorization = `Bearer ${token}`;
+    } else {
+      console.error(
+        "Error: Authentication required for Timeline Viewer / Feedback API. Please specify --token or set VIEWER_JWT_SECRET / POLICY_JWT_SECRET environment variable.",
+      );
+      process.exitCode = 1;
+      return;
     }
 
     try {

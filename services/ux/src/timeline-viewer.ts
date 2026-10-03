@@ -98,14 +98,11 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
   // Auth helper
   function extractAuth(req: FastifyRequest): ViewerUserClaims | null {
     const authHeader = req.headers.authorization;
-    let token: string | undefined;
-
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.slice(7).trim();
-    } else if ((req.query as any)?.token) {
-      token = String((req.query as any).token).trim();
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
     }
 
+    const token = authHeader.slice(7).trim();
     if (!token) return null;
 
     try {
@@ -147,12 +144,23 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
     const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
     const userTeam = claims.team;
 
+    if (!isAdmin && !userTeam) {
+      recordAudit({
+        actor: claims.sub,
+        action: "access_denied_missing_team",
+        details: { endpoint: "/api/incidents" },
+      });
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
+
     const list: IncidentRecordWithTeam[] = [];
     for (const inc of incidents.values()) {
       const incService = (inc as any).service || inc.signals?.[0]?.service || "unknown";
       const incTeam = inc.team || inc.enrichment?.owner || getTeamForService(incService);
 
-      if (isAdmin || !userTeam || incTeam === userTeam) {
+      if (isAdmin || incTeam === userTeam) {
         list.push({ ...inc, team: incTeam });
       }
     }
@@ -182,6 +190,18 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
 
     const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
     const userTeam = claims.team;
+
+    if (!isAdmin && !userTeam) {
+      recordAudit({
+        actor: claims.sub,
+        action: "access_denied_missing_team",
+        incidentId: incident.id,
+        details: { endpoint: `/api/incidents/${id}` },
+      });
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
 
     // Cross-Team Invisibility Enforcement:
     // If requester has a specific team and it does NOT match the incident's team, reject with 403 and audit
@@ -242,6 +262,18 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
     const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
     const userTeam = claims.team;
 
+    if (!isAdmin && !userTeam) {
+      recordAudit({
+        actor: claims.sub,
+        action: "access_denied_missing_team",
+        incidentId: incident.id,
+        details: { endpoint: `/api/incidents/${id}/handoff` },
+      });
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
+
     if (!isAdmin && userTeam && incTeam !== userTeam) {
       recordAudit({
         actor: claims.sub,
@@ -288,7 +320,9 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
   });
 
   function handleFeedbackPost(req: FastifyRequest, reply: FastifyReply) {
-    const claims = extractAuth(req);
+    const claims = requireAuth(req, reply);
+    if (!claims) return;
+
     const body = (req.body as FeedbackInput) || {};
 
     if (!body.incident_id || !body.verdict) {
@@ -303,20 +337,55 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
       });
     }
 
-    // Determine team from incident or claims
-    let effectiveTeam = body.team || claims?.team;
-    if (!effectiveTeam) {
-      const inc = incidents.get(body.incident_id);
-      if (inc) {
-        const incService = (inc as any).service || inc.signals?.[0]?.service || "unknown";
-        effectiveTeam = inc.team || inc.enrichment?.owner || getTeamForService(incService);
+    const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
+    const userTeam = claims.team;
+
+    if (!isAdmin && !userTeam) {
+      recordAudit({
+        actor: claims.sub,
+        action: "feedback_denied_missing_team",
+        incidentId: body.incident_id,
+      });
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
+
+    // Determine target incident team if incident exists
+    const inc = incidents.get(body.incident_id);
+    let incTeam: string | undefined;
+    if (inc) {
+      const incService = (inc as any).service || inc.signals?.[0]?.service || "unknown";
+      incTeam = inc.team || inc.enrichment?.owner || getTeamForService(incService);
+    }
+
+    // Cross-team submission check
+    if (!isAdmin && userTeam) {
+      if (incTeam && incTeam !== userTeam) {
+        recordAudit({
+          actor: claims.sub,
+          action: "cross_team_feedback_denied",
+          requestingTeam: userTeam,
+          targetTeam: incTeam,
+          incidentId: body.incident_id,
+        });
+        return reply.status(403).send({
+          error: `Forbidden: Cross-team feedback submission denied. User from team '${userTeam}' cannot submit feedback for incident owned by '${incTeam}'`,
+        });
+      }
+      if (body.team && body.team !== userTeam) {
+        return reply.status(403).send({
+          error: `Forbidden: Cannot submit feedback for team '${body.team}' with token scoped to '${userTeam}'`,
+        });
       }
     }
 
+    const effectiveTeam = userTeam || incTeam || body.team || "platform-team";
+
     const record = feedbackStore.addFeedback(
       body,
-      claims?.sub || body.user || "human",
-      effectiveTeam || "unknown-team",
+      claims.sub,
+      effectiveTeam,
     );
 
     return reply.status(201).send({
@@ -325,20 +394,83 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
     });
   }
 
-  server.get("/feedback", async (req) => {
-    const filter = req.query as { team?: string; incident_id?: string };
-    return { feedback: feedbackStore.getAllFeedback(filter) };
-  });
+  async function handleFeedbackGet(req: FastifyRequest, reply: FastifyReply) {
+    const claims = requireAuth(req, reply);
+    if (!claims) return;
 
-  server.get("/api/feedback", async (req) => {
-    const filter = req.query as { team?: string; incident_id?: string };
-    return { feedback: feedbackStore.getAllFeedback(filter) };
-  });
+    const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
+    const userTeam = claims.team;
+
+    if (!isAdmin && !userTeam) {
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
+
+    const query = (req.query as { team?: string; incident_id?: string }) || {};
+
+    if (!isAdmin && userTeam) {
+      if (query.team && query.team !== userTeam) {
+        recordAudit({
+          actor: claims.sub,
+          action: "cross_team_access_denied",
+          requestingTeam: userTeam,
+          targetTeam: query.team,
+        });
+        return reply.status(403).send({
+          error: `Forbidden: Cross-team access denied. User from team '${userTeam}' cannot query feedback for '${query.team}'`,
+        });
+      }
+      return {
+        feedback: feedbackStore.getAllFeedback({
+          incident_id: query.incident_id,
+          team: userTeam,
+        }),
+      };
+    }
+
+    // Admin can view all or filter by query.team
+    return { feedback: feedbackStore.getAllFeedback(query) };
+  }
+
+  server.get("/feedback", handleFeedbackGet);
+  server.get("/api/feedback", handleFeedbackGet);
 
   // --- Per-Team Override Rate Dashboard API ---
-  server.get("/api/metrics/override-rate", async () => {
-    const known = getKnownTeams();
-    const metrics = feedbackStore.getPerTeamOverrideRates(known);
+  server.get("/api/metrics/override-rate", async (req, reply) => {
+    const claims = requireAuth(req, reply);
+    if (!claims) return;
+
+    const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
+    const userTeam = claims.team;
+
+    if (!isAdmin && !userTeam) {
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
+
+    const query = (req.query as { team?: string }) || {};
+
+    if (!isAdmin && userTeam) {
+      if (query.team && query.team !== userTeam) {
+        recordAudit({
+          actor: claims.sub,
+          action: "cross_team_access_denied",
+          requestingTeam: userTeam,
+          targetTeam: query.team,
+        });
+        return reply.status(403).send({
+          error: `Forbidden: Cross-team access denied. User from team '${userTeam}' cannot view metrics for '${query.team}'`,
+        });
+      }
+      const metrics = feedbackStore.getPerTeamOverrideRates([userTeam]);
+      return { metrics };
+    }
+
+    // Admin
+    const targetTeams = query.team ? [query.team] : getKnownTeams();
+    const metrics = feedbackStore.getPerTeamOverrideRates(targetTeams);
     return { metrics };
   });
 

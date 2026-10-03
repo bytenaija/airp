@@ -401,8 +401,15 @@ describe("Epic 10 Acceptance Criteria: Human Handoff and Incident UX", () => {
       "payments-team",
     );
 
+    const adminToken = signViewerToken(
+      { sub: "lead-sre", roles: ["org_admin"] },
+      testSecret,
+    );
+
     // Query override-rate dashboard API
-    const res = await fetch(`${serverUrl}/api/metrics/override-rate`);
+    const res = await fetch(`${serverUrl}/api/metrics/override-rate`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(res.status).toBe(200);
 
     const data = (await res.json()) as any;

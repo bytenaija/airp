@@ -86,19 +86,25 @@ export class FeedbackStore {
   /**
    * Computes per-team override rates based on collected feedback data.
    */
-  getPerTeamOverrideRates(knownTeams: string[] = []): TeamOverrideRate[] {
+  getPerTeamOverrideRates(targetTeams?: string[]): TeamOverrideRate[] {
+    const filterSet = targetTeams && targetTeams.length > 0 ? new Set(targetTeams) : null;
     const teamStats = new Map<
       string,
       { approved: number; overrides: number; corrected: number }
     >();
 
-    // Seed known teams if provided
-    for (const t of knownTeams) {
-      teamStats.set(t, { approved: 0, overrides: 0, corrected: 0 });
+    // Seed target teams if provided
+    if (targetTeams) {
+      for (const t of targetTeams) {
+        teamStats.set(t, { approved: 0, overrides: 0, corrected: 0 });
+      }
     }
 
     for (const fb of this.records.values()) {
       const t = fb.team || "unassigned";
+      if (filterSet && !filterSet.has(t)) {
+        continue;
+      }
       const stats = teamStats.get(t) || { approved: 0, overrides: 0, corrected: 0 };
 
       if (fb.verdict === "override") {

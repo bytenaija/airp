@@ -18,17 +18,34 @@ export interface ViewerUserClaims {
   exp?: number;
 }
 
-let devSecret: string | null = null;
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthenticationError";
+  }
+}
+
+let ephemeralViewerSecret: string | null = null;
 
 export function getViewerSecret(customSecret?: string): string {
   if (customSecret) return customSecret;
   if (process.env.VIEWER_JWT_SECRET) return process.env.VIEWER_JWT_SECRET;
   if (process.env.POLICY_JWT_SECRET) return process.env.POLICY_JWT_SECRET;
 
-  if (!devSecret) {
-    devSecret = "airp-viewer-demo-secret-key-32-chars-minimum!";
+  const env = process.env.NODE_ENV;
+  if (env === "test" || env === "development") {
+    if (!ephemeralViewerSecret) {
+      ephemeralViewerSecret = crypto.randomBytes(32).toString("hex");
+      console.warn(
+        "Notice: VIEWER_JWT_SECRET unset. Generated ephemeral random secret for test/development session.",
+      );
+    }
+    return ephemeralViewerSecret;
   }
-  return devSecret;
+
+  throw new AuthenticationError(
+    "VIEWER_JWT_SECRET (or POLICY_JWT_SECRET) environment variable is required outside of test and development",
+  );
 }
 
 /**
