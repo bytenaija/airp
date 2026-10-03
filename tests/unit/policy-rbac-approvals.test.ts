@@ -186,6 +186,46 @@ describe("Epic 8 Acceptance Criteria: RBAC, Approvals, Audit & Clef Guardrails",
       expect(logs.length).toBe(1);
       expect(logs[0].identity).toBe("admin-bob");
     });
+
+    it("requester cannot approve their own remediation plan (separation of duties)", async () => {
+      const plan = createPlan({
+        service: "checkout",
+        requester: "alice", // Alice requested this plan
+      });
+      const decision = evaluator.evaluate(plan);
+      approvalManager.registerPlan(plan, decision);
+
+      const aliceClaims: UserClaims = {
+        sub: "alice",
+        roles: ["approver"],
+        team: "checkout-team",
+      };
+
+      await expect(
+        approvalManager.recordApproval(plan.id, aliceClaims, "code_owner"),
+      ).rejects.toThrow(AuthorizationError);
+
+      await expect(
+        approvalManager.recordApproval(plan.id, aliceClaims, "code_owner"),
+      ).rejects.toThrow(/Separation of duties: requester 'alice' cannot approve their own remediation plan/);
+    });
+
+    it("clearing a non-tripped breaker is a no-op and does not record spurious audit logs", async () => {
+      expect(breaker.isTripped()).toBe(false);
+
+      const adminUser: UserClaims = {
+        sub: "admin-bob",
+        roles: ["org_admin"],
+        team: "platform-team",
+      };
+
+      const result = await breaker.clear(adminUser);
+      expect(result.tripped).toBe(false);
+
+      // Verify NO breaker_clear event was logged
+      const logs = await auditStore.getLogs({ eventType: "breaker_clear" });
+      expect(logs.length).toBe(0);
+    });
   });
 
   describe("Acceptance Criteria: Clef Decision-Model Integration & Guardrails", () => {

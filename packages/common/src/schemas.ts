@@ -281,6 +281,7 @@ export const RemediationPlanSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   fixability: FixabilitySchema.optional().default("code_fixable"),
   proactive: z.boolean().default(false),
+  requester: z.string().optional(),
   data_classification: z
     .enum(["public", "internal", "confidential", "restricted", "pii"])
     .optional(),

@@ -146,7 +146,8 @@ export class PolicyAuditStore {
   async attemptUpdate(id: string, _updates: Partial<AuditLogEntry>): Promise<void> {
     if (this.prisma) {
       await this.prisma.$executeRawUnsafe(
-        `UPDATE policy_audit_logs SET action_or_decision = 'tampered' WHERE id = '${id}'`,
+        "UPDATE policy_audit_logs SET action_or_decision = 'tampered' WHERE id = $1",
+        id,
       );
       return;
     }
@@ -159,7 +160,8 @@ export class PolicyAuditStore {
   async attemptDelete(id: string): Promise<void> {
     if (this.prisma) {
       await this.prisma.$executeRawUnsafe(
-        `DELETE FROM policy_audit_logs WHERE id = '${id}'`,
+        "DELETE FROM policy_audit_logs WHERE id = $1",
+        id,
       );
       return;
     }

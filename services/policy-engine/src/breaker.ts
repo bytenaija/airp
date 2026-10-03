@@ -34,6 +34,16 @@ export class CircuitBreakerManager {
     return { ...this.state };
   }
 
+  /**
+   * Trips the circuit breaker to halt autonomous policy execution.
+   *
+   * Design Decision (Emergency Stop): Trip has no role restriction — it acts as a
+   * safety emergency stop ("big red button") callable by automated monitors, investigators,
+   * or any operational role to halt actions immediately upon anomaly detection.
+   * All trip events are audit-logged with the initiator's identity.
+   * Reversing/clearing the breaker, by contrast, strictly requires 'org_admin' or
+   * 'policy_admin' and enforces separation of duties (requester != trippedBy).
+   */
   async trip(reason: string, trippedBy = "system"): Promise<BreakerState> {
     this.state = {
       tripped: true,
@@ -55,6 +65,11 @@ export class CircuitBreakerManager {
   }
 
   async clear(user: UserClaims): Promise<BreakerState> {
+    // Guard against clearing when not tripped to prevent spurious audit entries
+    if (!this.state.tripped) {
+      return this.getState();
+    }
+
     const trippedBy = this.state.trippedBy || "unknown";
 
     // Separation of duties check

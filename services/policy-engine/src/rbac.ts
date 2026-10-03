@@ -230,7 +230,15 @@ export class RbacManager {
       };
     }
 
-    // 3. Prevent duplicate approval by same identity
+    // 3. Separation of duties: requester cannot approve their own plan
+    if (plan.requester && user.sub === plan.requester) {
+      return {
+        authorized: false,
+        reason: `Separation of duties: requester '${user.sub}' cannot approve their own remediation plan`,
+      };
+    }
+
+    // 4. Prevent duplicate approval by same identity
     if (existingApprovals.some((a) => a.approver === user.sub)) {
       return {
         authorized: false,
@@ -238,8 +246,6 @@ export class RbacManager {
       };
     }
 
-    // 4. Distinct team check for Tier-0 (if existing approval from same team)
-    // If tier0 services requires distinct teams:
     return { authorized: true };
   }
 
