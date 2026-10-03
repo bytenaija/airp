@@ -427,13 +427,7 @@ export class InvestigationAgentRuntime {
           context,
           nextStep.diagnosis,
         );
-        incident.status = "diagnosed";
-        this.appendTimeline(
-          incident,
-          "investigation_concluded",
-          `Diagnosis produced: ${finalDiagnosis.root_cause} (confidence: ${(finalDiagnosis.confidence * 100).toFixed(1)}%, fixability: ${finalDiagnosis.fixability})`,
-        );
-        return finalDiagnosis;
+        return this.postInvestigation(incident, finalDiagnosis);
       }
 
       if (nextStep.type === "malformed") {
@@ -443,8 +437,7 @@ export class InvestigationAgentRuntime {
           nextStep.rawText || "Invalid non-JSON response",
           hypothesisManager.getLeadingHypothesis().evidence,
         );
-        incident.status = "diagnosed";
-        return retryResult;
+        return this.postInvestigation(incident, retryResult);
       }
 
       // Execute Tool Call
@@ -1206,10 +1199,10 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
             team,
             severity: incident.severity,
             title: `Handoff Escalation: ${incident.title || incident.id}`,
-            summary: `Incident ${incident.id} escalated to ${team} on-call. Root cause: ${finalDiagnosis.root_cause}. Handoff report generated at outbox/handoff.md`,
+            summary: `Incident ${incident.id} escalated to ${team} on-call. Root cause: ${finalDiagnosis.root_cause}. Handoff report generated at ${reportResult.markdownPath}`,
             details: {
-              markdown_path: path.join(this.outboxDir, "handoff.md"),
-              json_path: path.join(this.outboxDir, "handoff.json"),
+              markdown_path: reportResult.markdownPath,
+              json_path: reportResult.jsonPath,
               owner_on_call: reportResult.report.data.owner_on_call,
             },
           });

@@ -68,13 +68,24 @@ export class LocalNotify implements NotificationProvider {
       fs.mkdirSync(this.outboxDir, { recursive: true });
     }
 
+    const safeIncidentId = event.incident_id.replace(/[^a-zA-Z0-9_-]/g, "_");
     const safeTimestamp = event.timestamp.replace(/[:.]/g, "-");
-    const filename = `${safeTimestamp}_${event.type}_${event.incident_id}.json`;
-    const targetPath = path.join(this.outboxDir, filename);
+    const filename = `${safeTimestamp}_${event.type}_${safeIncidentId}.json`;
+    const targetPath = path.resolve(this.outboxDir, filename);
+
+    const outboxBase = path.resolve(this.outboxDir);
+    if (!targetPath.startsWith(outboxBase)) {
+      throw new Error(`Invalid notification path: '${filename}' escapes outbox directory`);
+    }
 
     // If team is specified, also save in team-scoped subfolder for team routing
     if (event.team) {
-      const teamDir = path.join(this.outboxDir, "teams", event.team);
+      const safeTeam = event.team.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const teamsBase = path.resolve(this.outboxDir, "teams");
+      const teamDir = path.resolve(teamsBase, safeTeam);
+      if (!teamDir.startsWith(teamsBase)) {
+        throw new Error(`Invalid team directory: '${event.team}' escapes outbox teams directory`);
+      }
       if (!fs.existsSync(teamDir)) {
         fs.mkdirSync(teamDir, { recursive: true });
       }

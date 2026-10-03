@@ -334,6 +334,90 @@ describe("Epic 10 Unit Tests: Viewer Auth, Feedback Store, and Team Scoping", ()
       expect(resAdminMetrics.statusCode).toBe(200);
       expect(resAdminMetrics.json().metrics.length).toBeGreaterThan(1);
     });
+
+    it("scopes /api/incidents/latest to the caller's team", async () => {
+      const tokenA = signViewerToken({ sub: "alice", team: "checkout-team" }, secret);
+      const resLatest = await server.inject({
+        method: "GET",
+        url: "/api/incidents/latest",
+        headers: { authorization: `Bearer ${tokenA}` },
+      });
+      expect(resLatest.statusCode).toBe(200);
+      expect(resLatest.json().incident.id).toBe("inc-team-a");
+    });
+
+    it("restricts /api/audit to org_admin callers", async () => {
+      const tokenA = signViewerToken({ sub: "alice", team: "checkout-team" }, secret);
+      const resAuditDenied = await server.inject({
+        method: "GET",
+        url: "/api/audit",
+        headers: { authorization: `Bearer ${tokenA}` },
+      });
+      expect(resAuditDenied.statusCode).toBe(403);
+      expect(resAuditDenied.json().error).toContain("Audit logs are restricted to org_admin");
+
+      const adminToken = signViewerToken({ sub: "admin", roles: ["org_admin"] }, secret);
+      const resAuditAllowed = await server.inject({
+        method: "GET",
+        url: "/api/audit",
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(resAuditAllowed.statusCode).toBe(200);
+      expect(Array.isArray(resAuditAllowed.json().audit)).toBe(true);
+    });
+
+    it("rejects feedback for non-existent incidents with 404", async () => {
+      const tokenA = signViewerToken({ sub: "alice", team: "checkout-team" }, secret);
+      const res = await server.inject({
+        method: "POST",
+        url: "/feedback",
+        headers: {
+          authorization: `Bearer ${tokenA}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          incident_id: "non-existent-incident-id",
+          verdict: "approve",
+        },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toContain("not found");
+    });
+
+    it("rejects feedback submission with spoofed user attribution with 403", async () => {
+      const tokenA = signViewerToken({ sub: "alice", team: "checkout-team" }, secret);
+      const res = await server.inject({
+        method: "POST",
+        url: "/feedback",
+        headers: {
+          authorization: `Bearer ${tokenA}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          incident_id: "inc-team-a",
+          verdict: "approve",
+          user: "charlie-impersonated",
+        },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toContain("Cannot submit feedback attributed to another user");
+    });
+  });
+
+  describe("Token Header & Payload Shape Validation", () => {
+    it("rejects tokens with non-HS256 alg or missing sub", () => {
+      // Craft token with alg: RS256
+      const b64H = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+      const b64P = Buffer.from(JSON.stringify({ sub: "eve" })).toString("base64url");
+      const sig = "fake_sig";
+      expect(() => verifyViewerToken(`${b64H}.${b64P}.${sig}`, secret)).toThrow();
+
+      // Craft token missing sub
+      const b64HGood = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+      const b64PMissingSub = Buffer.from(JSON.stringify({ team: "checkout-team" })).toString("base64url");
+      const sigMissingSub = "fake_sig";
+      expect(() => verifyViewerToken(`${b64HGood}.${b64PMissingSub}.${sigMissingSub}`, secret)).toThrow();
+    });
   });
 
   describe("Fail-closed Secret Security Gate", () => {

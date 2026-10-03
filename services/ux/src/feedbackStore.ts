@@ -36,11 +36,11 @@ export class FeedbackStore {
   private records: Map<string, FeedbackRecord> = new Map();
   private incidentIndex: Map<string, string[]> = new Map();
 
-  addFeedback(rawInput: FeedbackInput, user = "human", team = "unknown-team"): FeedbackRecord {
+  addFeedback(rawInput: FeedbackInput, authenticatedUser?: string, authenticatedTeam?: string): FeedbackRecord {
     const input = FeedbackInputSchema.parse(rawInput);
     const id = crypto.randomUUID();
-    const effectiveUser = input.user || user;
-    const effectiveTeam = input.team || team;
+    const effectiveUser = authenticatedUser !== undefined ? authenticatedUser : (input.user || "human");
+    const effectiveTeam = authenticatedTeam !== undefined ? authenticatedTeam : (input.team || "unknown-team");
 
     const record: FeedbackRecord = {
       id,

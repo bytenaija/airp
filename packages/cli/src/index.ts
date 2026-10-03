@@ -624,6 +624,11 @@ program
     process.env.AIRP_TEAM || process.env.USER_TEAM || "platform-team",
   )
   .option("--token <token>", "Bearer authentication token")
+  .option(
+    "--dev-mint",
+    "Allow minting ephemeral tokens for development/testing only (requires VIEWER_JWT_SECRET or POLICY_JWT_SECRET)",
+    false,
+  )
   .action(async (id, options) => {
     const validVerdicts = ["approve", "override", "correct"];
     if (!validVerdicts.includes(options.verdict)) {
@@ -641,8 +646,9 @@ program
 
     if (options.token) {
       headers.Authorization = `Bearer ${options.token}`;
-    } else if (process.env.VIEWER_JWT_SECRET || process.env.POLICY_JWT_SECRET) {
+    } else if (options.devMint && (process.env.VIEWER_JWT_SECRET || process.env.POLICY_JWT_SECRET)) {
       const secret = process.env.VIEWER_JWT_SECRET || process.env.POLICY_JWT_SECRET;
+      console.warn("Notice: Minting development JWT token with caller claims (--dev-mint).");
       const token = mintCliJwt(
         { sub: options.user, roles: ["viewer", "approver"], team: options.team },
         secret!,
@@ -650,7 +656,7 @@ program
       headers.Authorization = `Bearer ${token}`;
     } else {
       console.error(
-        "Error: Authentication required for Timeline Viewer / Feedback API. Please specify --token or set VIEWER_JWT_SECRET / POLICY_JWT_SECRET environment variable.",
+        "Error: Authentication required for Timeline Viewer / Feedback API. Please provide an issued token via --token <token> (or use --dev-mint in development/testing environments).",
       );
       process.exitCode = 1;
       return;

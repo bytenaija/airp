@@ -146,4 +146,26 @@ describe("Epic 10 Unit Tests: Notification Providers (LocalNotify & SlackNotify)
     expect(res.success).toBe(false);
     expect(res.error).toContain("status 500");
   });
+
+  it("LocalNotify sanitizes path traversal attempts in team and incident_id", async () => {
+    const notify = new LocalNotify({ outboxDir: tmpOutbox, silent: true });
+
+    const result = await notify.send({
+      type: "investigation-start",
+      incident_id: "../../../escape_id",
+      service: "checkout",
+      team: "../../escape_team",
+      title: "Attack Test",
+      summary: "Testing path traversal defense",
+    });
+
+    expect(result.success).toBe(true);
+    // Target path must be contained inside tmpOutbox
+    expect(result.destination.startsWith(path.resolve(tmpOutbox))).toBe(true);
+    // Team directory must be contained inside tmpOutbox/teams
+    const teamsDir = path.join(tmpOutbox, "teams");
+    const subdirs = fs.readdirSync(teamsDir);
+    expect(subdirs.length).toBe(1);
+    expect(subdirs[0]).toBe("______escape_team");
+  });
 });

@@ -104,8 +104,24 @@ export function verifyViewerToken(
     throw new Error("Invalid token signature");
   }
 
+  const headerStr = Buffer.from(b64Header, "base64url").toString("utf8");
+  const header = JSON.parse(headerStr);
+  if (header.alg !== "HS256" || header.typ !== "JWT") {
+    throw new Error("Invalid token header: expected alg=HS256, typ=JWT");
+  }
+
   const payloadStr = Buffer.from(b64Payload, "base64url").toString("utf8");
   const claims = JSON.parse(payloadStr) as ViewerUserClaims;
+
+  if (typeof claims !== "object" || !claims || typeof claims.sub !== "string" || !claims.sub) {
+    throw new Error("Invalid token payload: missing or invalid sub claim");
+  }
+  if (claims.team !== undefined && typeof claims.team !== "string") {
+    throw new Error("Invalid token payload: invalid team claim");
+  }
+  if (claims.roles !== undefined && !Array.isArray(claims.roles)) {
+    throw new Error("Invalid token payload: invalid roles claim");
+  }
 
   if (claims.exp && claims.exp < Math.floor(Date.now() / 1000)) {
     throw new Error("Token expired");

@@ -174,9 +174,33 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
 
     const { id } = req.params as { id: string };
 
+    const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
+    const userTeam = claims.team;
+
+    if (!isAdmin && !userTeam) {
+      recordAudit({
+        actor: claims.sub,
+        action: "access_denied_missing_team",
+        incidentId: id,
+        details: { endpoint: `/api/incidents/${id}` },
+      });
+      return reply.status(403).send({
+        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
+      });
+    }
+
     let incident: IncidentRecordWithTeam | undefined;
     if (id === "latest") {
-      incident = Array.from(incidents.values()).pop();
+      if (isAdmin) {
+        incident = Array.from(incidents.values()).pop();
+      } else {
+        const teamIncidents = Array.from(incidents.values()).filter((inc) => {
+          const incService = (inc as any).service || inc.signals?.[0]?.service || "unknown";
+          const incTeam = inc.team || inc.enrichment?.owner || getTeamForService(incService);
+          return incTeam === userTeam;
+        });
+        incident = teamIncidents.pop();
+      }
     } else {
       incident = incidents.get(id);
     }
@@ -187,21 +211,6 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
 
     const incService = (incident as any).service || incident.signals?.[0]?.service || "unknown";
     const incTeam = incident.team || incident.enrichment?.owner || getTeamForService(incService);
-
-    const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
-    const userTeam = claims.team;
-
-    if (!isAdmin && !userTeam) {
-      recordAudit({
-        actor: claims.sub,
-        action: "access_denied_missing_team",
-        incidentId: incident.id,
-        details: { endpoint: `/api/incidents/${id}` },
-      });
-      return reply.status(403).send({
-        error: "Forbidden: Viewer token has no team affiliation and user is not an org_admin",
-      });
-    }
 
     // Cross-Team Invisibility Enforcement:
     // If requester has a specific team and it does NOT match the incident's team, reject with 403 and audit
@@ -351,12 +360,28 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
       });
     }
 
-    // Determine target incident team if incident exists
+    // Determine target incident team; return 404 if incident does not exist
     const inc = incidents.get(body.incident_id);
-    let incTeam: string | undefined;
-    if (inc) {
-      const incService = (inc as any).service || inc.signals?.[0]?.service || "unknown";
-      incTeam = inc.team || inc.enrichment?.owner || getTeamForService(incService);
+    if (!inc) {
+      return reply.status(404).send({
+        error: `Incident '${body.incident_id}' not found`,
+      });
+    }
+
+    const incService = (inc as any).service || inc.signals?.[0]?.service || "unknown";
+    const incTeam = inc.team || inc.enrichment?.owner || getTeamForService(incService);
+
+    // Verify user attribution (prevent non-admin spoofing of another user)
+    if (!isAdmin && body.user && body.user !== claims.sub) {
+      recordAudit({
+        actor: claims.sub,
+        action: "feedback_user_spoofing_denied",
+        incidentId: body.incident_id,
+        details: { attemptedUser: body.user },
+      });
+      return reply.status(403).send({
+        error: `Forbidden: Cannot submit feedback attributed to another user ('${body.user}')`,
+      });
     }
 
     // Cross-team submission check
@@ -380,7 +405,7 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
       }
     }
 
-    const effectiveTeam = userTeam || incTeam || body.team || "platform-team";
+    const effectiveTeam = userTeam || incTeam || "platform-team";
 
     const record = feedbackStore.addFeedback(
       body,
@@ -478,6 +503,14 @@ export function buildTimelineViewerServer(options: TimelineViewerOptions = {}): 
   server.get("/api/audit", async (req, reply) => {
     const claims = requireAuth(req, reply);
     if (!claims) return;
+
+    const isAdmin = claims.roles?.includes("org_admin") || claims.roles?.includes("admin");
+    if (!isAdmin) {
+      return reply.status(403).send({
+        error: "Forbidden: Audit logs are restricted to org_admin",
+      });
+    }
+
     return { audit: auditLogs };
   });
 
