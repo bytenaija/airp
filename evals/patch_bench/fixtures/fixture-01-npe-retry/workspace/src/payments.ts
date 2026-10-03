@@ -1,7 +1,6 @@
-export function retryWithBackoff(response: any): { status: number; success: boolean } {
-  // Vulnerable logic: null response dereference
+export function retryWithBackoff(response: any): boolean {
   if (response.status === 200) {
-    return { status: 200, success: true };
+    return true;
   }
-  return { status: response.status || 500, success: false };
+  return false;
 }

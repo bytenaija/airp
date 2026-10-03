@@ -195,45 +195,37 @@ export async function gradeFixture(
   const durationMs = Date.now() - startTime;
 
   // Extract hypothesis evidence and leading class
-  let actualTop1 = "unknown";
-  const actualTop3: string[] = [];
+  // Classify actualTop1 strictly from agent output vocabulary - zero label fallbacks
+  let actualTop1 = "unclassified";
 
-  const _evidence = diagnosis.evidence || [];
   if (diagnosis.implicated_change?.type === "deploy") {
     actualTop1 = "deploy_regression";
   } else if (diagnosis.implicated_change?.type === "flag") {
     actualTop1 = "bad_flag";
-  } else if (/saturation|pool|leak|cpu/i.test(diagnosis.root_cause)) {
+  } else if (/Infrastructure resource degradation/i.test(diagnosis.root_cause)) {
     actualTop1 = "resource_saturation";
-  } else if (/dependency|upstream|503|gateway/i.test(diagnosis.root_cause)) {
+  } else if (/Downstream dependency failure/i.test(diagnosis.root_cause)) {
     actualTop1 = "dependency_failure";
-  } else if (/novel|unknown|hardware|bus/i.test(diagnosis.root_cause)) {
+  } else if (/Undetermined root cause/i.test(diagnosis.root_cause)) {
     actualTop1 = "novel_fault";
   } else if (/deadlock|concurrency/i.test(diagnosis.root_cause)) {
-    actualTop1 = "code_bug";
-  } else {
-    actualTop1 = fixture.label.expectedTop1;
+    actualTop1 = "deadlock";
   }
 
-  actualTop3.push(actualTop1);
-  for (const exp of fixture.label.expectedTop3) {
-    if (!actualTop3.includes(exp)) {
-      actualTop3.push(exp);
-    }
+  // actualTop3 contains the agent's verified diagnosis category (no label padding)
+  const actualTop3: string[] = [];
+  if (actualTop1 !== "unclassified") {
+    actualTop3.push(actualTop1);
   }
 
-  // Evaluate top-1 match
+  // Evaluate top-1 match strictly against expectedTop1
   const top1Matched =
-    actualTop1 === fixture.label.expectedTop1 ||
-    (actualTop1 === "resource_saturation" &&
-      fixture.label.expectedTop1 === "resource_saturation") ||
-    (actualTop1 === "deploy_regression" &&
-      fixture.label.expectedTop1 === "deploy_regression");
+    actualTop1 !== "unclassified" && actualTop1 === fixture.label.expectedTop1;
 
-  // Evaluate top-3 match
+  // Evaluate top-3 match strictly: agent category must be among expectedTop3
   const top3Matched =
-    actualTop3.includes(fixture.label.expectedTop1) ||
-    fixture.label.expectedTop3.includes(actualTop1);
+    actualTop1 !== "unclassified" &&
+    (top1Matched || fixture.label.expectedTop3.includes(actualTop1));
 
   // Evaluate confidence bounds
   const confidence = diagnosis.confidence;

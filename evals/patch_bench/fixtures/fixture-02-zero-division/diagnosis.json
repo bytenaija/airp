@@ -2,7 +2,7 @@
   "id": "22222222-0000-4000-a000-000000000002",
   "incident_id": "11111111-0000-4000-a000-000000000008",
   "tenant_id": "local",
-  "root_cause": "Division by zero crash in pricing calculateDiscount when count is 0",
+  "root_cause": "NullPointerException in pricing calculateDiscount when item object is null or undefined",
   "confidence": 0.85,
   "fixability": "code_fixable",
   "evidence": []

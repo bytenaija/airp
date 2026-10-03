@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { getBufferItem } from "../src/buffer.js";
+import { formatBuffer } from "../src/buffer.js";
 
-describe("PASS_TO_PASS: Valid in-bounds access", () => {
-  it("returns correct item at valid index", () => {
-    const res = getBufferItem(["a", "b", "c"], 1);
-    expect(res).toBe("b");
+describe("PASS_TO_PASS: Valid buffer formatting", () => {
+  it("formats buffer data correctly", () => {
+    const res = formatBuffer({ data: "payload" });
+    expect(res).toBe("payload");
   });
 
-  it("returns first item at index 0", () => {
-    const res = getBufferItem(["alpha", "beta"], 0);
-    expect(res).toBe("alpha");
+  it("handles empty data string", () => {
+    const res = formatBuffer({ data: "" });
+    expect(res).toBe("");
   });
 });

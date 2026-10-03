@@ -7,3 +7,4 @@ coverage/
 .prisma/
 *.tsbuildinfo
 outbox/
+evals/results/

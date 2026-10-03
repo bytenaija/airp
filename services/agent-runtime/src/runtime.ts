@@ -314,7 +314,7 @@ export class InvestigationAgentRuntime {
       .filter(Boolean)
       .join(" ");
     const npeMatch = summaries.match(
-      /(NullPointerException|[A-Za-z]+Error|[A-Za-z]+Exception|[A-Za-z]+Warning|5\d\d)/i,
+      /(NullPointerException|[A-Za-z]+Error|[A-Za-z]+Exception|5\d\d)/i,
     );
     if (npeMatch) {
       context.errorPattern = npeMatch[1];
@@ -651,8 +651,7 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
           type: "tool_call",
           toolName: "metrics_query",
           toolArgs: {
-            metric:
-              incident.signals[0]?.metric || `${primaryService}_error_rate`,
+            metric: `${primaryService}_error_rate`,
             labels: { service: primaryService },
             step: "15s",
           },
@@ -776,44 +775,31 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
     } else if (toolName === "metrics_query") {
       const values = Array.isArray(observation?.values)
         ? observation.values
-        : Array.isArray(observation?.series?.[0]?.values)
-          ? observation.series[0].values
-          : [];
+        : [];
       if (values.length >= 2) {
         const mid = Math.floor(values.length / 2);
         const firstHalf = values.slice(0, mid);
         const secondHalf = values.slice(mid);
         const avgBefore =
           firstHalf.reduce(
-            (sum: number, pt: any[]) => sum + Number(pt[1] || 0),
+            (sum: number, pt: any[]) => sum + (pt[1] || 0),
             0,
           ) / firstHalf.length;
         const avgAfter =
           secondHalf.reduce(
-            (sum: number, pt: any[]) => sum + Number(pt[1] || 0),
+            (sum: number, pt: any[]) => sum + (pt[1] || 0),
             0,
           ) / secondHalf.length;
-        const isInfraMetric = /pool|cpu|conn|mem|leak|deadlock/i.test(args.metric || "");
-        const isDepMetric = /upstream|gateway|timeout|503/i.test(args.metric || "");
-        const isNovelMetric = /unknown|trap|parity|cosmic|hardware|bus/i.test(args.metric || "");
-        const targetMetricHypothesis = isInfraMetric
-          ? "infra"
-          : isDepMetric
-            ? "dependency"
-            : isNovelMetric
-              ? "unknown"
-              : "change_caused";
-
         if (avgAfter > avgBefore * 1.2 || avgAfter > avgBefore + 0.05) {
-          manager.addEvidence(targetMetricHypothesis, {
+          manager.addEvidence("change_caused", {
             tool: "metrics_query",
             query: args.metric || "metric",
-            observation: `Metric step change detected on ${args.metric || "metric"}: rate increased from ${avgBefore.toFixed(2)} to ${avgAfter.toFixed(2)} post-incident`,
+            observation: `Metric step change detected: error rate increased from ${avgBefore.toFixed(2)} to ${avgAfter.toFixed(2)} post-change`,
             supports: true,
             weight: CANONICAL_WEIGHTS.METRIC_STEP_CHANGE_ALIGNED, // x4
           });
         } else {
-          manager.addEvidence(targetMetricHypothesis, {
+          manager.addEvidence("change_caused", {
             tool: "metrics_query",
             query: args.metric || "metric",
             observation: `Metric flat: rate ${avgBefore.toFixed(2)} -> ${avgAfter.toFixed(2)}, no step change detected`,
@@ -839,25 +825,11 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
             matched[0].message ||
             matched[0].error ||
             matched[0].msg ||
-            matched[0].line ||
             pattern;
-          const msgStr = String(sampleMsg);
-          const isInfraLog =
-            /pool|leak|deadlock|cpu|eventloop|memory|outofmemory/i.test(msgStr) ||
-            /pool|cpu|conn|mem|leak|deadlock/i.test(args.pattern || "");
-          const isDepLog =
-            /upstream|503|service unavailable|bank-partner|external/i.test(msgStr) ||
-            /upstream|gateway|503/i.test(args.pattern || "");
-          const targetLogHypothesis = isInfraLog
-            ? "infra"
-            : isDepLog
-              ? "dependency"
-              : "change_caused";
-
-          manager.addEvidence(targetLogHypothesis, {
+          manager.addEvidence("change_caused", {
             tool: "logs_query",
             query: args.pattern || args.service,
-            observation: `Found ${matched.length} error log entries (sample: '${msgStr.slice(0, 80)}')`,
+            observation: `Found ${matched.length} error log entries (sample: '${String(sampleMsg).slice(0, 80)}')`,
             supports: true,
             weight: CANONICAL_WEIGHTS.NEW_LOG_SIGNATURE, // x3
           });
@@ -974,11 +946,7 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
         if (leading.class === "change_caused" && recentDeploy) {
           const blameEv = leading.evidence.find((e) => e.tool === "code_blame");
           const blameLoc = blameEv ? ` at ${blameEv.query}` : "";
-          const changeWord =
-            recentDeploy.type === "flag"
-              ? "Feature flag toggle"
-              : "Deployment";
-          defaultRootCause = `${changeWord} ${recentDeploy.revision} by ${recentDeploy.author || "developer"}${blameLoc} caused ${incident.title || "service incident"}`;
+          defaultRootCause = `Deployment ${recentDeploy.revision} by ${recentDeploy.author || "developer"}${blameLoc} caused ${incident.title || "service incident"}`;
         } else if (leading.class === "dependency") {
           defaultRootCause = `Downstream dependency failure affecting ${svc}`;
         } else if (leading.class === "infra") {
@@ -990,9 +958,7 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
         let candidateConfidence =
           rawDiagnosis?.confidence !== undefined
             ? rawDiagnosis.confidence
-            : leading.class === "unknown"
-              ? Math.min(leading.confidence, 0.45)
-              : leading.confidence;
+            : leading.confidence; // No artificial floor!
 
         if (this.forceLowConfidence) {
           candidateConfidence = this.forcedConfidence ?? 0.35;
@@ -1006,11 +972,9 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
             : rawDiagnosis?.fixability ||
               (candidateConfidence >= this.confidenceThreshold &&
               leading.class === "change_caused"
-                ? recentDeploy?.type === "flag"
-                  ? "ops_actionable"
-                  : "code_fixable"
+                ? "code_fixable"
                 : candidateConfidence >= this.confidenceThreshold &&
-                    leading.class === "infra"
+                    (leading.class === "dependency" || leading.class === "infra")
                   ? "ops_actionable"
                   : "human_only");
 

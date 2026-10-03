@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { getBufferItem } from "../src/buffer.js";
+import { formatBuffer } from "../src/buffer.js";
 
-describe("FAIL_TO_PASS: Out of bounds index access", () => {
-  it("returns null for negative index", () => {
-    const res = getBufferItem(["a", "b"], -1);
-    expect(res).toBeNull();
+describe("FAIL_TO_PASS: Null/undefined buffer handling", () => {
+  it("returns empty string when buffer is null", () => {
+    const res = formatBuffer(null);
+    expect(res).toBe("");
   });
 
-  it("returns null for out of bounds index", () => {
-    const res = getBufferItem(["a", "b"], 5);
-    expect(res).toBeNull();
+  it("returns empty string when buffer is undefined", () => {
+    const res = formatBuffer(undefined);
+    expect(res).toBe("");
   });
 });

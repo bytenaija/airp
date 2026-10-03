@@ -157,7 +157,16 @@ export async function checkGates(
     promptContent = fs.readFileSync(systemPromptPath, "utf-8");
   }
 
-  let promptDegraded = options.degradePrompt === true;
+  if (options.degradePrompt) {
+    for (const phrase of baselines.promptIntegrity.requiredPhrases) {
+      promptContent = promptContent.replaceAll(
+        phrase,
+        "[REMOVED_FOR_DEGRADATION_TEST]",
+      );
+    }
+  }
+
+  let promptDegraded = false;
   let missingPhrase: string | undefined;
 
   for (const phrase of baselines.promptIntegrity.requiredPhrases) {

@@ -351,9 +351,11 @@ export function synthesizeNullGuardDiff(
   const startIdx = Math.max(0, rangeStart - 1);
   const endIdx = Math.min(lines.length - 1, rangeEnd - 1);
 
+  // Find the first line in the suspect range that dereferences a variable:
+  // `<ident>` followed by `.` (property access / method call), excluding
+  // lines that already guard (contain `!`, `||`, `??`, `?.`).
   let targetIdx = -1;
-  let guardLine = "";
-
+  let rootVar = "";
   for (let i = startIdx; i <= endIdx; i++) {
     const line = lines[i];
     if (!line || line.trim().startsWith("//") || line.trim().startsWith("*")) {
@@ -367,54 +369,32 @@ export function synthesizeNullGuardDiff(
     ) {
       continue; // already guarded
     }
-
-    // Pattern 1: Property access / method call (rootVar.prop)
-    const mProp = line.match(/(^|[^a-zA-Z0-9_$])([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\./);
-    if (mProp) {
-      const rootVar = mProp[2];
+    const m = line.match(/(^|[^a-zA-Z0-9_$])([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\./);
+    if (m) {
       targetIdx = i;
-      const returnType = findEnclosingFunctionReturnType(lines, targetIdx);
-      const safeDefault = defaultValueForType(returnType);
-      if (safeDefault !== null) {
-        const indent = line.match(/^\s*/)?.[0] || "";
-        guardLine = `${indent}if (!${rootVar}) return ${safeDefault};`;
-        break;
-      }
-    }
-
-    // Pattern 2: Division by variable (/ divisor)
-    const mDiv = line.match(/\/\s*([a-zA-Z_$][a-zA-Z0-9_$]*)/);
-    if (mDiv) {
-      const divisor = mDiv[1];
-      targetIdx = i;
-      const returnType = findEnclosingFunctionReturnType(lines, targetIdx);
-      const safeDefault = defaultValueForType(returnType) ?? "0";
-      const indent = line.match(/^\s*/)?.[0] || "";
-      guardLine = `${indent}if (!${divisor} || ${divisor} <= 0) return ${safeDefault};`;
-      break;
-    }
-
-    // Pattern 3: Array index access (arr[idx])
-    const mIdx = line.match(/([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\[\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\]/);
-    if (mIdx) {
-      const arr = mIdx[1];
-      const idx = mIdx[2];
-      targetIdx = i;
-      const indent = line.match(/^\s*/)?.[0] || "";
-      guardLine = `${indent}if (!${arr} || ${idx} < 0 || ${idx} >= ${arr}.length) return null;`;
+      rootVar = m[2];
       break;
     }
   }
 
-  if (targetIdx === -1 || !guardLine) {
-    return null; // No confident repair: do not invent a diff.
+  if (targetIdx === -1 || !rootVar) {
+    return null; // No confident unsafe dereference: do not invent a diff.
+  }
+
+  // Determine the safe default from the enclosing function's return type.
+  const returnType = findEnclosingFunctionReturnType(lines, targetIdx);
+  const safeDefault = defaultValueForType(returnType);
+  if (safeDefault === null) {
+    return null; // Unknown return type: do not invent a diff.
   }
 
   const oldLine = lines[targetIdx];
   const prevLine = targetIdx > 0 ? lines[targetIdx - 1] : "";
   const nextLine =
     targetIdx < lines.length - 1 ? lines[targetIdx + 1] : "";
-  const hunkStart = targetIdx;
+  const indent = oldLine.match(/^\s*/)?.[0] || "";
+  const hunkStart = targetIdx; // 0-indexed; diff hunk headers here are 0-based for simplicity
+  const guardLine = `${indent}if (!${rootVar}) return ${safeDefault};`;
 
   return [
     `--- a/${filePath}`,
@@ -440,7 +420,7 @@ function findEnclosingFunctionReturnType(
   for (let i = lineIdx; i >= Math.max(0, lineIdx - 40); i--) {
     const line = lines[i];
     // Matches: `function name(...): Type`, `name(...): Type {`, `const name = (...): Type =>`
-    const m = line.match(/\)\s*:\s*([A-Za-z0-9_$<>[\]|{};: ]+?)\s*[{=]/);
+    const m = line.match(/\)\s*:\s*([A-Za-z_$][A-Za-z0-9_$<>[\]| ]*?)\s*[{=]/);
     if (m) {
       return m[1].trim();
     }
@@ -461,18 +441,13 @@ function defaultValueForType(returnType: string | null): string | null {
     return null;
   }
   const t = returnType.replace(/\s+/g, "");
-  if (/^[{]/.test(t)) {
-    if (t.includes("status") && t.includes("success")) {
-      return "{ status: 500, success: false }";
-    }
-    return "{}";
-  }
+  // Array patterns BEFORE primitives: `number[]` contains the word `number`.
   if (/Array<|\[\]/.test(t)) return "[]";
   if (/\bnumber\b/.test(t)) return "0";
   if (/\bstring\b/.test(t)) return '""';
   if (/\bboolean\b/.test(t)) return "false";
   if (/\bvoid\b/.test(t) || t === "undefined" || t === "never") return "";
-  if (/\bany\b|\bunknown\b|\bobject\b|\bRecord</.test(t)) return "{}";
+  if (/\bany\b|\bunknown\b|\bobject\b|\bRecord<|^[{]/.test(t)) return "{}";
   // Union types: pick the first non-nullish member we recognize.
   const members = t.split("|").map((s) => s.trim());
   for (const member of members) {

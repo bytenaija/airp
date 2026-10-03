@@ -65,32 +65,50 @@ function applyPatchToFile(targetFile: string, diff: string): boolean {
   if (!fs.existsSync(targetFile)) return false;
   const content = fs.readFileSync(targetFile, "utf-8");
 
-  // If diff contains added lines marked with +, find insertion point
   const lines = diff.split("\n");
   const addedLines: string[] = [];
-  let oldLineToMatch = "";
+  let prevContextLine = "";
+  let nextContextLine = "";
+  let seenAdded = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.startsWith("+") && !line.startsWith("+++")) {
       addedLines.push(line.slice(1));
-    } else if (line.startsWith(" ") && !oldLineToMatch) {
-      oldLineToMatch = line.slice(1).trim();
+      seenAdded = true;
+    } else if (line.startsWith(" ")) {
+      if (!seenAdded) {
+        prevContextLine = line.slice(1).trim();
+      } else if (!nextContextLine) {
+        nextContextLine = line.slice(1).trim();
+      }
     }
   }
 
   if (addedLines.length === 0) return false;
 
   const contentLines = content.split("\n");
-  let matchIdx = -1;
-  if (oldLineToMatch) {
-    matchIdx = contentLines.findIndex((l) => l.trim() === oldLineToMatch);
-  }
-  if (matchIdx === -1) {
-    matchIdx = 1; // Fallback right after function signature
+  let insertIdx = -1;
+
+  if (nextContextLine) {
+    const nextIdx = contentLines.findIndex((l) => l.trim() === nextContextLine);
+    if (nextIdx !== -1) {
+      insertIdx = nextIdx;
+    }
   }
 
-  contentLines.splice(matchIdx, 0, ...addedLines);
+  if (insertIdx === -1 && prevContextLine) {
+    const prevIdx = contentLines.findIndex((l) => l.trim() === prevContextLine);
+    if (prevIdx !== -1) {
+      insertIdx = prevIdx + 1;
+    }
+  }
+
+  if (insertIdx === -1) {
+    insertIdx = 1;
+  }
+
+  contentLines.splice(insertIdx, 0, ...addedLines);
   fs.writeFileSync(targetFile, contentLines.join("\n"), "utf-8");
   return true;
 }

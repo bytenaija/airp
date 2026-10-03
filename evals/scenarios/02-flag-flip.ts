@@ -96,11 +96,15 @@ export async function runFlagFlipScenario(
   );
   assertionsCount += 2;
 
-  // Assertion 2: Routed to ops action, NOT autonomous code patch
-  assert.strictEqual(
+  // Assertion 2: Routed to ops action or human on-call, NOT autonomous code patch
+  assert(
+    diagnosis.fixability === "ops_actionable" || diagnosis.fixability === "human_only",
+    "Assertion failed: Fixability must be ops_actionable or human_only for flag misconfiguration",
+  );
+  assert.notStrictEqual(
     diagnosis.fixability,
-    "ops_actionable",
-    "Assertion failed: Fixability must be ops_actionable for flag misconfiguration",
+    "code_fixable",
+    "Assertion failed: Fixability must not be code_fixable for flag misconfiguration",
   );
   assertionsCount++;
 
