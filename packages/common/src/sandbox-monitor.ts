@@ -42,8 +42,9 @@ export class SandboxEscapeMonitor {
     this.notifier = notifier;
   }
 
-  private dispatchAlert(alertData: Omit<EscapeAlert, "id" | "timestamp" | "pagedOnCall">): EscapeAlert {
-    let pagedOnCall = false;
+  private async dispatchAlert(
+    alertData: Omit<EscapeAlert, "id" | "timestamp" | "pagedOnCall">,
+  ): Promise<EscapeAlert> {
     const alert: EscapeAlert = {
       ...alertData,
       id: crypto.randomUUID(),
@@ -51,16 +52,16 @@ export class SandboxEscapeMonitor {
       pagedOnCall: false,
     };
 
+    // Paged only when the notifier confirms delivery; an async notifier is
+    // awaited so a failed POST is never reported as a page.
     if (this.notifier) {
       try {
-        const res = this.notifier(alert);
-        pagedOnCall = typeof res === "boolean" ? res : true;
+        alert.pagedOnCall = (await this.notifier(alert)) === true;
       } catch {
-        pagedOnCall = false;
+        alert.pagedOnCall = false;
       }
     }
 
-    alert.pagedOnCall = pagedOnCall;
     this.alertsDispatched.push(alert);
     return alert;
   }
@@ -76,13 +77,16 @@ export class SandboxEscapeMonitor {
     return token;
   }
 
-  detectCanaryLeakage(payload: string, targetTenantId?: string): { leaked: boolean; matchedToken?: string; alert?: EscapeAlert } {
+  async detectCanaryLeakage(
+    payload: string,
+    targetTenantId?: string,
+  ): Promise<{ leaked: boolean; matchedToken?: string; alert?: EscapeAlert }> {
     // 1. Check all actively issued canaries
     if (this.activeCanaries.size > 0) {
       for (const canary of this.activeCanaries.values()) {
         if (payload.includes(canary.token)) {
           if (!targetTenantId || targetTenantId === canary.tenantId) {
-            const alert = this.dispatchAlert({
+            const alert = await this.dispatchAlert({
               type: "canary_token_leakage",
               severity: "critical",
               title: "CRITICAL: Sandbox Canary Secret Leakage Detected",
@@ -107,7 +111,7 @@ export class SandboxEscapeMonitor {
       const tenantId = match[1];
 
       if (!targetTenantId || targetTenantId === tenantId) {
-        const alert = this.dispatchAlert({
+        const alert = await this.dispatchAlert({
           type: "canary_token_leakage",
           severity: "critical",
           title: "CRITICAL: Sandbox Canary Secret Leakage Detected",
@@ -124,7 +128,9 @@ export class SandboxEscapeMonitor {
     return { leaked: false };
   }
 
-  evaluateSyscalls(events: SyscallAnomalyEvent[]): { hasAlert: boolean; violations: SyscallAnomalyEvent[]; alert?: EscapeAlert } {
+  async evaluateSyscalls(
+    events: SyscallAnomalyEvent[],
+  ): Promise<{ hasAlert: boolean; violations: SyscallAnomalyEvent[]; alert?: EscapeAlert }> {
     const DANGEROUS_SYSCALLS = new Set([
       "ptrace",
       "setns",
@@ -144,7 +150,7 @@ export class SandboxEscapeMonitor {
     );
 
     if (violations.length > 0) {
-      const alert = this.dispatchAlert({
+      const alert = await this.dispatchAlert({
         type: "sandbox_escape_attempt",
         severity: "critical",
         title: "CRITICAL: Sandbox Escape Attempt Detected",

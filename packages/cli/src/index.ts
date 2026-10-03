@@ -1200,7 +1200,7 @@ program
 
       // Simulate leakage into unconfined payload
       const simulatedLeakedPayload = `ALERT_NOTIFICATION: External egress observed with secret ${token}`;
-      const detection = monitor.detectCanaryLeakage(simulatedLeakedPayload, options.tenant);
+      const detection = await monitor.detectCanaryLeakage(simulatedLeakedPayload, options.tenant);
 
       if (detection.leaked) {
         console.log(`[CANARY PROBE ALERT] Critical leakage detected!`);
