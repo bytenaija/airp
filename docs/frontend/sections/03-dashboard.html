@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP — Dashboard & Analytics</title>
+<style>
+  [data-theme="violet"]{--accent:#a78bfa;--accent-hover:#8b5cf6;--bg:#0b0a10;--surface:#15131d;--border:#282434;--text:#f5f3fa;--muted:#a8a3b8;}
+  [data-theme="crimson"]{--accent:#f87171;--accent-hover:#ef4444;--bg:#0c0909;--surface:#181214;--border:#2e2224;--text:#faf3f3;--muted:#b8a3a3;}
+  [data-theme="signal-green"]{--accent:#4ade80;--accent-hover:#22c55e;--bg:#0a0a0b;--surface:#141417;--border:#26262b;--text:#f4f4f5;--muted:#a1a1aa;}
+  [data-theme="ember-orange"]{--accent:#fb923c;--accent-hover:#f97316;--bg:#0b0a09;--surface:#161412;--border:#2b2521;--text:#faf7f4;--muted:#a8a29e;}
+  [data-theme="cyan"]{--accent:#22d3ee;--accent-hover:#06b6d4;--bg:#090b0c;--surface:#121819;--border:#1f2b2e;--text:#f2fafa;--muted:#9fb3b8;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;display:flex}
+  .sidebar{width:216px;flex-shrink:0;border-right:1px solid var(--border);padding:18px 12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh}
+  .logo{font-weight:800;font-size:17px;padding:6px 10px 16px;letter-spacing:.5px}
+  .logo b{color:var(--accent)}
+  .nav-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);padding:12px 10px 6px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--muted);font-size:14px;cursor:pointer;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+  .nav-item:hover{background:var(--surface);color:var(--text)}
+  .nav-item.active{background:var(--surface);color:var(--accent);font-weight:600}
+  .nav-item .ico{width:18px;text-align:center}
+  .main{flex:1;padding:28px 32px;max-width:1180px}
+  .view{display:none}
+  .view.active{display:block}
+  h1{font-size:22px;margin-bottom:4px}
+  .page-sub{color:var(--muted);font-size:14px;margin-bottom:22px}
+  .page-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:4px}
+  .controls{display:flex;gap:8px}
+  .select{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 12px;font-size:13px;font-family:inherit;cursor:pointer}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px}
+  .metric{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;position:relative;overflow:hidden}
+  .metric .lbl{font-size:13px;color:var(--muted);margin-bottom:8px}
+  .metric .val{font-size:30px;font-weight:700;margin-bottom:6px}
+  .metric .delta{font-size:12px;color:var(--accent)}
+  .metric .delta.down{color:#f87171}
+  .spark{position:absolute;bottom:0;left:0;right:0;height:34px;opacity:.55}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px}
+  .grid1{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:26px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
+  .card h3{font-size:15px;margin-bottom:4px}
+  .card .desc{font-size:12.5px;color:var(--muted);margin-bottom:16px;line-height:1.5}
+  .section-title{font-size:14px;font-weight:700;margin:26px 0 14px;color:var(--text)}
+  .bars{display:flex;align-items:flex-end;gap:26px;justify-content:center;padding:20px 10px 6px;min-height:190px}
+  .bar-col{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .bar{width:76px;border-radius:6px 6px 0 0;position:relative}
+  .bar .n{position:absolute;top:-22px;left:0;right:0;text-align:center;font-size:13px;font-weight:700;color:var(--text)}
+  .bar-lbl{font-size:12px;color:var(--muted)}
+  .conv{font-size:12px;color:var(--muted);text-align:center;margin-top:2px}
+  .donut-wrap{display:flex;align-items:center;gap:26px;justify-content:center;padding:10px}
+  .legend{display:flex;flex-direction:column;gap:8px;font-size:13px}
+  .legend .li{display:flex;align-items:center;gap:8px;color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .usage-bar{height:10px;border-radius:6px;background:var(--border);overflow:hidden;margin:10px 0 6px}
+  .usage-fill{height:100%;border-radius:6px;background:var(--accent)}
+  .usage-row{display:flex;justify-content:space-between;font-size:13px}
+  .usage-row .muted{color:var(--muted)}
+  .flag-fab{position:fixed;bottom:18px;right:18px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:50}
+  .flag-fab .t{color:var(--muted);margin-bottom:8px;font-family:monospace;font-size:11px}
+  .flag-fab .swatches{display:flex;gap:8px}
+  .sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+  .sw.active{border-color:var(--text)}
+  .stacked{display:flex;flex-direction:column;gap:0}
+  .htype{display:grid;grid-template-columns:170px 1fr 52px;gap:10px;align-items:center;margin-bottom:10px;font-size:13px}
+  .htype .name{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .htype .track{height:12px;background:var(--border);border-radius:6px;overflow:hidden}
+  .htype .fill{height:100%;border-radius:6px}
+  .htype .pct{text-align:right;color:var(--muted);font-size:12px}
+  .axis-chart{width:100%;height:220px}
+  .note{font-size:12px;color:var(--muted);margin-top:8px}
+  @media(max-width:900px){.metrics{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.sidebar{display:none}.main{padding:20px 16px}}
+</style>
+</head>
+<body>
+<nav class="sidebar">
+  <div class="logo">AIRP<b>.</b></div>
+  <div class="nav-label">Overview</div>
+  <button class="nav-item active" data-view="dashboard"><span class="ico">&#9783;</span>Dashboard</button>
+  <button class="nav-item" data-view="analytics"><span class="ico">&#9646;</span>Analytics</button>
+  <div class="nav-label">Section 03</div>
+  <div style="padding:0 10px;font-size:12px;color:var(--muted);line-height:1.6">Dashboard + Analytics prototype.<br>Other sections ship as separate files.</div>
+</nav>
+<main class="main">
+  <!-- DASHBOARD VIEW -->
+  <section class="view active" id="view-dashboard">
+    <div class="page-head">
+      <div><h1>Dashboard</h1><p class="page-sub">What AIRP caught, fixed and diagnosed across your workspace.</p></div>
+      <div class="controls">
+        <select class="select"><option>Daily</option><option>Weekly</option><option>Monthly</option></select>
+        <select class="select"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option></select>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="lbl">Incidents prevented</div><div class="val">47</div>
+        <div class="delta">+12 vs prior 30d</div>
+        <svg class="spark" viewBox="0 0 200 34" preserveAspectRatio="none"><polyline points="0,28 25,26 50,24 75,25 100,20 125,18 150,14 175,10 200,7" fill="none" stroke="#f87171" stroke-width="2"/></svg>
+      </div>
+      <div class="metric">
+        <div class="lbl">Merge rate</div><div class="val">92%</div>
+        <div class="delta">+3 pts vs prior 30d</div>
+        <svg class="spark" viewBox="0 0 200 34" preserveAspectRatio="none"><polyline points="0,26 25,24 50,25 75,21 100,19 125,16 150,14 175,11 200,9" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+      </div>
+      <div class="metric">
+        <div class="lbl">Mean time to resolution</div><div class="val">38m</div>
+        <div class="delta">-9m vs prior 30d</div>
+        <svg class="spark" viewBox="0 0 200 34" preserveAspectRatio="none"><polyline points="0,8 25,10 50,9 75,13 100,15 125,19 150,22 175,25 200,28" fill="none" stroke="#60a5fa" stroke-width="2"/></svg>
+      </div>
+      <div class="metric">
+        <div class="lbl">Time to verdict</div><div class="val">6m</div>
+        <div class="delta">-2m vs prior 30d</div>
+        <svg class="spark" viewBox="0 0 200 34" preserveAspectRatio="none"><polyline points="0,10 25,12 50,14 75,13 100,17 125,20 150,23 175,26 200,29" fill="none" stroke="#c084fc" stroke-width="2"/></svg>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Fix-run pipeline</h3>
+        <p class="desc">Each stage of a fix run, with the share of the previous stage that reached it. A run started before the window can reach a later stage inside it.</p>
+        <div class="bars">
+          <div class="bar-col"><div class="bar" style="height:150px;background:#3b82f6"><span class="n">61</span></div><div class="bar-lbl">Started</div></div>
+          <div class="bar-col"><div class="bar" style="height:138px;background:#f97316"><span class="n">56</span></div><div class="bar-lbl">PR opened</div><div class="conv">92% &#8594;</div></div>
+          <div class="bar-col"><div class="bar" style="height:127px;background:var(--accent)"><span class="n">52</span></div><div class="bar-lbl">Merged</div><div class="conv">93% &#8594;</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Outcomes</h3>
+        <p class="desc">How the pull requests AIRP opened settled: merged, or closed without merging. A pull request still open is in neither slice.</p>
+        <div class="donut-wrap">
+          <svg width="170" height="170" viewBox="0 0 42 42">
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--border)" stroke-width="6"/>
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--accent)" stroke-width="6" stroke-dasharray="85 15" stroke-dashoffset="25" stroke-linecap="round"/>
+            <text x="21" y="21" text-anchor="middle" dy="4" font-size="7" font-weight="700" fill="var(--text)">56</text>
+            <text x="21" y="27" text-anchor="middle" font-size="3.2" fill="var(--muted)">total</text>
+          </svg>
+          <div class="legend">
+            <div class="li"><span class="dot" style="background:var(--accent)"></span>Merged — 48</div>
+            <div class="li"><span class="dot" style="background:#f87171"></span>Closed unmerged — 5</div>
+            <div class="li"><span class="dot" style="background:var(--border)"></span>Still open — 3</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Recent activity</h3>
+      <p class="desc">Latest fix runs across the workspace.</p>
+      <div class="stacked" style="font-size:13px">
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span><b>#4821</b> &nbsp;payment-service latency spike &nbsp;<span style="color:var(--accent)">&#9679; Merged</span></span><span style="color:var(--muted)">14 min ago</span></div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span><b>#4820</b> &nbsp;checkout 5xx after deploy &nbsp;<span style="color:var(--accent)">&#9679; Merged</span></span><span style="color:var(--muted)">1 h ago</span></div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span><b>#4819</b> &nbsp;worker queue backlog &nbsp;<span style="color:#fbbf24">&#9679; In review</span></span><span style="color:var(--muted)">3 h ago</span></div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0"><span><b>#4818</b> &nbsp;stale feature flag cleanup &nbsp;<span style="color:var(--muted)">&#9679; Closed</span></span><span style="color:var(--muted)">Yesterday</span></div>
+      </div>
+    </div>
+  </section>
+  <!-- ANALYTICS VIEW -->
+  <section class="view" id="view-analytics">
+    <div class="page-head">
+      <div><h1>Analytics</h1><p class="page-sub">Deeper cuts on reviews, usage and activity across your workspace.</p></div>
+      <div class="controls">
+        <select class="select"><option>Daily</option><option>Weekly</option></select>
+        <select class="select"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option></select>
+      </div>
+    </div>
+
+    <div class="section-title">Pull request reviews</div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Review outcomes</h3>
+        <p class="desc">How each pull request review concluded. Superseded means a newer push replaced the review before it finished.</p>
+        <div class="donut-wrap">
+          <svg width="170" height="170" viewBox="0 0 42 42">
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--border)" stroke-width="6"/>
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="#3b82f6" stroke-width="6" stroke-dasharray="62 38" stroke-dashoffset="25"/>
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="#f87171" stroke-width="6" stroke-dasharray="18 82" stroke-dashoffset="-37"/>
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="#fbbf24" stroke-width="6" stroke-dasharray="12 88" stroke-dashoffset="-55"/>
+            <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--muted)" stroke-width="6" stroke-dasharray="8 92" stroke-dashoffset="-67"/>
+            <text x="21" y="21" text-anchor="middle" dy="4" font-size="7" font-weight="700" fill="var(--text)">214</text>
+            <text x="21" y="27" text-anchor="middle" font-size="3.2" fill="var(--muted)">total</text>
+          </svg>
+          <div class="legend">
+            <div class="li"><span class="dot" style="background:#3b82f6"></span>Passed — 133</div>
+            <div class="li"><span class="dot" style="background:#f87171"></span>Found an issue — 38</div>
+            <div class="li"><span class="dot" style="background:#fbbf24"></span>Superseded — 26</div>
+            <div class="li"><span class="dot" style="background:var(--muted)"></span>Skipped — 17</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Reviews over time</h3>
+        <p class="desc">Pull request reviews per day, stacked by the verdict each one reached.</p>
+        <svg class="axis-chart" viewBox="0 0 400 220" preserveAspectRatio="none">
+          <g stroke="var(--border)" stroke-width="1"><line x1="34" y1="10" x2="34" y2="180"/><line x1="34" y1="180" x2="395" y2="180"/><line x1="34" y1="130" x2="395" y2="130" stroke-dasharray="3 4"/><line x1="34" y1="80" x2="395" y2="80" stroke-dasharray="3 4"/><line x1="34" y1="30" x2="395" y2="30" stroke-dasharray="3 4"/></g>
+          <g font-size="9" fill="var(--muted)"><text x="6" y="33">12</text><text x="10" y="83">8</text><text x="10" y="133">4</text><text x="10" y="183">0</text></g>
+          <g>
+            <rect x="52" y="150" width="16" height="30" fill="#3b82f6" rx="2"/><rect x="52" y="140" width="16" height="10" fill="#f87171" rx="2"/>
+            <rect x="82" y="130" width="16" height="50" fill="#3b82f6" rx="2"/><rect x="82" y="118" width="16" height="12" fill="#fbbf24" rx="2"/>
+            <rect x="112" y="142" width="16" height="38" fill="#3b82f6" rx="2"/><rect x="112" y="134" width="16" height="8" fill="#f87171" rx="2"/>
+            <rect x="142" y="110" width="16" height="70" fill="#3b82f6" rx="2"/><rect x="142" y="96" width="16" height="14" fill="#f87171" rx="2"/>
+            <rect x="172" y="122" width="16" height="58" fill="#3b82f6" rx="2"/><rect x="172" y="112" width="16" height="10" fill="#fbbf24" rx="2"/>
+            <rect x="202" y="100" width="16" height="80" fill="#3b82f6" rx="2"/><rect x="202" y="88" width="16" height="12" fill="#f87171" rx="2"/>
+            <rect x="232" y="126" width="16" height="54" fill="#3b82f6" rx="2"/>
+            <rect x="262" y="92" width="16" height="88" fill="#3b82f6" rx="2"/><rect x="262" y="78" width="16" height="14" fill="#f87171" rx="2"/>
+            <rect x="292" y="116" width="16" height="64" fill="#3b82f6" rx="2"/><rect x="292" y="106" width="16" height="10" fill="#fbbf24" rx="2"/>
+            <rect x="322" y="84" width="16" height="96" fill="#3b82f6" rx="2"/><rect x="322" y="70" width="16" height="14" fill="#f87171" rx="2"/>
+            <rect x="352" y="104" width="16" height="76" fill="#3b82f6" rx="2"/><rect x="352" y="94" width="16" height="10" fill="#fbbf24" rx="2"/>
+          </g>
+          <g font-size="9" fill="var(--muted)" text-anchor="middle"><text x="60" y="196">Sep 23</text><text x="150" y="196">Sep 26</text><text x="240" y="196">Sep 29</text><text x="330" y="196">Oct 2</text></g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="section-title">Usage</div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="usage-row"><span>Current cycle allowance</span><span><b>64.2%</b> <span class="muted">used</span></span></div>
+      <div class="usage-bar"><div class="usage-fill" style="width:64.2%"></div></div>
+      <div class="usage-row"><span class="muted">Resets on November 1, 2026 (UTC)</span><span class="muted">3,212 / 5,000 credits</span></div>
+    </div>
+    <div class="grid1">
+      <div class="card">
+        <h3>Usage over time</h3>
+        <p class="desc">Daily usage this cycle as a percentage of your allowance, split by work type.</p>
+        <svg class="axis-chart" viewBox="0 0 400 220" preserveAspectRatio="none">
+          <g stroke="var(--border)" stroke-width="1"><line x1="40" y1="10" x2="40" y2="180"/><line x1="40" y1="180" x2="395" y2="180"/><line x1="40" y1="130" x2="395" y2="130" stroke-dasharray="3 4"/><line x1="40" y1="80" x2="395" y2="80" stroke-dasharray="3 4"/><line x1="40" y1="30" x2="395" y2="30" stroke-dasharray="3 4"/></g>
+          <g font-size="9" fill="var(--muted)"><text x="14" y="33">8%</text><text x="14" y="83">6%</text><text x="14" y="133">4%</text><text x="14" y="183">2%</text></g>
+          <g>
+            <rect x="60" y="150" width="22" height="30" fill="var(--accent)" rx="2"/><rect x="60" y="138" width="22" height="12" fill="#f97316" rx="2"/>
+            <rect x="96" y="120" width="22" height="60" fill="var(--accent)" rx="2"/><rect x="96" y="104" width="22" height="16" fill="#f97316" rx="2"/><rect x="96" y="96" width="22" height="8" fill="#3b82f6" rx="2"/>
+            <rect x="132" y="140" width="22" height="40" fill="var(--accent)" rx="2"/><rect x="132" y="130" width="22" height="10" fill="#f97316" rx="2"/>
+            <rect x="168" y="100" width="22" height="80" fill="var(--accent)" rx="2"/><rect x="168" y="82" width="22" height="18" fill="#f97316" rx="2"/><rect x="168" y="74" width="22" height="8" fill="#3b82f6" rx="2"/>
+            <rect x="204" y="126" width="22" height="54" fill="var(--accent)" rx="2"/><rect x="204" y="114" width="22" height="12" fill="#f97316" rx="2"/>
+            <rect x="240" y="88" width="22" height="92" fill="var(--accent)" rx="2"/><rect x="240" y="70" width="22" height="18" fill="#f97316" rx="2"/><rect x="240" y="62" width="22" height="8" fill="#3b82f6" rx="2"/>
+            <rect x="276" y="110" width="22" height="70" fill="var(--accent)" rx="2"/><rect x="276" y="98" width="22" height="12" fill="#f97316" rx="2"/>
+            <rect x="312" y="76" width="22" height="104" fill="var(--accent)" rx="2"/><rect x="312" y="56" width="22" height="20" fill="#f97316" rx="2"/><rect x="312" y="48" width="22" height="8" fill="#3b82f6" rx="2"/>
+          </g>
+          <g font-size="9" fill="var(--muted)" text-anchor="middle"><text x="71" y="196">Sep 26</text><text x="179" y="196">Sep 29</text><text x="287" y="196">Oct 2</text></g>
+        </svg>
+        <div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:14px;margin-top:10px">
+          <div class="li"><span class="dot" style="background:var(--accent)"></span>Fix runs</div>
+          <div class="li"><span class="dot" style="background:#f97316"></span>Investigations</div>
+          <div class="li"><span class="dot" style="background:#3b82f6"></span>Code reviews</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Usage by type</h3>
+        <p class="desc">Each type's share of usage over the last 30 days.</p>
+        <div class="htype"><span class="name">Fix runs</span><div class="track"><div class="fill" style="width:58%;background:var(--accent)"></div></div><span class="pct">58%</span></div>
+        <div class="htype"><span class="name">Investigations</span><div class="track"><div class="fill" style="width:24%;background:#f97316"></div></div><span class="pct">24%</span></div>
+        <div class="htype"><span class="name">Code reviews</span><div class="track"><div class="fill" style="width:11%;background:#3b82f6"></div></div><span class="pct">11%</span></div>
+        <div class="htype"><span class="name">Thread summaries</span><div class="track"><div class="fill" style="width:4%;background:#fbbf24"></div></div><span class="pct">4%</span></div>
+        <div class="htype"><span class="name">Labeling</span><div class="track"><div class="fill" style="width:3%;background:#34d399"></div></div><span class="pct">3%</span></div>
+      </div>
+    </div>
+
+    <div class="section-title">Activity</div>
+    <div class="card">
+      <h3>Threads started</h3>
+      <p class="desc">Threads started in your workspace, whether a person opened one or AIRP started it on its own.</p>
+      <svg class="axis-chart" viewBox="0 0 400 200" preserveAspectRatio="none">
+        <g stroke="var(--border)" stroke-width="1"><line x1="34" y1="10" x2="34" y2="165"/><line x1="34" y1="165" x2="395" y2="165"/><line x1="34" y1="120" x2="395" y2="120" stroke-dasharray="3 4"/><line x1="34" y1="75" x2="395" y2="75" stroke-dasharray="3 4"/><line x1="34" y1="30" x2="395" y2="30" stroke-dasharray="3 4"/></g>
+        <g font-size="9" fill="var(--muted)"><text x="14" y="33">12</text><text x="18" y="78">8</text><text x="18" y="123">4</text><text x="18" y="168">0</text></g>
+        <g fill="var(--accent)">
+          <rect x="48" y="150" width="14" height="15" rx="2"/><rect x="70" y="142" width="14" height="23" rx="2"/><rect x="92" y="153" width="14" height="12" rx="2"/><rect x="114" y="135" width="14" height="30" rx="2"/><rect x="136" y="146" width="14" height="19" rx="2"/><rect x="158" y="128" width="14" height="37" rx="2"/><rect x="180" y="139" width="14" height="26" rx="2"/><rect x="202" y="120" width="14" height="45" rx="2"/><rect x="224" y="131" width="14" height="34" rx="2"/><rect x="246" y="112" width="14" height="53" rx="2"/><rect x="268" y="124" width="14" height="41" rx="2"/><rect x="290" y="105" width="14" height="60" rx="2"/><rect x="312" y="116" width="14" height="49" rx="2"/><rect x="334" y="97" width="14" height="68" rx="2"/>
+        </g>
+        <g font-size="9" fill="var(--muted)" text-anchor="middle"><text x="55" y="182">Sep 20</text><text x="143" y="182">Sep 24</text><text x="231" y="182">Sep 28</text><text x="319" y="182">Oct 2</text></g>
+      </svg>
+    </div>
+  </section>
+</main>
+<div class="flag-fab">
+  <div class="t">Feature flag: ui.theme.accent</div>
+  <div class="swatches">
+    <button class="sw active" data-theme-set="violet" style="background:#a78bfa" title="violet"></button>
+    <button class="sw" data-theme-set="crimson" style="background:#f87171" title="crimson"></button>
+    <button class="sw" data-theme-set="signal-green" style="background:#4ade80" title="signal-green"></button>
+    <button class="sw" data-theme-set="ember-orange" style="background:#fb923c" title="ember-orange"></button>
+    <button class="sw" data-theme-set="cyan" style="background:#22d3ee" title="cyan"></button>
+  </div>
+</div>
+<script>
+  document.querySelectorAll('.nav-item').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.nav-item').forEach(function(b){b.classList.remove('active')});
+      btn.classList.add('active');
+      document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active')});
+      document.getElementById('view-' + btn.getAttribute('data-view')).classList.add('active');
+      window.scrollTo(0,0);
+    });
+  });
+  document.querySelectorAll('.sw').forEach(function(sw){
+    sw.addEventListener('click', function(){
+      document.documentElement.setAttribute('data-theme', sw.getAttribute('data-theme-set'));
+      document.querySelectorAll('.sw').forEach(function(s){s.classList.remove('active')});
+      sw.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP Theme Color Options</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 32px 20px; }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  .sub { color: #a1a1aa; font-size: 14px; margin-bottom: 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; max-width: 1200px; margin: 0 auto; }
+  .option { border: 1px solid #2a2a2e; border-radius: 12px; overflow: hidden; }
+  .option .label { padding: 14px 18px; background: #0a0a0b; border-bottom: 1px solid #2a2a2e; }
+  .option .label b { font-size: 16px; }
+  .option .label span { display: block; font-size: 12px; color: #a1a1aa; margin-top: 2px; }
+  .preview { padding: 22px 18px; }
+  .preview .card { border-radius: 8px; padding: 16px; margin-bottom: 14px; border: 1px solid; }
+  .preview .card h3 { font-size: 14px; margin-bottom: 4px; }
+  .preview .card p { font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .btn { border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-ghost { background: transparent; border: 1px solid; border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+  .badge { font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+  .toggle { width: 38px; height: 22px; border-radius: 999px; position: relative; }
+  .toggle::after { content: ""; position: absolute; top: 3px; left: 20px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .metric { font-size: 26px; font-weight: 700; }
+  .hexes { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .hex { display: flex; align-items: center; gap: 6px; font-size: 11px; font-family: monospace; }
+  .sw { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(255,255,255,.2); }
+</style>
+</head>
+<body>
+<h1>AIRP theme color options</h1>
+<p class="sub">Each option keeps the same dark base adapted from the reference. Only the accent changes. Tell me the letter you like.</p>
+<div class="grid">
+
+  <div class="option">
+    <div class="label"><b>A &mdash; Signal green</b><span>Closest to the reference product</span></div>
+    <div class="preview" style="background:#0a0a0b">
+      <div class="card" style="background:#141417;border-color:#26262b">
+        <h3 style="color:#f4f4f5">Incidents prevented</h3>
+        <p style="color:#a1a1aa">What AIRP caught and fixed this month.</p>
+        <div class="metric" style="color:#f4f4f5;margin-top:8px">128</div>
+      </div>
+      <div class="row">
+        <button class="btn" style="background:#4ade80;color:#052e12">Connect</button>
+        <button class="btn-ghost" style="border-color:#3a3a40;color:#f4f4f5">Documentation</button>
+        <span class="badge" style="background:rgba(74,222,128,.15);color:#4ade80">Active</span>
+        <span class="toggle" style="background:#4ade80"></span>
+      </div>
+      <div class="hexes">
+        <span class="hex"><span class="sw" style="background:#4ade80"></span>#4ade80</span>
+        <span class="hex"><span class="sw" style="background:#0a0a0b"></span>#0a0a0b</span>
+        <span class="hex"><span class="sw" style="background:#141417"></span>#141417</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="option">
+    <div class="label"><b>B &mdash; Ember orange</b><span>Incident and alert energy</span></div>
+    <div class="preview" style="background:#0b0a09">
+      <div class="card" style="background:#161412;border-color:#2b2521">
+        <h3 style="color:#faf7f4">Incidents prevented</h3>
+        <p style="color:#a8a29e">What AIRP caught and fixed this month.</p>
+        <div class="metric" style="color:#faf7f4;margin-top:8px">128</div>
+      </div>
+      <div class="row">
+        <button class="btn" style="background:#fb923c;color:#431407">Connect</button>
+        <button class="btn-ghost" style="border-color:#3d3833;color:#faf7f4">Documentation</button>
+        <span class="badge" style="background:rgba(251,146,60,.15);color:#fb923c">Active</span>
+        <span class="toggle" style="background:#fb923c"></span>
+      </div>
+      <div class="hexes">
+        <span class="hex"><span class="sw" style="background:#fb923c"></span>#fb923c</span>
+        <span class="hex"><span class="sw" style="background:#0b0a09"></span>#0b0a09</span>
+        <span class="hex"><span class="sw" style="background:#161412"></span>#161412</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="option">
+    <div class="label"><b>C &mdash; Cyan</b><span>Observability and trust feel</span></div>
+    <div class="preview" style="background:#090b0c">
+      <div class="card" style="background:#121819;border-color:#1f2b2e">
+        <h3 style="color:#f2fafa">Incidents prevented</h3>
+        <p style="color:#9fb3b8">What AIRP caught and fixed this month.</p>
+        <div class="metric" style="color:#f2fafa;margin-top:8px">128</div>
+      </div>
+      <div class="row">
+        <button class="btn" style="background:#22d3ee;color:#083344">Connect</button>
+        <button class="btn-ghost" style="border-color:#2b3b3f;color:#f2fafa">Documentation</button>
+        <span class="badge" style="background:rgba(34,211,238,.15);color:#22d3ee">Active</span>
+        <span class="toggle" style="background:#22d3ee"></span>
+      </div>
+      <div class="hexes">
+        <span class="hex"><span class="sw" style="background:#22d3ee"></span>#22d3ee</span>
+        <span class="hex"><span class="sw" style="background:#090b0c"></span>#090b0c</span>
+        <span class="hex"><span class="sw" style="background:#121819"></span>#121819</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="option">
+    <div class="label"><b>D &mdash; Violet</b><span>AI product feel</span></div>
+    <div class="preview" style="background:#0b0a10">
+      <div class="card" style="background:#15131d;border-color:#282434">
+        <h3 style="color:#f5f3fa">Incidents prevented</h3>
+        <p style="color:#a8a3b8">What AIRP caught and fixed this month.</p>
+        <div class="metric" style="color:#f5f3fa;margin-top:8px">128</div>
+      </div>
+      <div class="row">
+        <button class="btn" style="background:#a78bfa;color:#2e1065">Connect</button>
+        <button class="btn-ghost" style="border-color:#38324a;color:#f5f3fa">Documentation</button>
+        <span class="badge" style="background:rgba(167,139,250,.15);color:#a78bfa">Active</span>
+        <span class="toggle" style="background:#a78bfa"></span>
+      </div>
+      <div class="hexes">
+        <span class="hex"><span class="sw" style="background:#a78bfa"></span>#a78bfa</span>
+        <span class="hex"><span class="sw" style="background:#0b0a10"></span>#0b0a10</span>
+        <span class="hex"><span class="sw" style="background:#15131d"></span>#15131d</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="option">
+    <div class="label"><b>E &mdash; Crimson</b><span>Urgency, incident response</span></div>
+    <div class="preview" style="background:#0c0909">
+      <div class="card" style="background:#181214;border-color:#2e2224">
+        <h3 style="color:#faf3f3">Incidents prevented</h3>
+        <p style="color:#b8a3a3">What AIRP caught and fixed this month.</p>
+        <div class="metric" style="color:#faf3f3;margin-top:8px">128</div>
+      </div>
+      <div class="row">
+        <button class="btn" style="background:#f87171;color:#450a0a">Connect</button>
+        <button class="btn-ghost" style="border-color:#403234;color:#faf3f3">Documentation</button>
+        <span class="badge" style="background:rgba(248,113,113,.15);color:#f87171">Active</span>
+        <span class="toggle" style="background:#f87171"></span>
+      </div>
+      <div class="hexes">
+        <span class="hex"><span class="sw" style="background:#f87171"></span>#f87171</span>
+        <span class="hex"><span class="sw" style="background:#0c0909"></span>#0c0909</span>
+        <span class="hex"><span class="sw" style="background:#181214"></span>#181214</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

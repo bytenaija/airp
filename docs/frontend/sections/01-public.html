@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP — Public</title>
+<style>
+  :root, [data-theme="violet"] {
+    --accent:#a78bfa; --accent-hover:#8b5cf6; --bg:#0b0a10; --surface:#15131d;
+    --border:#282434; --text:#f5f3fa; --muted:#a8a3b8;
+  }
+  [data-theme="crimson"] {
+    --accent:#f87171; --accent-hover:#ef4444; --bg:#0c0909; --surface:#181214;
+    --border:#2e2224; --text:#faf3f3; --muted:#b8a3a3;
+  }
+  [data-theme="signal-green"] {
+    --accent:#4ade80; --accent-hover:#22c55e; --bg:#0a0a0b; --surface:#141417;
+    --border:#26262b; --text:#f4f4f5; --muted:#a1a1aa;
+  }
+  [data-theme="ember-orange"] {
+    --accent:#fb923c; --accent-hover:#f97316; --bg:#0b0a09; --surface:#161412;
+    --border:#2b2521; --text:#faf7f4; --muted:#a8a29e;
+  }
+  [data-theme="cyan"] {
+    --accent:#22d3ee; --accent-hover:#06b6d4; --bg:#090b0c; --surface:#121819;
+    --border:#1f2b2e; --text:#f2fafa; --muted:#9fb3b8;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; min-height:100vh; transition:background .25s,color .25s; }
+  a { color:var(--accent); text-decoration:none; }
+  /* top nav */
+  .topnav { display:flex; align-items:center; justify-content:space-between; padding:14px 28px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:10; }
+  .brand { font-weight:800; font-size:18px; letter-spacing:.5px; cursor:pointer; }
+  .brand span { color:var(--accent); }
+  .navlinks { display:flex; gap:6px; }
+  .navlinks button { background:none; border:none; color:var(--muted); font-size:14px; padding:8px 14px; border-radius:8px; cursor:pointer; }
+  .navlinks button:hover { color:var(--text); background:var(--surface); }
+  .navlinks button.active { color:var(--accent); background:var(--surface); }
+  .view { display:none; }
+  .view.active { display:block; }
+  /* landing */
+  .hero { max-width:960px; margin:0 auto; padding:96px 24px 64px; text-align:center; }
+  .pill { display:inline-block; font-size:12px; font-weight:600; color:var(--accent); border:1px solid var(--border); background:var(--surface); padding:6px 14px; border-radius:999px; margin-bottom:24px; }
+  .hero h1 { font-size:52px; line-height:1.1; letter-spacing:-1px; margin-bottom:20px; }
+  .hero h1 em { font-style:normal; color:var(--accent); }
+  .hero p.lead { font-size:18px; color:var(--muted); max-width:640px; margin:0 auto 36px; line-height:1.6; }
+  .cta-row { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .btn { border:none; border-radius:8px; padding:13px 28px; font-size:15px; font-weight:700; cursor:pointer; background:var(--accent); color:#0b0a10; transition:background .2s; }
+  .btn:hover { background:var(--accent-hover); }
+  .btn.ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
+  .btn.ghost:hover { border-color:var(--accent); color:var(--accent); }
+  .btn.block { width:100%; }
+  .features { max-width:1100px; margin:0 auto; padding:40px 24px 80px; }
+  .features h2 { text-align:center; font-size:28px; margin-bottom:12px; }
+  .features .sub { text-align:center; color:var(--muted); margin-bottom:40px; }
+  .fgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  .fcard { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; }
+  .fcard .icon { width:40px; height:40px; border-radius:10px; background:var(--bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:20px; margin-bottom:16px; }
+  .fcard h3 { font-size:16px; margin-bottom:8px; }
+  .fcard p { font-size:14px; color:var(--muted); line-height:1.6; }
+  .stats { display:flex; justify-content:center; gap:48px; padding:32px 24px 64px; flex-wrap:wrap; max-width:960px; margin:0 auto; }
+  .stat { text-align:center; }
+  .stat .num { font-size:34px; font-weight:800; color:var(--accent); }
+  .stat .lbl { font-size:13px; color:var(--muted); margin-top:4px; }
+  footer { border-top:1px solid var(--border); padding:28px; text-align:center; color:var(--muted); font-size:13px; }
+  /* auth cards */
+  .auth-wrap { max-width:420px; margin:0 auto; padding:72px 24px 80px; }
+  .auth-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:32px; }
+  .auth-card h2 { font-size:22px; margin-bottom:6px; }
+  .auth-card .desc { font-size:14px; color:var(--muted); margin-bottom:24px; }
+  .sso-btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:12px; margin-bottom:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; font-weight:600; cursor:pointer; }
+  .sso-btn:hover { border-color:var(--accent); }
+  .divider { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:12px; margin:20px 0; }
+  .divider::before,.divider::after { content:""; flex:1; height:1px; background:var(--border); }
+  label.f { display:block; font-size:13px; font-weight:600; margin:0 0 6px; }
+  input.f { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; margin-bottom:14px; }
+  input.f:focus { outline:none; border-color:var(--accent); }
+  .fine { font-size:12px; color:var(--muted); margin-top:16px; line-height:1.6; text-align:center; }
+  .row-between { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; font-size:13px; }
+  .success-box { text-align:center; padding:16px 0; }
+  .success-box .check { width:56px; height:56px; border-radius:50%; background:var(--accent); color:#0b0a10; font-size:28px; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; }
+  /* theme flag switcher */
+  .flag { position:fixed; right:16px; bottom:16px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 14px; font-size:12px; z-index:50; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+  .flag .t { color:var(--muted); font-family:monospace; margin-bottom:8px; }
+  .flag .opts { display:flex; gap:6px; }
+  .flag button { width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0; }
+  .flag button.on { border-color:#fff; }
+  @media (max-width:640px){ .hero h1{font-size:36px;} .topnav{padding:12px 16px;} }
+</style>
+</head>
+<body>
+<nav class="topnav">
+  <div class="brand" onclick="show('landing')">AIRP<span>.</span></div>
+  <div class="navlinks">
+    <button data-view="landing" class="active" onclick="show('landing')">Home</button>
+    <button data-view="signup" onclick="show('signup')">Sign up</button>
+    <button data-view="signin" onclick="show('signin')">Sign in</button>
+    <button data-view="reset" onclick="show('reset')">Reset</button>
+  </div>
+</nav>
+
+<!-- LANDING -->
+<section id="view-landing" class="view active">
+  <div class="hero">
+    <div class="pill">Agentic Incident Response Platform</div>
+    <h1>Incidents that <em>resolve themselves</em>, with you in control.</h1>
+    <p class="lead">AIRP watches your cloud and code, investigates anomalies like a senior on-call engineer, and opens fixes as pull requests. You review, approve, and ship — minutes, not hours.</p>
+    <div class="cta-row">
+      <button class="btn" onclick="show('signup')">Start free</button>
+      <button class="btn ghost" onclick="show('signin')">Sign in</button>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num">4m</div><div class="lbl">Median time to verdict</div></div>
+    <div class="stat"><div class="num">92%</div><div class="lbl">Fixes merged without rework</div></div>
+    <div class="stat"><div class="num">24/7</div><div class="lbl">Autonomous monitoring</div></div>
+    <div class="stat"><div class="num">60+</div><div class="lbl">Connectors in the catalog</div></div>
+  </div>
+  <div class="features">
+    <h2>Everything an on-call team does, automated</h2>
+    <p class="sub">One platform from detection to merged fix.</p>
+    <div class="fgrid">
+      <div class="fcard"><div class="icon">&#9889;</div><h3>Autonomous detection</h3><p>Telemetry from your cloud accounts and observability tools is checked continuously. Real problems become investigated issues, not alert noise.</p></div>
+      <div class="fcard"><div class="icon">&#128269;</div><h3>Agent investigations</h3><p>Each issue gets a full investigation thread: the agent traces the cause across code and infrastructure, citing the exact evidence it used.</p></div>
+      <div class="fcard"><div class="icon">&#128736;</div><h3>Fixes as pull requests</h3><p>When a code change resolves the issue, AIRP opens a pull request against your repository with tests, ready for your review.</p></div>
+      <div class="fcard"><div class="icon">&#128274;</div><h3>Policy-guarded approvals</h3><p>Every autonomous action passes through your policy engine. Set severity gates, approval queues, and rollout rules per team.</p></div>
+      <div class="fcard"><div class="icon">&#128268;</div><h3>Connector catalog</h3><p>Cloud providers, git hosts, observability, chat, and issue tracking — connect your stack in minutes with scoped credentials.</p></div>
+      <div class="fcard"><div class="icon">&#128202;</div><h3>Learning flywheel</h3><p>Every outcome is labeled and fed back into the system, so investigations get sharper and MTTR keeps falling.</p></div>
+    </div>
+  </div>
+  <div class="hero" style="padding-top:32px">
+    <h2 style="font-size:30px;margin-bottom:16px">Ship your first fix today.</h2>
+    <p class="lead">Connect a repository and a cloud account. AIRP starts monitoring immediately — no agents to install, no pipelines to configure.</p>
+    <div class="cta-row"><button class="btn" onclick="show('signup')">Create your workspace</button></div>
+  </div>
+</section>
+
+<!-- SIGN UP -->
+<section id="view-signup" class="view">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h2>Create your account</h2>
+      <p class="desc">Set up AIRP to start monitoring your stack.</p>
+      <button class="sso-btn" onclick="fakeAuth('Google')"><span>&#9672;</span> Continue with Google</button>
+      <button class="sso-btn" onclick="fakeAuth('GitHub')"><span>&#9672;</span> Continue with GitHub</button>
+      <div class="divider">or</div>
+      <form onsubmit="return fakeAuth('email')">
+        <label class="f" for="su-email">Work email</label>
+        <input class="f" id="su-email" type="email" placeholder="you@company.com" required>
+        <button class="btn block" type="submit">Continue with email</button>
+      </form>
+      <p class="fine">By continuing you agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</p>
+      <p class="fine">Already have an account? <a href="#" onclick="show('signin');return false">Sign in</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- SIGN IN -->
+<section id="view-signin" class="view">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h2>Welcome back</h2>
+      <p class="desc">Sign in to your AIRP workspace.</p>
+      <button class="sso-btn" onclick="fakeAuth('Google')"><span>&#9672;</span> Continue with Google</button>
+      <button class="sso-btn" onclick="fakeAuth('GitHub')"><span>&#9672;</span> Continue with GitHub</button>
+      <div class="divider">or</div>
+      <form onsubmit="return fakeAuth('email')">
+        <label class="f" for="si-email">Email</label>
+        <input class="f" id="si-email" type="email" placeholder="you@company.com" required>
+        <label class="f" for="si-pass">Password</label>
+        <input class="f" id="si-pass" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" required>
+        <div class="row-between"><span></span><a href="#" onclick="show('reset');return false">Forgot password?</a></div>
+        <button class="btn block" type="submit">Sign in</button>
+      </form>
+      <p class="fine">Using Enterprise SSO? <a href="#">Sign in with SSO</a></p>
+      <p class="fine">New to AIRP? <a href="#" onclick="show('signup');return false">Create an account</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- PASSWORD RESET -->
+<section id="view-reset" class="view">
+  <div class="auth-wrap">
+    <div class="auth-card" id="reset-form-card">
+      <h2>Reset your password</h2>
+      <p class="desc">Enter the email you signed up with and we will send you a reset link.</p>
+      <form onsubmit="return doReset()">
+        <label class="f" for="re-email">Email</label>
+        <input class="f" id="re-email" type="email" placeholder="you@company.com" required>
+        <button class="btn block" type="submit">Send reset link</button>
+      </form>
+      <p class="fine"><a href="#" onclick="show('signin');return false">Back to sign in</a></p>
+    </div>
+    <div class="auth-card" id="reset-done-card" style="display:none">
+      <div class="success-box">
+        <div class="check">&#10003;</div>
+        <h2>Check your inbox</h2>
+        <p class="desc" style="margin-top:8px">If an account exists for that email, a password reset link is on its way. The link expires in 60 minutes.</p>
+        <button class="btn ghost" onclick="show('signin')">Back to sign in</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>AIRP &mdash; Agentic Incident Response Platform &nbsp;&middot;&nbsp; <a href="#">Privacy</a> &nbsp;&middot;&nbsp; <a href="#">Terms</a> &nbsp;&middot;&nbsp; <a href="#">Status</a></footer>
+
+<div class="flag">
+  <div class="t">Feature flag: ui.theme.accent</div>
+  <div class="opts">
+    <button title="violet" data-t="violet" class="on" style="background:#a78bfa" onclick="setTheme('violet')"></button>
+    <button title="crimson" data-t="crimson" style="background:#f87171" onclick="setTheme('crimson')"></button>
+    <button title="signal-green" data-t="signal-green" style="background:#4ade80" onclick="setTheme('signal-green')"></button>
+    <button title="ember-orange" data-t="ember-orange" style="background:#fb923c" onclick="setTheme('ember-orange')"></button>
+    <button title="cyan" data-t="cyan" style="background:#22d3ee" onclick="setTheme('cyan')"></button>
+  </div>
+</div>
+
+<script>
+function show(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('.navlinks button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
+  window.scrollTo(0,0);
+}
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  document.querySelectorAll('.flag button').forEach(b=>b.classList.toggle('on', b.dataset.t===t));
+}
+function fakeAuth(how){
+  alert('Demo prototype: ' + how + ' sign-in would continue to onboarding.');
+  return false;
+}
+function doReset(){
+  document.getElementById('reset-form-card').style.display='none';
+  document.getElementById('reset-done-card').style.display='block';
+  return false;
+}
+</script>
+</body>
+</html>

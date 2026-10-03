@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIRP — Settings</title>
+<style>
+html[data-theme="violet"]{--accent:#a78bfa;--accent-hover:#8b5cf6;--bg:#0b0a10;--surface:#15131d;--border:#282434;--text:#f5f3fa;--muted:#a8a3b8;--accent-ink:#1d1440;--accent-soft:rgba(167,139,250,.14)}
+html[data-theme="crimson"]{--accent:#f87171;--accent-hover:#ef4444;--bg:#0c0909;--surface:#181214;--border:#2e2224;--text:#faf3f3;--muted:#b8a3a3;--accent-ink:#3d0d0d;--accent-soft:rgba(248,113,113,.14)}
+html[data-theme="signal-green"]{--accent:#4ade80;--accent-hover:#22c55e;--bg:#0a0a0b;--surface:#141417;--border:#26262b;--text:#f4f4f5;--muted:#a1a1aa;--accent-ink:#0b2e16;--accent-soft:rgba(74,222,128,.14)}
+html[data-theme="ember-orange"]{--accent:#fb923c;--accent-hover:#f97316;--bg:#0b0a09;--surface:#161412;--border:#2b2521;--text:#faf7f4;--muted:#a8a29e;--accent-ink:#3a1c07;--accent-soft:rgba(251,146,60,.14)}
+html[data-theme="cyan"]{--accent:#22d3ee;--accent-hover:#06b6d4;--bg:#090b0c;--surface:#121819;--border:#1f2b2e;--text:#f2fafa;--muted:#9fb3b8;--accent-ink:#083038;--accent-soft:rgba(34,211,238,.14)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5}
+.app{display:flex;min-height:100vh}
+.rail{width:64px;flex:none;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:0;height:100vh}
+.rail a{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--muted);text-decoration:none;font-size:19px;position:relative}
+.rail a:hover{background:var(--surface);color:var(--text)}
+.rail a.active{background:var(--surface);color:var(--accent)}
+.rail a.active::before{content:"";position:absolute;left:-10px;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--accent)}
+.rail .sp{flex:1}
+.subnav{width:236px;flex:none;border-right:1px solid var(--border);padding:20px 14px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.subnav h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 10px 10px}
+.subnav a,.subnav button{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13.5px;margin-bottom:2px}
+.subnav button{background:none;border:none;font:inherit;text-align:left;cursor:pointer;width:100%}
+.subnav a:hover,.subnav button:hover{background:var(--surface);color:var(--text)}
+.subnav a.active,.subnav button.active{background:var(--surface);color:var(--accent);font-weight:600}
+.subnav a .ic,.subnav button .ic{width:18px;text-align:center}
+.main{flex:1;min-width:0;padding:28px 32px 90px;max-width:1060px}
+.crumb{font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.crumb b{color:var(--text);font-weight:600}
+.pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.pagehead h1{font-size:22px;font-weight:700}
+.pagehead p{color:var(--muted);font-size:13.5px;margin-top:4px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:18px}
+.card h3{font-size:15px;margin-bottom:4px}
+.card .desc{color:var(--muted);font-size:13px;margin-bottom:14px}
+.secttl{font-size:16px;font-weight:700;margin:26px 0 4px}
+.secdesc{color:var(--muted);font-size:13px;margin-bottom:14px}
+.btn{border:none;border-radius:8px;padding:9px 18px;font-size:13.5px;font-weight:600;cursor:pointer;background:var(--accent);color:var(--accent-ink)}
+.btn:hover{background:var(--accent-hover)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 18px;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn-ghost:hover{border-color:var(--muted)}
+.btn-danger{background:#ef4444;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn-sm{padding:6px 12px;font-size:12.5px;border-radius:7px}
+.link{color:var(--accent);cursor:pointer;text-decoration:none;font-size:13px}
+.link:hover{text-decoration:underline}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:13px;font-weight:600;margin-bottom:2px}
+.field .hint{color:var(--muted);font-size:12.5px;margin-bottom:8px}
+.input,.select,textarea.input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13.5px;font-family:inherit}
+.input:focus,.select:focus,textarea.input:focus{outline:none;border-color:var(--accent)}
+textarea.input{resize:vertical;min-height:80px}
+.formgrid{display:grid;grid-template-columns:200px 1fr;gap:8px 20px;align-items:start}
+.toggle{width:42px;height:24px;border-radius:999px;background:#3a3542;position:relative;cursor:pointer;flex:none;border:none;transition:background .15s}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
+.toggle.on{background:var(--accent)}
+.toggle.on::after{left:21px}
+.rowline{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-top:1px solid var(--border)}
+.rowline:first-child{border-top:none;padding-top:0}
+.rowline .t{font-size:13.5px;font-weight:600}
+.rowline .d{color:var(--muted);font-size:12.5px;margin-top:2px;max-width:560px}
+table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl th{text-align:left;color:var(--muted);font-weight:600;font-size:12.5px;padding:10px 12px;border-bottom:1px solid var(--border)}
+.tbl td{padding:12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.badge.dim{background:rgba(140,140,150,.12);color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.bar{height:8px;border-radius:99px;background:#2c2833;overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+.stat .l{color:var(--muted);font-size:12.5px;margin-bottom:6px}
+.stat .v{font-size:24px;font-weight:700}
+.stat .s{color:var(--muted);font-size:12px;margin-top:4px}
+.checkrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:13.5px}
+.checkrow .grp{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-top:14px}
+.cbx{width:19px;height:19px;border-radius:5px;border:1.5px solid var(--border);background:var(--bg);cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--accent-ink);font-size:13px;font-weight:700}
+.cbx.on{background:var(--accent);border-color:var(--accent)}
+.cbx.on::after{content:"✓"}
+.empty{text-align:center;padding:56px 20px;color:var(--muted)}
+.empty .eic{font-size:40px;margin-bottom:12px}
+.empty h3{color:var(--text);margin-bottom:6px}
+.empty p{font-size:13px;margin-bottom:16px}
+.modalwrap{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+.modalwrap.open{display:flex}
+.modal{width:440px;max-width:92vw;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px}
+.modal h3{font-size:16px;margin-bottom:4px}
+.modal p{color:var(--muted);font-size:13px;margin-bottom:16px}
+.modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.flagswitch{position:fixed;right:18px;bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;z-index:40;box-shadow:0 8px 30px rgba(0,0,0,.45);font-size:12px}
+.flagswitch .fl{color:var(--muted);margin-bottom:8px;font-family:monospace;font-size:11.5px}
+.flagswitch .opts{display:flex;gap:6px}
+.flagswitch button{width:26px;height:26px;border-radius:7px;border:2px solid transparent;cursor:pointer;padding:0}
+.flagswitch button.sel{border-color:#fff}
+.view{display:none}
+.view.active{display:block}
+.danger{border-color:#5b2323;background:#1c1214}
+.kv{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--border);font-size:13.5px}
+.kv:first-child{border-top:none}
+.kv .k{color:var(--muted)}
+.code{font-family:monospace;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:12.5px}
+@media(max-width:900px){.subnav{display:none}.statgrid{grid-template-columns:1fr}.formgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<nav class="rail" aria-label="Primary">
+<a href="#" title="Dashboard">⌂</a>
+<a href="#" title="Incidents">⚠</a>
+<a href="#" title="Threads">◔</a>
+<a href="#" title="Pull requests">⑂</a>
+<a href="#" title="Approvals">✓</a>
+<a href="#" title="Connectors">⎔</a>
+<a href="#" title="Analytics">▅</a>
+<span class="sp"></span>
+<a href="#" class="active" title="Settings">⚙</a>
+</nav>
+<aside class="subnav">
+<h2>Settings</h2>
+<button data-view="workspace" class="active"><span class="ic">◫</span>Workspace</button>
+<button data-view="billing"><span class="ic">▤</span>Billing &amp; Usage</button>
+<button data-view="members"><span class="ic">⛉</span>Members</button>
+<button data-view="teams"><span class="ic">⛉</span>Teams</button>
+<button data-view="apikeys"><span class="ic">⚿</span>API Keys</button>
+<button data-view="oauth"><span class="ic">◩</span>OAuth Clients</button>
+<button data-view="telemetry"><span class="ic">◉</span>Telemetry Tokens</button>
+<button data-view="labels"><span class="ic">🏷</span>Labels</button>
+<button data-view="pages"><span class="ic">▦</span>Pages</button>
+<button data-view="notifications"><span class="ic">🔔</span>Notifications</button>
+<button data-view="support"><span class="ic">?</span>Support</button>
+</aside>
+<main class="main">
+<div class="crumb">Settings › <b id="crumbName">Workspace</b></div>
+<!-- WORKSPACE -->
+<section class="view active" id="v-workspace">
+<div class="pagehead"><div><h1>General</h1><p>Keep your workspace details current across AIRP.</p></div><button class="btn btn-sm">Save changes</button></div>
+<div class="card">
+<div class="formgrid">
+<div><label style="font-size:13px;font-weight:600">Name *</label><div class="hint" style="color:var(--muted);font-size:12.5px">Will appear on receipts, invoices, and other communication.</div></div>
+<div class="field"><input class="input" value="Everistus's Workspace"></div>
+<div><label style="font-size:13px;font-weight:600">Slug *</label><div class="hint" style="color:var(--muted);font-size:12.5px">Your workspace slug in the dashboard URL.</div></div>
+<div class="field"><input class="input" value="airp-console.com/everistus-workspace"></div>
+<div><label style="font-size:13px;font-weight:600">Workspace ID</label><div class="hint" style="color:var(--muted);font-size:12.5px">Your workspace's unique identifier.</div></div>
+<div class="field"><span class="code">ws_1017cc70e001rey54idr6y3cp8y9vtqz</span> <span class="link" style="margin-left:8px">Copy</span></div>
+<div><label style="font-size:13px;font-weight:600">Avatar</label><div class="hint" style="color:var(--muted);font-size:12.5px">PNG. 1MB max.</div></div>
+<div class="field"><span style="display:flex;align-items:center;gap:12px"><span class="avatar" style="width:44px;height:44px;font-size:15px">EW</span><button class="btn-ghost btn-sm">Choose</button></span></div>
+<div><label style="font-size:13px;font-weight:600">Description</label><div class="hint" style="color:var(--muted);font-size:12.5px">Your workspace description.</div></div>
+<div class="field"><textarea class="input">Incident response for our production stack. On-call rotation across Platform and Payments teams.</textarea></div>
+</div>
+</div>
+<div class="secttl">AI Models</div>
+<div class="secdesc">Choose your model family and optionally bring your own API key. <span class="link">Documentation</span></div>
+<div class="card">
+<div class="rowline"><div><div class="t">Provider</div><div class="d">Select the AI model family.</div></div><span class="link">◈ AIRP Pure ›</span></div>
+<div class="rowline"><div><div class="t">🔒 Bring your own provider key or AI gateway on the Enterprise plan.</div><div class="d">Your workspace is on <b>Team</b>. Upgrade to use your own key or route requests through your gateway.</div></div><button class="btn btn-sm">Upgrade</button></div>
+</div>
+<div class="secttl">Autofix behavior</div>
+<div class="secdesc">How AIRP investigates and opens fixes on its own.</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Open autofix pull requests</div><div class="d">Applies to every connected repository. Turn off to stop new autofix pull requests across the whole workspace.</div></div><button class="toggle on" data-toggle></button></div>
+<div class="rowline"><div><div class="t">Submit fixes automatically for</div><div class="d">Choose which investigated incident severities can lead to an automatic pull request. Fixes you request yourself are unaffected.<br><br><span class="badge" style="margin-right:6px">Sev1</span><span class="badge" style="margin-right:6px">Sev2</span><span class="badge dim">Sev3</span> <span class="badge dim">Sev4</span></div></div></div>
+<div class="rowline"><div><div class="t">Open PR queue per repository</div><div class="d">Each repository has its own queue. At its limit, automatic work continues only for the selected severities. Set the default limit here and override it in each repository's settings.</div></div><button class="toggle on" data-toggle></button></div>
+<div class="rowline"><div><div class="t">Default queue limit</div></div><input class="input" value="5" style="width:90px"></div>
+<div class="rowline"><div><div class="t">Weekends</div><div class="d">Choose which severities to investigate automatically on Saturday and Sunday (UTC). Every incident still gets triaged.</div></div><button class="toggle on" data-toggle></button></div>
+<div class="rowline"><div><div class="t">Fixes AIRP starts on its own</div><div class="d">Covers fixes triggered by triage and CI failures. Choose "Ask first" to hold them until someone starts the run from its thread; fixes you ask for in a thread are not affected.</div></div><select class="select" style="width:200px"><option>Start automatically</option><option>Ask first</option></select></div>
+<div class="rowline"><div><div class="t">Open new pull requests as drafts</div><div class="d">Applies to new AIRP autofix pull requests across this workspace. Existing pull requests keep their review status.</div></div><button class="toggle" data-toggle></button></div>
+<div class="rowline"><div><div class="t">Commit as ⓘ</div><div class="d">Author identity for commits AIRP pushes.<br><span class="link">Link your GitHub account</span> to be credited.</div></div><select class="select" style="width:220px"><option>The person who asked</option><option>AIRP bot</option></select></div>
+</div>
+<div class="secttl">Pull request reviews</div>
+<div class="secdesc">AIRP reviews every pull request against the production topology and comments with a pass or fail verdict.</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Review pull requests for production impact</div><div class="d">Applies to every connected repository. Turn off to pause reviews across the workspace.</div></div><button class="toggle on" data-toggle></button></div>
+<div class="rowline"><div><div class="t">Share review threads with pull request viewers</div><div class="d">Review comments link the investigation thread for pull request viewers. Turning this off stops new guest links and revokes existing ones, including after you turn it back on. Members keep access.</div></div><button class="toggle on" data-toggle></button></div>
+</div>
+<div class="secttl">Privacy &amp; data</div>
+<div class="secdesc">Control how this workspace's data may be used.</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Export workspace data</div><div class="d">Reports, pull request reviews, settings, and threads as a single JSON archive. You'll get an email with a download link when it's ready. Exports keep working for 60 days after a workspace is deleted.</div></div><button class="btn btn-sm">Request export</button></div>
+</div>
+<div class="secttl">Danger Zone</div>
+<div class="card danger">
+<div class="rowline"><div><div class="t">Delete your workspace</div><div class="d">This action is not reversible. All workspace data will be unrecoverable.</div></div><button class="btn-danger btn-sm">Delete workspace</button></div>
+</div>
+</section>
+
+<!-- BILLING -->
+<section class="view" id="v-billing">
+<div class="pagehead"><div><h1>Billing &amp; Usage</h1><p>Manage your plan, usage, and invoices.</p></div><span class="link">Documentation</span> <span style="color:var(--muted);font-size:12.5px">Updated just now ⟳</span></div>
+<div class="card">
+<div class="rowline"><div><div class="t">Team plan</div><div class="d">Up to 5 members, 10 cloud accounts, priority investigations.</div></div><button class="btn-ghost btn-sm">Change plan</button></div>
+<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span><b>Monthly allowance</b><br><span style="color:var(--muted);font-size:12.5px">Shared across chat, investigations, and other agent activity. Resets on November 1, 2026.</span></span><span><b>11.9% used</b></span></div><div class="bar"><i style="width:11.9%"></i></div></div>
+</div>
+<div class="secttl">Usage trend</div>
+<div class="statgrid">
+<div class="stat"><div class="l">Merge rate ⓘ</div><div class="v">100%</div><div class="s">past 30d</div></div>
+<div class="stat"><div class="l">PRs submitted ⓘ</div><div class="v">14</div><div class="s">past 30d</div></div>
+<div class="stat"><div class="l">Monthly allowance</div><div class="v">11.9% <span style="font-size:13px;font-weight:400;color:var(--muted)">used</span></div><div class="s">Resets November 1, 2026</div></div>
+</div>
+<div class="secttl">Plan limits</div>
+<div class="card">
+<div class="kv"><span><b>Cloud accounts</b><br><span class="k" style="font-size:12.5px">Cloud accounts connected to the workspace.</span></span><span><b>3 / 10</b></span></div>
+<div style="margin:2px 0 12px"><div class="bar"><i style="width:30%"></i></div></div>
+<div class="kv"><span><b>Team members</b><br><span class="k" style="font-size:12.5px">Members and pending invites.</span></span><span><b>4 / 5</b></span></div>
+<div style="margin:2px 0 12px"><div class="bar"><i style="width:80%"></i></div></div>
+<div class="kv"><span><b>Investigations per month</b><br><span class="k" style="font-size:12.5px">Agent investigations run this month.</span></span><span><b>37 / 200</b></span></div>
+<div style="margin-top:8px"><div class="bar"><i style="width:18.5%"></i></div></div>
+</div>
+<div class="secttl">Invoices</div>
+<div class="card"><table class="tbl"><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr>
+<tr><td>Oct 1, 2026</td><td>Team plan — October</td><td>CA$49.00</td><td style="text-align:right"><span class="link">Download</span></td></tr>
+<tr><td>Sep 1, 2026</td><td>Team plan — September</td><td>CA$49.00</td><td style="text-align:right"><span class="link">Download</span></td></tr>
+</table></div>
+</section>
+
+<!-- MEMBERS -->
+<section class="view" id="v-members">
+<div class="pagehead"><div><h1>Manage permissions</h1><p>Manage roles and granular permissions.</p></div><span class="link">Documentation</span></div>
+<div class="card">
+<div class="field" style="margin-bottom:14px"><input class="input" placeholder="🔍 Search members" style="max-width:320px"></div>
+<table class="tbl">
+<tr><td><span style="display:flex;align-items:center;gap:12px"><span class="avatar">EO</span><span><b>Everistus Olumese</b><br><span style="color:var(--muted);font-size:12.5px">everistusolumese@gmail.com · Last active just now</span></span></span></td><td style="text-align:right"><span class="badge">Owner</span> <span class="link" style="margin-left:10px">···</span></td></tr>
+<tr><td><span style="display:flex;align-items:center;gap:12px"><span class="avatar">AO</span><span><b>Adaeze Okafor</b><br><span style="color:var(--muted);font-size:12.5px">adaeze@example.com · Last active 2 hours ago</span></span></span></td><td style="text-align:right"><select class="select" style="width:130px;padding:6px"><option>Admin</option><option>Operator</option><option>Viewer</option></select> <span class="link" style="margin-left:10px">Remove</span></td></tr>
+<tr><td><span style="display:flex;align-items:center;gap:12px"><span class="avatar">MC</span><span><b>Marcus Chen</b><br><span style="color:var(--muted);font-size:12.5px">marcus@example.com · Last active 3 days ago</span></span></span></td><td style="text-align:right"><select class="select" style="width:130px;padding:6px"><option>Operator</option><option>Admin</option><option>Viewer</option></select> <span class="link" style="margin-left:10px">Remove</span></td></tr>
+</table>
+</div>
+<div class="secttl">Manage invites</div>
+<div class="secdesc">Invite new teammates by email.</div>
+<div class="card">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="color:var(--muted);font-size:13px">3/5 members</span><button class="btn btn-sm" id="openInvite">Invite a teammate</button></div>
+<div class="field" style="margin-bottom:10px"><input class="input" placeholder="🔍 Search invites" style="max-width:320px"></div>
+<table class="tbl" id="inviteTable">
+<tr><th>Email</th><th>Role</th><th>Invited</th><th style="text-align:right">Actions</th></tr>
+<tr><td>jane@example.com</td><td><span class="badge dim">Operator</span></td><td style="color:var(--muted)">2 days ago</td><td style="text-align:right"><span class="link">Resend</span> · <span class="link">Revoke</span></td></tr>
+</table>
+</div>
+<div class="secttl">Joining by email domain</div>
+<div class="secdesc">Let teammates on your domain join without an invite.</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Anyone with a gmail.com email can join</div><div class="d">Available on the Team plan and above.</div></div><button class="toggle" data-toggle></button></div>
+</div>
+</section>
+<!-- TEAMS -->
+<section class="view" id="v-teams">
+<div class="pagehead"><div><h1>Manage teams</h1><p>Organize workspace members into teams for ownership and visibility.</p></div><div><span class="link" style="margin-right:12px">Documentation</span><button class="btn btn-sm" id="newTeamBtn">＋ New team</button></div></div>
+<div class="card">
+<div class="field" style="margin-bottom:10px"><input class="input" placeholder="🔍 Search teams" style="max-width:320px"></div>
+<table class="tbl" id="teamTable">
+<tr><th>Team</th><th>Members</th><th>Owns</th><th style="text-align:right"></th></tr>
+<tr><td><b>Platform</b><br><span style="color:var(--muted);font-size:12.5px">Core infrastructure and deploy pipeline</span></td><td><span class="avatar" style="width:26px;height:26px;font-size:10px">EO</span> <span class="avatar" style="width:26px;height:26px;font-size:10px;margin-left:-8px">AO</span> <span class="avatar" style="width:26px;height:26px;font-size:10px;margin-left:-8px">MC</span></td><td style="color:var(--muted)">checkout-api, edge-proxy</td><td style="text-align:right"><span class="link">···</span></td></tr>
+<tr><td><b>Payments</b><br><span style="color:var(--muted);font-size:12.5px">Billing services and fraud checks</span></td><td><span class="avatar" style="width:26px;height:26px;font-size:10px">AO</span> <span class="avatar" style="width:26px;height:26px;font-size:10px;margin-left:-8px">JT</span></td><td style="color:var(--muted)">payments-svc, fraud-check</td><td style="text-align:right"><span class="link">···</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- API KEYS -->
+<section class="view" id="v-apikeys">
+<div class="pagehead"><div><h1>API Keys</h1><p>Scoped keys for calling AIRP programmatically.</p></div><span class="link">Documentation</span></div>
+<div class="card">
+<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-sm" id="newKeyBtn">Create an API key</button></div>
+<table class="tbl" id="keyTable">
+<tr><th>Name</th><th>Key</th><th>Scopes</th><th>Last used</th><th style="text-align:right"></th></tr>
+<tr><td><b>CI deploy key</b><br><span style="color:var(--muted);font-size:12.5px">Created Sep 12, 2026</span></td><td><span class="code">airp_sk_9f2…a41c</span></td><td><span class="badge dim">incidents:read</span> <span class="badge dim">flags:write</span></td><td style="color:var(--muted)">1 hour ago</td><td style="text-align:right"><span class="link">Revoke</span></td></tr>
+<tr><td><b>Grafana read-only</b><br><span style="color:var(--muted);font-size:12.5px">Created Aug 28, 2026</span></td><td><span class="code">airp_sk_77b…e90d</span></td><td><span class="badge dim">metrics:read</span></td><td style="color:var(--muted)">3 days ago</td><td style="text-align:right"><span class="link">Revoke</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- OAUTH -->
+<section class="view" id="v-oauth">
+<div class="pagehead"><div><h1>OAuth Clients</h1><p>Third-party apps that sign users in and call the AIRP API.</p></div><span class="link">Documentation</span></div>
+<div class="card">
+<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-sm">New OAuth client</button></div>
+<table class="tbl">
+<tr><th>Client</th><th>Client ID</th><th>Redirect URIs</th><th style="text-align:right"></th></tr>
+<tr><td><b>Status page embed</b><br><span style="color:var(--muted);font-size:12.5px">Created Sep 20, 2026</span></td><td><span class="code">cli_4d2f8a10</span></td><td style="color:var(--muted)">https://status.example.com/callback</td><td style="text-align:right"><span class="link">Edit</span> · <span class="link">Delete</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- TELEMETRY -->
+<section class="view" id="v-telemetry">
+<div class="pagehead"><div><h1>Telemetry Tokens</h1><p>Credentials that authenticate alerts forwarded from your observability tools.</p></div><span class="link">Documentation</span></div>
+<div class="card">
+<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-sm" id="newTokBtn">Create a telemetry token</button></div>
+<table class="tbl" id="tokTable">
+<tr><th>Name</th><th>Token</th><th>Source</th><th>Last received</th><th style="text-align:right"></th></tr>
+<tr><td><b>datadog-forwarder</b><br><span style="color:var(--muted);font-size:12.5px">Created Sep 5, 2026</span></td><td><span class="code">airp_tt_3c8…f2e1</span></td><td><span class="badge">Datadog</span></td><td style="color:var(--muted)">12 minutes ago</td><td style="text-align:right"><span class="link">Rotate</span> · <span class="link">Revoke</span></td></tr>
+<tr><td><b>pagerduty-webhook</b><br><span style="color:var(--muted);font-size:12.5px">Created Aug 30, 2026</span></td><td><span class="code">airp_tt_91a…b7c4</span></td><td><span class="badge">PagerDuty</span></td><td style="color:var(--muted)">2 hours ago</td><td style="text-align:right"><span class="link">Rotate</span> · <span class="link">Revoke</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- LABELS -->
+<section class="view" id="v-labels">
+<div class="pagehead"><div><h1>Labels</h1><p>Organize and categorize resources with labels.</p></div><span class="link">Documentation</span></div>
+<div class="card">
+<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-sm">New label</button></div>
+<table class="tbl">
+<tr><th>Label</th><th>Description</th><th>Resources</th><th style="text-align:right"></th></tr>
+<tr><td><span class="badge">production</span></td><td style="color:var(--muted)">Live customer-facing resources</td><td>48</td><td style="text-align:right"><span class="link">Edit</span> · <span class="link">Delete</span></td></tr>
+<tr><td><span class="badge dim">staging</span></td><td style="color:var(--muted)">Pre-production environments</td><td>22</td><td style="text-align:right"><span class="link">Edit</span> · <span class="link">Delete</span></td></tr>
+<tr><td><span class="badge" style="background:rgba(251,146,60,.14);color:#fb923c">payments</span></td><td style="color:var(--muted)">Billing and fraud-check services</td><td>9</td><td style="text-align:right"><span class="link">Edit</span> · <span class="link">Delete</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- PAGES -->
+<section class="view" id="v-pages">
+<div class="pagehead"><div><h1>Published pages</h1><p>Review every public page this workspace has published, and delete the ones you don't like.</p></div><span class="link">Documentation</span></div>
+<div class="card">
+<div class="field" style="margin-bottom:10px;display:flex;gap:10px;align-items:center"><input class="input" placeholder="🔍 Search pages..." style="max-width:320px"><span class="badge dim">All</span><span class="badge dim">PR analyses</span><span class="badge dim">Autofix runs</span><span class="badge dim">Issue explanations</span></div>
+<table class="tbl">
+<tr><th>Title</th><th>Kind</th><th>Source</th><th>Created</th><th style="text-align:right"></th></tr>
+<tr><td><span class="link">Checkout latency regression — root cause</span></td><td><span class="badge dim">Issue explanation</span></td><td style="color:var(--muted)">INC-2041</td><td style="color:var(--muted)">Oct 2, 2026</td><td style="text-align:right"><span class="link">Delete</span></td></tr>
+<tr><td><span class="link">Autofix run #128 — retry storm patch</span></td><td><span class="badge dim">Autofix run</span></td><td style="color:var(--muted)">PR #412</td><td style="color:var(--muted)">Sep 29, 2026</td><td style="text-align:right"><span class="link">Delete</span></td></tr>
+<tr><td><span class="link">PR #408 production impact review</span></td><td><span class="badge dim">PR analysis</span></td><td style="color:var(--muted)">PR #408</td><td style="color:var(--muted)">Sep 26, 2026</td><td style="text-align:right"><span class="link">Delete</span></td></tr>
+</table>
+</div>
+</section>
+<!-- NOTIFICATIONS -->
+<section class="view" id="v-notifications">
+<div class="pagehead"><div><h1>Notifications</h1><p>Manage your personal notification settings.</p></div></div>
+<div class="card">
+<div class="rowline"><div style="display:flex;gap:12px;align-items:center"><span style="font-size:20px">@</span><div><div class="t">Email</div><div class="d">Receive notifications via email.</div></div></div><button class="toggle on" data-toggle></button></div>
+</div>
+<div class="card" id="notifCard">
+<div class="checkrow"><span class="grp" style="margin:0">Cloud Accounts</span><span style="color:var(--muted);font-size:12px">Email</span></div>
+<div class="checkrow"><span>Account Connected</span><span class="cbx" data-cbx></span></div>
+<div class="checkrow"><span>Account Removed</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span class="grp">Integrations</span><span></span></div>
+<div class="checkrow"><span>Integration Removed</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Integration Credentials Failed</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span class="grp">Team</span><span></span></div>
+<div class="checkrow"><span>Invite Accepted</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Access Requested</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Member Joined</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span class="grp">Incidents</span><span></span></div>
+<div class="checkrow"><span>Sev1 / Sev2 Declared</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Autofix PR Opened</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Approval Requested</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Rollout Completed</span><span class="cbx" data-cbx></span></div>
+<div class="checkrow"><span class="grp">Security</span><span></span></div>
+<div class="checkrow"><span>Cloud Account Credentials Failed</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>New Sign-in From Unknown Device</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span class="grp">Billing</span><span></span></div>
+<div class="checkrow"><span>Payment Received</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Payment Failed</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Workspace Past Due</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Subscription Canceled</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Plan Changed</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Overage Started</span><span class="cbx on" data-cbx></span></div>
+<div class="checkrow"><span>Overage Cap Reached</span><span class="cbx on" data-cbx></span></div>
+</div>
+<div class="secttl">Account updates</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Product updates</div><div class="d">Receive a monthly email with all new features and updates.</div></div><button class="toggle on" data-toggle></button></div>
+<div class="rowline"><div><div class="t">Important updates</div><div class="d">Receive emails about important updates like security fixes, maintenance, etc.</div></div><button class="toggle on" data-toggle></button></div>
+</div>
+<div class="secttl">Workspace</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Weekly digest</div><div class="d">Send every member a weekly summary of incidents, investigations, autofixes, changes and idle resources. Turning this off stops the digest for the whole workspace.</div></div><button class="toggle on" data-toggle></button></div>
+</div>
+</section>
+
+<!-- SUPPORT -->
+<section class="view" id="v-support">
+<div class="pagehead"><div><h1>Support</h1><p>Help from the docs and from the AIRP team.</p></div></div>
+<div class="card">
+<div class="rowline"><div><div class="t">Documentation</div><div class="d">Guides, reference, and answers to common questions.</div></div><button class="btn-ghost btn-sm">Documentation ↗</button></div>
+</div>
+<div class="secttl">Hands-on help</div>
+<div class="card">
+<div class="rowline"><div><div class="t">Book an onboarding call</div><div class="d">A personalized session to get your team set up.</div></div><button class="btn-ghost btn-sm">Book call ↗</button></div>
+<div class="rowline"><div><div class="t">Connect on Slack</div><div class="d">Direct access to the AIRP team.</div></div><button class="btn-ghost btn-sm">Create Slack Connect channel</button></div>
+<div class="rowline"><div><div class="t">Send feedback</div><div class="d">Tell us what is working and what is not, with a screenshot of the page you are on.</div></div><button class="btn-ghost btn-sm">Send feedback</button></div>
+</div>
+</section>
+
+</main>
+</div>
+
+<div class="modalwrap" id="inviteModal">
+<div class="modal">
+<h3>Invite a teammate</h3>
+<p>They'll get an email with a link to join this workspace.</p>
+<div class="field"><label>Email</label><input class="input" id="inviteEmail" placeholder="teammate@example.com"></div>
+<div class="field"><label>Role</label><select class="select" id="inviteRole"><option>Operator</option><option>Admin</option><option>Viewer</option></select></div>
+<div class="actions"><button class="btn-ghost" id="cancelInvite">Cancel</button><button class="btn" id="sendInvite">Send invite</button></div>
+</div>
+</div>
+
+<div class="flagswitch">
+<div class="fl">Feature flag: ui.theme.accent</div>
+<div class="opts">
+<button data-themebtn="violet" class="sel" style="background:#a78bfa" title="violet"></button>
+<button data-themebtn="crimson" style="background:#f87171" title="crimson"></button>
+<button data-themebtn="signal-green" style="background:#4ade80" title="signal-green"></button>
+<button data-themebtn="ember-orange" style="background:#fb923c" title="ember-orange"></button>
+<button data-themebtn="cyan" style="background:#22d3ee" title="cyan"></button>
+</div>
+</div>
+
+<script>
+const crumbs={workspace:"Workspace",billing:"Billing & Usage",members:"Members",teams:"Teams",apikeys:"API Keys",oauth:"OAuth Clients",telemetry:"Telemetry Tokens",labels:"Labels",pages:"Pages",notifications:"Notifications",support:"Support"};
+document.querySelectorAll(".subnav button").forEach(a=>{
+  a.addEventListener("click",e=>{
+    e.preventDefault();
+    const v=a.dataset.view;
+    document.querySelectorAll(".subnav button").forEach(x=>x.classList.remove("active"));
+    a.classList.add("active");
+    document.querySelectorAll(".view").forEach(s=>s.classList.remove("active"));
+    document.getElementById("v-"+v).classList.add("active");
+    document.getElementById("crumbName").textContent=crumbs[v];
+    document.querySelector(".main").scrollTop=0; window.scrollTo(0,0);
+  });
+});
+document.querySelectorAll("[data-toggle]").forEach(t=>t.addEventListener("click",()=>t.classList.toggle("on")));
+document.querySelectorAll("[data-cbx]").forEach(c=>c.addEventListener("click",()=>c.classList.toggle("on")));
+document.querySelectorAll("[data-themebtn]").forEach(b=>b.addEventListener("click",()=>{
+  document.documentElement.dataset.theme=b.dataset.themebtn;
+  document.querySelectorAll("[data-themebtn]").forEach(x=>x.classList.remove("sel"));
+  b.classList.add("sel");
+}));
+const modal=document.getElementById("inviteModal");
+document.getElementById("openInvite").addEventListener("click",()=>modal.classList.add("open"));
+document.getElementById("cancelInvite").addEventListener("click",()=>modal.classList.remove("open"));
+modal.addEventListener("click",e=>{if(e.target===modal)modal.classList.remove("open")});
+document.getElementById("sendInvite").addEventListener("click",()=>{
+  const email=document.getElementById("inviteEmail").value.trim()||"newteammate@example.com";
+  const role=document.getElementById("inviteRole").value;
+  const tbl=document.getElementById("inviteTable");
+  const tr=document.createElement("tr");
+  tr.innerHTML="<td>"+email.replace(/</g,"&lt;")+"</td><td><span class='badge dim'>"+role+"</span></td><td style='color:var(--muted)'>just now</td><td style='text-align:right'><span class='link'>Resend</span> · <span class='link'>Revoke</span></td>";
+  tbl.appendChild(tr);
+  document.getElementById("inviteEmail").value="";
+  modal.classList.remove("open");
+});
+let keyN=3;
+document.getElementById("newKeyBtn").addEventListener("click",()=>{
+  const tbl=document.getElementById("keyTable");
+  const tr=document.createElement("tr");
+  tr.innerHTML="<td><b>New key "+(keyN++)+"</b><br><span style='color:var(--muted);font-size:12.5px'>Created just now</span></td><td><span class='code'>airp_sk_…new</span></td><td><span class='badge dim'>incidents:read</span></td><td style='color:var(--muted)'>never</td><td style='text-align:right'><span class='link'>Revoke</span></td>";
+  tbl.appendChild(tr);
+});
+document.getElementById("newTokBtn").addEventListener("click",()=>{
+  const tbl=document.getElementById("tokTable");
+  const tr=document.createElement("tr");
+  tr.innerHTML="<td><b>new-forwarder</b><br><span style='color:var(--muted);font-size:12.5px'>Created just now</span></td><td><span class='code'>airp_tt_…new</span></td><td><span class='badge dim'>Custom</span></td><td style='color:var(--muted)'>never</td><td style='text-align:right'><span class='link'>Rotate</span> · <span class='link'>Revoke</span></td>";
+  tbl.appendChild(tr);
+});
+document.getElementById("newTeamBtn").addEventListener("click",()=>{
+  const tbl=document.getElementById("teamTable");
+  const tr=document.createElement("tr");
+  tr.innerHTML="<td><b>New team</b><br><span style='color:var(--muted);font-size:12.5px'>Click ··· to rename and add members</span></td><td><span class='avatar' style='width:26px;height:26px;font-size:10px'>EO</span></td><td style='color:var(--muted)'>—</td><td style='text-align:right'><span class='link'>···</span></td>";
+  tbl.appendChild(tr);
+});
+</script>
+</body>
+</html>
