@@ -140,3 +140,20 @@ and the 404/502/503 paths with fake container bindings.
   no secrets on disk, no sensitive state outside Hyperdrive/R2/Queues.
 - `AIRP_API_TOKEN` is a shared bearer secret: rotate with
   `wrangler secret put` and prefer per-workspace tokens in a future epic.
+
+## Console UX (Cloudflare)
+
+The AIRP console (Epic 21, TanStack Start) deploys to Cloudflare Workers
+directly: Cloudflare is an official TanStack Start partner. The console
+keeps one codebase for all targets; the Cloudflare build adds
+`@cloudflare/vite-plugin` (before the Start plugin, `viteEnvironment`
+set to `ssr`) and a `wrangler.jsonc` pointing `main` at
+`@tanstack/react-start/server-entry` with the `nodejs_compat`
+compatibility flag. There is no separate vinext build.
+
+Workers constraints the console code must respect:
+- Env is per-request: read `process.env` inside handlers/middleware, or
+  use the `cloudflare:workers` env binding. Never rely on module-scope
+  `process.env` reads.
+- No `node:fs` persistence: console state goes through the same API and
+  D1/R2 backing as every other target.
