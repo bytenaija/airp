@@ -22,6 +22,7 @@ export interface PolicyEngineServerOptions {
   tier0Path?: string;
   ownershipPath?: string;
   auditStore?: PolicyAuditStore;
+  useDatabaseAudit?: boolean;
   clefProvider?: DecisionModelProvider;
   jwtSecret?: string;
 }
@@ -48,10 +49,16 @@ export function buildPolicyEngineServer(
     ownershipPath: options.ownershipPath,
   });
 
+  // Default to in-memory store in builder; opt in to Postgres explicitly
+  const useDatabaseAudit =
+    options.useDatabaseAudit ??
+    (process.env.POLICY_AUDIT_DB === "true" ||
+      (process.env.NODE_ENV === "production" && !!process.env.DATABASE_URL));
+
   const auditStore =
     options.auditStore ||
     new PolicyAuditStore(
-      process.env.NODE_ENV !== "test" && process.env.DATABASE_URL
+      useDatabaseAudit && process.env.DATABASE_URL
         ? new PrismaClient()
         : undefined,
     );
@@ -304,6 +311,66 @@ export function buildPolicyEngineServer(
     }
   });
 
+  // Policy rule edit endpoints (enforcing Separation of Duties and audit logging)
+  const handlePolicyEdit = async (req: FastifyRequest, reply: FastifyReply) => {
+    const user = extractUser(req);
+    if (!user) {
+      return reply.status(401).send({
+        error: "Unauthorized: Missing authentication claims or Bearer token",
+      });
+    }
+
+    const body = (req.body as any) || {};
+    const requestedBy = body.requestedBy || body.requested_by;
+    if (!requestedBy) {
+      return reply.status(400).send({
+        error: "Missing required 'requestedBy' parameter",
+      });
+    }
+
+    const validation = rbac.validatePolicyEdit(user, requestedBy);
+    if (!validation.authorized) {
+      await auditStore.record({
+        eventType: "policy_edit",
+        identity: user.sub,
+        policyVersion: body.version || "v1",
+        targetId: body.ruleId || "policy_rules",
+        actionOrDecision: "denied",
+        metadata: {
+          reason: validation.reason,
+          requestedBy,
+          userRoles: user.roles,
+        },
+      });
+      return reply.status(403).send({
+        error: "Forbidden",
+        reason: validation.reason,
+      });
+    }
+
+    await auditStore.record({
+      eventType: "policy_edit",
+      identity: user.sub,
+      policyVersion: body.version || "v1",
+      targetId: body.ruleId || "policy_rules",
+      actionOrDecision: "approved",
+      metadata: {
+        requestedBy,
+        changes: body.changes || body.rule || {},
+      },
+    });
+
+    return reply.status(200).send({
+      success: true,
+      message: "Policy edit approved and recorded in audit log",
+      appliedBy: user.sub,
+      requestedBy,
+    });
+  };
+
+  server.post("/policies/edit", handlePolicyEdit);
+  server.post("/policies/rules", handlePolicyEdit);
+
   // Query audit logs
   server.get("/audit", async (req: FastifyRequest) => {
     const query = (req.query as any) || {};
@@ -334,7 +401,9 @@ if (
 ) {
   const port = Number(process.env.POLICY_ENGINE_PORT || process.env.PORT || 8008);
   const host = process.env.HOST || "0.0.0.0";
-  const { server, auditStore } = buildPolicyEngineServer();
+  const { server, auditStore } = buildPolicyEngineServer({
+    useDatabaseAudit: !!process.env.DATABASE_URL,
+  });
 
   auditStore.ensureDatabaseTrigger().catch((err) => {
     console.warn("Notice: postgres trigger initialization:", err.message);

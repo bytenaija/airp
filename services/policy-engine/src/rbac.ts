@@ -52,12 +52,20 @@ export class AuthorizationError extends Error {
   }
 }
 
+let ephemeralDevSecret: string | null = null;
+
 export function getJwtSecret(secret?: string): string {
   if (secret) return secret;
   if (process.env.POLICY_JWT_SECRET) return process.env.POLICY_JWT_SECRET;
   const env = process.env.NODE_ENV;
   if (env === "test" || env === "development") {
-    return "airp-default-policy-jwt-secret-key-12345";
+    if (!ephemeralDevSecret) {
+      ephemeralDevSecret = crypto.randomBytes(32).toString("hex");
+      console.warn(
+        "Notice: POLICY_JWT_SECRET unset. Generated ephemeral random secret for test/development session.",
+      );
+    }
+    return ephemeralDevSecret;
   }
   throw new AuthenticationError(
     "POLICY_JWT_SECRET environment variable is required outside of test and development",

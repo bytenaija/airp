@@ -19,9 +19,10 @@ export function buildAgentRuntimeServer(
   server: FastifyInstance;
   registry: Registry;
   runtime: InvestigationAgentRuntime;
+  credentials: { allowedEnvVars: string[]; scrubbedEnvVars: string[] };
 } {
   // Enforce credential separation: agent runtime loads ONLY agent_ro credentials
-  applyRoleCredentialSeparation("agent_ro");
+  const credentials = applyRoleCredentialSeparation("agent_ro");
 
   const server = Fastify({ logger: options.logger ?? false });
   const registry = new Registry();
@@ -62,6 +63,11 @@ export function buildAgentRuntimeServer(
       status: "ok",
       service: "agent-runtime",
       timestamp: new Date().toISOString(),
+      credentials: {
+        role: "agent_ro",
+        allowedEnvVars: credentials.allowedEnvVars,
+        scrubbedEnvVars: credentials.scrubbedEnvVars,
+      },
     };
   });
 
@@ -143,7 +149,7 @@ export function buildAgentRuntimeServer(
     }
   });
 
-  return { server, registry, runtime };
+  return { server, registry, runtime, credentials };
 }
 
 if (process.env.NODE_ENV !== "test" && process.argv[1]?.endsWith("server.js")) {

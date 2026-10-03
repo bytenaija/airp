@@ -544,31 +544,26 @@ program
 
     if (options.token) {
       headers.Authorization = `Bearer ${options.token}`;
+    } else if (process.env.POLICY_JWT_SECRET) {
+      const roles =
+        approvalRole === "security_auditor"
+          ? ["security_auditor", "approver"]
+          : ["approver"];
+      const token = mintCliJwt(
+        { sub: approver, roles, team },
+        process.env.POLICY_JWT_SECRET,
+      );
+      headers.Authorization = `Bearer ${token}`;
     } else {
-      const jwtSecret =
-        process.env.POLICY_JWT_SECRET ||
-        (process.env.NODE_ENV !== "production"
-          ? "airp-default-policy-jwt-secret-key-12345"
-          : undefined);
-
-      if (jwtSecret) {
-        const roles =
+      headers["x-user-claims"] = JSON.stringify({
+        sub: approver,
+        roles: [
           approvalRole === "security_auditor"
-            ? ["security_auditor", "approver"]
-            : ["approver"];
-        const token = mintCliJwt({ sub: approver, roles, team }, jwtSecret);
-        headers.Authorization = `Bearer ${token}`;
-      } else {
-        headers["x-user-claims"] = JSON.stringify({
-          sub: approver,
-          roles: [
-            approvalRole === "security_auditor"
-              ? "security_auditor"
-              : "approver",
-          ],
-          team,
-        });
-      }
+            ? "security_auditor"
+            : "approver",
+        ],
+        team,
+      });
     }
 
     try {

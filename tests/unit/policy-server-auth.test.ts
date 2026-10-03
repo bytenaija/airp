@@ -162,4 +162,81 @@ describe("Policy Engine Server Auth & Claims Gating", () => {
     const body = JSON.parse(res.body);
     expect(body.error).toBe("Forbidden");
   });
+
+  it("rejects policy edit when user lacks policy_admin role", async () => {
+    const token = signJwt(
+      { sub: "charlie", roles: ["approver"], team: "checkout-team" },
+      testSecret,
+    );
+
+    const res = await server.inject({
+      method: "POST",
+      url: "/policies/rules",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      payload: {
+        requestedBy: "dave",
+        version: "v2",
+        changes: { diff_lines: 40 },
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe("Forbidden");
+    expect(body.reason).toContain("policy_admin");
+  });
+
+  it("enforces separation of duties on policy edits: requester cannot approve their own edit", async () => {
+    const token = signJwt(
+      { sub: "admin-alice", roles: ["policy_admin"], team: "sec-ops" },
+      testSecret,
+    );
+
+    // admin-alice attempts to approve an edit requested by admin-alice
+    const res = await server.inject({
+      method: "POST",
+      url: "/policies/rules",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      payload: {
+        requestedBy: "admin-alice",
+        version: "v2",
+        changes: { diff_lines: 40 },
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe("Forbidden");
+    expect(body.reason).toContain("Separation of duties violation");
+  });
+
+  it("approves policy edit when requested by different user and approved by policy_admin", async () => {
+    const token = signJwt(
+      { sub: "admin-bob", roles: ["policy_admin"], team: "sec-ops" },
+      testSecret,
+    );
+
+    const res = await server.inject({
+      method: "POST",
+      url: "/policies/rules",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      payload: {
+        requestedBy: "dev-dan",
+        version: "v2",
+        changes: { diff_lines: 45 },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.appliedBy).toBe("admin-bob");
+    expect(body.requestedBy).toBe("dev-dan");
+  });
 });

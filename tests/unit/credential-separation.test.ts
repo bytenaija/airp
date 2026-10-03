@@ -37,26 +37,45 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
   });
 
   it("agent runtime process loads ONLY agent_ro and ensures actuation credentials are absent from environment", () => {
-    // Inject actuation credentials into process.env
+    // Inject actuation credentials and ambient credentials into process.env
     process.env.GITHUB_TOKEN = "ghp_actuation_secret_12345";
     process.env.DOCKER_AUTH_CONFIG = '{"auths":{"index.docker.io":{}}}';
     process.env.FLAGS_ADMIN_TOKEN = "flags_secret_admin_token";
+    process.env.AWS_ACCESS_KEY_ID = "AKIA_AMBIENT_KEY_12345";
+    process.env.SSH_AUTH_SOCK = "/tmp/ssh_ambient_socket";
     process.env.PROMETHEUS_READ_TOKEN = "prom_read_token_xyz";
 
     expect(process.env.GITHUB_TOKEN).toBeDefined();
     expect(process.env.DOCKER_AUTH_CONFIG).toBeDefined();
     expect(process.env.FLAGS_ADMIN_TOKEN).toBeDefined();
+    expect(process.env.AWS_ACCESS_KEY_ID).toBeDefined();
+    expect(process.env.SSH_AUTH_SOCK).toBeDefined();
 
     // Boot the agent runtime server
-    const { server } = buildAgentRuntimeServer();
+    const { server, credentials } = buildAgentRuntimeServer();
     try {
       // Assert actuation credentials were stripped and are strictly absent
       expect(process.env.GITHUB_TOKEN).toBeUndefined();
       expect(process.env.DOCKER_AUTH_CONFIG).toBeUndefined();
       expect(process.env.FLAGS_ADMIN_TOKEN).toBeUndefined();
 
+      // Assert ambient non-allowlisted credentials are also strictly scrubbed
+      expect(process.env.AWS_ACCESS_KEY_ID).toBeUndefined();
+      expect(process.env.SSH_AUTH_SOCK).toBeUndefined();
+
       // Assert read-only telemetry credentials remain present
       expect(process.env.PROMETHEUS_READ_TOKEN).toBe("prom_read_token_xyz");
+
+      // Assert allowedEnvVars is consumed and matches agent_ro specification
+      expect(credentials.allowedEnvVars).toEqual([
+        "PROMETHEUS_READ_TOKEN",
+        "LOKI_READ_TOKEN",
+        "TEMPO_READ_TOKEN",
+        "CODE_INDEX_READ_TOKEN",
+      ]);
+      expect(credentials.scrubbedEnvVars).toContain("GITHUB_TOKEN");
+      expect(credentials.scrubbedEnvVars).toContain("AWS_ACCESS_KEY_ID");
+      expect(credentials.scrubbedEnvVars).toContain("SSH_AUTH_SOCK");
     } finally {
       server.close();
     }

@@ -73,21 +73,46 @@ export function applyRoleCredentialSeparation(
     throw new Error(`Role '${role}' is not defined in credentials configuration`);
   }
   const allowedVars = new Set(config.roles[role].env_vars);
-
   const scrubbed: string[] = [];
 
-  // If loading agent_ro, scrub any actuation_rw credentials from the environment
+  // When loading agent_ro, enforce that the process environment loads ONLY agent_ro credentials.
+  // Actuation credentials and any ambient third-party credentials (AWS, SSH, etc.) not explicitly
+  // listed in allowedVars are purged from process.env.
   if (role === "agent_ro") {
-    const actuationVars = config.roles.actuation_rw?.env_vars || [
-      "GITHUB_TOKEN",
-      "DOCKER_AUTH_CONFIG",
-      "FLAGS_ADMIN_TOKEN",
+    // 1. Explicitly purge credentials configured for actuation_rw and other roles
+    for (const [otherRole, roleDef] of Object.entries(config.roles)) {
+      if (otherRole !== role && roleDef.env_vars) {
+        for (const varName of roleDef.env_vars) {
+          if (!allowedVars.has(varName) && process.env[varName] !== undefined) {
+            delete process.env[varName];
+            scrubbed.push(varName);
+          }
+        }
+      }
+    }
+
+    // 2. Purge ambient credential variables matching common credential patterns
+    const credentialPatterns = [
+      /^AWS_/,
+      /^SSH_/,
+      /^GITHUB_/,
+      /^GH_/,
+      /^GIT_/,
+      /^DOCKER_/,
+      /_TOKEN$/,
+      /_SECRET$/,
+      /_KEY$/,
+      /_PASSWORD$/,
+      /_AUTH$/,
     ];
 
-    for (const varName of actuationVars) {
-      if (process.env[varName] !== undefined) {
-        delete process.env[varName];
-        scrubbed.push(varName);
+    for (const envKey of Object.keys(process.env)) {
+      if (!allowedVars.has(envKey)) {
+        const isCredential = credentialPatterns.some((pattern) => pattern.test(envKey));
+        if (isCredential) {
+          delete process.env[envKey];
+          scrubbed.push(envKey);
+        }
       }
     }
   }

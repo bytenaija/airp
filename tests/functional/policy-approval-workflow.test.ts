@@ -18,13 +18,18 @@ describe("Epic 8 Acceptance Criterion 3: End-to-End Approval Workflow with CLI",
   let auditStore: PolicyAuditStore;
   let clefProvider: ClefProvider;
 
+  const testSecret = "workflow-test-jwt-secret-key-12345";
+  const prevSecret = process.env.POLICY_JWT_SECRET;
+
   beforeAll(async () => {
+    process.env.POLICY_JWT_SECRET = testSecret;
     auditStore = new PolicyAuditStore();
     clefProvider = new ClefProvider({ enabled: true });
 
     const built = buildPolicyEngineServer({
       auditStore,
       clefProvider,
+      jwtSecret: testSecret,
     });
     server = built.server;
 
@@ -35,6 +40,8 @@ describe("Epic 8 Acceptance Criterion 3: End-to-End Approval Workflow with CLI",
 
   afterAll(async () => {
     await server?.close();
+    if (prevSecret !== undefined) process.env.POLICY_JWT_SECRET = prevSecret;
+    else delete process.env.POLICY_JWT_SECRET;
   });
 
   it("plan that fails eligibility waits for BOTH approvals before proceeding (tested via CLI)", async () => {
