@@ -299,8 +299,12 @@ export async function runPatchPipeline(
         `Patch generator: ${usedLLM ? "LLM" : `deterministic (${fallbackReason || "no reason given"})`}`,
       ].join("\n");
 
+      const isProactive = Boolean(params.proactive);
+      // Branch name mirrors the VCS provider default: airp/proactive-<id> for
+      // proactive sweeps, airp/fix-<id> otherwise.
+      const rollbackBranch = `airp/${isProactive ? "proactive" : "fix"}-${params.incidentId}`;
       const rollbackPlan = [
-        `1. Revert pull request branch \`airp/fix-${params.incidentId}\` or git revert the merge commit.`,
+        `1. Revert pull request branch \`${rollbackBranch}\` or git revert the merge commit.`,
         `2. If deployed, redeploy previous stable revision \`${params.diagnosis.implicated_change?.revision || "HEAD~1"}\`.`,
         "3. Verify telemetry error rate returns to normal baseline.",
       ].join("\n");
@@ -313,7 +317,6 @@ export async function runPatchPipeline(
           .join("\n") ||
         "RCA evidence confirmed suspect location and error step.";
 
-      const isProactive = Boolean(params.proactive);
       const prLabels = params.labels ?? (isProactive ? ["proactive"] : undefined);
       const prHeader =
         params.header ??
