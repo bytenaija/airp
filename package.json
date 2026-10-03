@@ -16,11 +16,12 @@
     "schema": "services/changefeed/prisma/schema.prisma"
   },
   "scripts": {
-    "build": "npm run --workspaces --if-present build",
+    "build": "npm run build:deps && npm run --workspaces --if-present build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --ext .ts",
-    "format": "prettier --write \"**/*.{ts,json,yaml,yml}\""
+    "format": "prettier --write \"**/*.{ts,json,yaml,yml}\"",
+    "build:deps": "npm run build --workspace=@airp/common --workspace=@airp/flywheel --workspace=@airp/handoff --workspace=@airp/agent-runtime --workspace=@airp/policy-engine --workspace=@airp/patch-pipeline --workspace=@airp/sweep"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
@@ -34,6 +35,13 @@
     "tsx": "^4.23.15",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
+<<<<<<< HEAD
+=======
+>>>>>>> 52b54ee (Neon configuration)
+  },
+  "dependencies": {
+    "@types/node-cron": "^3.0.11",
+    "node-cron": "^4.6.0"
   },
   "dependencies": {
     "@neon/config": "^1.8.3",
