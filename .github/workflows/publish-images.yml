@@ -9,6 +9,7 @@ permissions:
   contents: read
   packages: write
   id-token: write
+  attestations: write
 
 jobs:
   publish:
@@ -34,6 +35,14 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Determine image version and tags
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Setup QEMU for multi-arch builds
         uses: docker/setup-qemu-action@v3
@@ -66,15 +75,26 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/bytenaija/airp-${{ matrix.service }}:0.1.0
+            ghcr.io/bytenaija/airp-${{ matrix.service }}:${{ steps.meta.outputs.version }}
+            ghcr.io/bytenaija/airp-${{ matrix.service }}:${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}
+            ghcr.io/bytenaija/airp-${{ matrix.service }}:sha-${{ steps.meta.outputs.sha }}
             ghcr.io/bytenaija/airp-${{ matrix.service }}:latest
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/bytenaija/airp-${{ matrix.service }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
 
       - name: Attach SBOM with Cosign
         run: |
           cosign attach sbom --sbom /tmp/sbom.json \
-            ghcr.io/bytenaija/airp-${{ matrix.service }}:0.1.0
+            ghcr.io/bytenaija/airp-${{ matrix.service }}:${{ steps.meta.outputs.version }}
 
       - name: Sign container images with Cosign keyless signing
         run: |
-          cosign sign --yes ghcr.io/bytenaija/airp-${{ matrix.service }}:0.1.0
+          cosign sign --yes ghcr.io/bytenaija/airp-${{ matrix.service }}:${{ steps.meta.outputs.version }}
+          cosign sign --yes ghcr.io/bytenaija/airp-${{ matrix.service }}:${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}
+          cosign sign --yes ghcr.io/bytenaija/airp-${{ matrix.service }}:sha-${{ steps.meta.outputs.sha }}
           cosign sign --yes ghcr.io/bytenaija/airp-${{ matrix.service }}:latest
