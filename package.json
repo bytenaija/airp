@@ -8,7 +8,8 @@
     "packages/*",
     "services/*",
     "demo",
-    "infra/cloudflare/router"
+    "infra/cloudflare/router",
+    "infra/cloudflare/native"
   ],
   "bin": {
     "airp": "./packages/cli/dist/index.js"

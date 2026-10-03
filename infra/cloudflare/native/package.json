@@ -1,0 +1,20 @@
+{
+  "name": "@airp/native-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare-native runtime for AIRP (Epic 20, work package 3): Agents SDK agent host and Workflows orchestration for the sweep, investigate, patch pipeline.",
+  "main": "dist/worker.js",
+  "types": "dist/worker.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "agents": "^0.2.0",
+    "hono": "^4.13.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261003.1"
+  }
+}
