@@ -10,9 +10,23 @@ noted at the end, but not detailed here.
 1. Launch an EC2 instance with Ubuntu 22.04 LTS, instance type around
    t3.medium (2 vCPU, 4 GB RAM minimum; size up if observability data
    grows - t3.large is a safer single-node target for this stack).
-2. Attach an EBS volume for the Docker data directory (or just size
-   the root volume generously, 60 GB+, so container images, the
-   postgres volume, and Loki/Tempo/Prometheus data all fit).
+2. Attach an EBS volume for the Docker data directory. This is
+   required: a plain host volume is not acceptable for production.
+   Format and mount it at `/var/lib/docker` so the `postgres_data`,
+   `loki_data`, `tempo_data`, `prometheus_data`, `grafana_data`, and
+   `app_logs` volumes all live on EBS (gp3, 100 GB is a reasonable
+   starting point):
+
+   ```bash
+   sudo mkfs.ext4 /dev/nvme1n1
+   sudo mkdir -p /var/lib/docker
+   echo '/dev/nvme1n1 /var/lib/docker ext4 defaults,nofail 0 0' | sudo tee -a /etc/fstab
+   sudo mount -a
+   ```
+
+   Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
+   eval data) do not go on disk at all: create an S3 bucket and point
+   the stack at it with the documented environment variables.
 3. Allocate an Elastic IP and point your DNS A record at it.
 
 ## Security groups
