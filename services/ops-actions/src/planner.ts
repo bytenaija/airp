@@ -18,6 +18,7 @@ export interface PlannerOptions {
   serviceFlagUrls?: Record<string, string>;
   servicePorts?: Record<string, number>;
   defaultFlagEndpointTemplate?: string;
+  throwOnMissingParams?: boolean;
   onRollback?: (service: string, targetVersion: string) => Promise<void> | void;
   onScale?: (service: string, targetReplicas: number) => Promise<void> | void;
 }
@@ -32,10 +33,19 @@ export class UnsupportedFixabilityError extends Error {
   }
 }
 
+export class MissingActionParametersError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingActionParametersError";
+    Object.setPrototypeOf(this, MissingActionParametersError.prototype);
+  }
+}
+
 export function resolveFlagUrl(
   service: string,
   options: PlannerOptions = {},
-): string {
+  changeMetadata?: Record<string, unknown>,
+): string | null {
   if (options.serviceFlagUrls && options.serviceFlagUrls[service]) {
     return options.serviceFlagUrls[service];
   }
@@ -44,41 +54,46 @@ export function resolveFlagUrl(
     return `http://localhost:${options.servicePorts[service]}/admin/flags`;
   }
 
-  // Default port mappings for common services, or fallback
-  const defaultPorts: Record<string, number> = {
-    checkout: 8001,
-    payments: 8002,
-    "fraud-check": 8003,
-  };
-
-  const port = defaultPorts[service];
-  if (port) {
-    return `http://localhost:${port}/admin/flags`;
+  if (changeMetadata) {
+    if (typeof changeMetadata.flagUrl === "string") {
+      return changeMetadata.flagUrl;
+    }
+    if (typeof changeMetadata.flag_url === "string") {
+      return changeMetadata.flag_url;
+    }
+    if (typeof changeMetadata.port === "number") {
+      return `http://localhost:${changeMetadata.port}/admin/flags`;
+    }
   }
 
-  return `http://${service}:8001/admin/flags`;
+  if (options.defaultFlagEndpointTemplate) {
+    return options.defaultFlagEndpointTemplate.replace("${service}", service);
+  }
+
+  return null;
 }
 
-function detectServiceFromDiagnosis(diagnosis: Diagnosis): string {
+export function detectServiceFromDiagnosis(diagnosis: Diagnosis): string | null {
   if (diagnosis.implicated_change?.service) {
     return diagnosis.implicated_change.service;
   }
 
   for (const item of diagnosis.evidence) {
-    const text = JSON.stringify(item);
-    const serviceMatch = text.match(/"service":"([^"]+)"/);
-    if (serviceMatch && serviceMatch[1]) {
-      return serviceMatch[1];
+    const obs = item.observation as any;
+    if (obs && typeof obs === "object") {
+      if (typeof obs.service === "string" && obs.service.trim().length > 0) {
+        return obs.service.trim();
+      }
+    }
+    const query = item.query as any;
+    if (query && typeof query === "object") {
+      if (typeof query.service === "string" && query.service.trim().length > 0) {
+        return query.service.trim();
+      }
     }
   }
 
-  // Check root cause text for common service patterns
-  const match = diagnosis.root_cause.match(/\b([a-z0-9_-]+(?:service|checkout|payments|fraud|inventory|worker|gateway))\b/i);
-  if (match && match[1]) {
-    return match[1].toLowerCase();
-  }
-
-  return "checkout";
+  return null;
 }
 
 function isSaturationScenario(diagnosis: Diagnosis): boolean {
@@ -142,11 +157,96 @@ function isDeployScenario(diagnosis: Diagnosis): boolean {
   });
 }
 
+function extractRollbackVersions(diagnosis: Diagnosis): {
+  currentVersion: string | null;
+  previousVersion: string | null;
+} {
+  const change = diagnosis.implicated_change;
+  const metadata = change?.metadata || {};
+
+  let currentVersion: string | null =
+    change?.revision && change.revision !== "deploy" ? change.revision : null;
+
+  if (!currentVersion && typeof metadata.revision === "string") {
+    currentVersion = metadata.revision;
+  }
+  if (!currentVersion && typeof metadata.new_version === "string") {
+    currentVersion = metadata.new_version;
+  }
+  if (!currentVersion && typeof metadata.current_version === "string") {
+    currentVersion = metadata.current_version;
+  }
+
+  let previousVersion: string | null = null;
+  if (typeof metadata.previous_revision === "string") {
+    previousVersion = metadata.previous_revision;
+  } else if (typeof metadata.old_revision === "string") {
+    previousVersion = metadata.old_revision;
+  } else if (typeof metadata.previous_version === "string") {
+    previousVersion = metadata.previous_version;
+  } else if (typeof metadata.target_revision === "string") {
+    previousVersion = metadata.target_revision;
+  }
+
+  // Attempt to parse versions from root cause if still missing
+  if (!currentVersion || !previousVersion) {
+    const versionMatches = diagnosis.root_cause.match(/\bv\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9_.-]+)?\b/g);
+    if (versionMatches && versionMatches.length >= 2) {
+      if (!currentVersion) currentVersion = versionMatches[0];
+      if (!previousVersion) previousVersion = versionMatches[1];
+    } else if (versionMatches && versionMatches.length === 1 && !currentVersion) {
+      currentVersion = versionMatches[0];
+    }
+  }
+
+  return { currentVersion, previousVersion };
+}
+
+function extractFlagKey(diagnosis: Diagnosis): string | null {
+  const change = diagnosis.implicated_change;
+  const metadata = change?.metadata || {};
+
+  if (typeof metadata.flag === "string" && metadata.flag.trim().length > 0) {
+    return metadata.flag.trim();
+  }
+  if (typeof metadata.flagKey === "string" && metadata.flagKey.trim().length > 0) {
+    return metadata.flagKey.trim();
+  }
+  if (typeof metadata.flag_key === "string" && metadata.flag_key.trim().length > 0) {
+    return metadata.flag_key.trim();
+  }
+  if (change?.revision && change.revision !== "flag" && change.revision.trim().length > 0) {
+    return change.revision.trim();
+  }
+
+  // Try extracting from root cause quotes: e.g. flag 'new_payment_flow'
+  const match = diagnosis.root_cause.match(/flag\s+['"]([a-zA-Z0-9_-]+)['"]/i);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  return null;
+}
+
+function handleMissingParam(
+  message: string,
+  options: PlannerOptions,
+): null {
+  if (options.throwOnMissingParams) {
+    throw new MissingActionParametersError(message);
+  }
+  return null;
+}
+
 /**
  * Plans an operational remediation action for an ops_actionable diagnosis.
  * - Chooses RollbackAction if implicated_change is a deploy.
  * - Chooses FlagToggleAction if a flag event is implicated.
  * - Chooses ScaleAction if evidence is saturation.
+ *
+ * Refuses (returns null or throws if throwOnMissingParams=true) when required
+ * parameters (service, rollback versions, flag key/url) cannot be determined,
+ * avoiding dangerous parameter fabrication.
  */
 export function planOpsAction(
   diagnosis: Diagnosis,
@@ -157,21 +257,23 @@ export function planOpsAction(
   }
 
   const service = detectServiceFromDiagnosis(diagnosis);
+  if (!service) {
+    return handleMissingParam(
+      "Target service could not be determined from the diagnosis.",
+      options,
+    );
+  }
 
   // 1. Check for Bad Deploy Scenario -> RollbackAction
   if (diagnosis.implicated_change?.type === "deploy" || isDeployScenario(diagnosis)) {
-    const change = diagnosis.implicated_change;
-    const currentVersion =
-      change?.revision ||
-      (change?.metadata?.revision as string) ||
-      (change?.metadata?.new_version as string) ||
-      "v2.14.3";
+    const { currentVersion, previousVersion } = extractRollbackVersions(diagnosis);
 
-    const previousVersion =
-      (change?.metadata?.previous_revision as string) ||
-      (change?.metadata?.old_revision as string) ||
-      (change?.metadata?.previous_version as string) ||
-      "v2.14.2";
+    if (!currentVersion || !previousVersion) {
+      return handleMissingParam(
+        `Rollback action requires currentVersion and previousVersion, but could not determine both from diagnosis (found currentVersion: ${currentVersion}, previousVersion: ${previousVersion}).`,
+        options,
+      );
+    }
 
     const rollbackParams: RollbackActionParams = {
       service,
@@ -187,21 +289,30 @@ export function planOpsAction(
 
   // 2. Check for Feature Flag Scenario -> FlagToggleAction
   if (diagnosis.implicated_change?.type === "flag" || isFlagScenario(diagnosis)) {
+    const flagKey = extractFlagKey(diagnosis);
+    if (!flagKey) {
+      return handleMissingParam(
+        `FlagToggleAction requires a flagKey, but none could be determined from the diagnosis.`,
+        options,
+      );
+    }
+
     const change = diagnosis.implicated_change;
-    const flagKey =
-      (change?.metadata?.flag as string) ||
-      (change?.metadata?.flagKey as string) ||
-      (change?.revision !== "flag" ? change?.revision : undefined) ||
-      "new_payment_flow";
-
-    // Value before remediation is typically true (enabling the faulty path)
+    const metadata = (change?.metadata as Record<string, unknown>) || {};
     const currentValue =
-      typeof change?.metadata?.value === "boolean"
-        ? change.metadata.value
-        : true;
-    const targetValue = !currentValue;
+      typeof metadata.value === "boolean" ? metadata.value : true;
+    const targetValue =
+      typeof metadata.target_value === "boolean"
+        ? metadata.target_value
+        : !currentValue;
 
-    const flagUrl = resolveFlagUrl(service, options);
+    const flagUrl = resolveFlagUrl(service, options, metadata);
+    if (!flagUrl) {
+      return handleMissingParam(
+        `FlagToggleAction requires a flag administration endpoint URL, but could not resolve one for service '${service}'.`,
+        options,
+      );
+    }
 
     const flagParams: FlagToggleActionParams = {
       service,

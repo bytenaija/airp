@@ -174,8 +174,15 @@ export abstract class ReversibleAction {
 
   /**
    * Revert the ops action back to its prior state.
+   * Enforces DRY_RUN_FIRST confirmation guard and timeline logging.
    */
   async revert(options: ApplyOptions = {}): Promise<ActionResult> {
+    if (isDryRunFirstRequired() && !hasExplicitConfirmation(options)) {
+      throw new DevConfirmationRequiredError(
+        `Ops action execution rejected for revert of ${this.actionType} on service '${this.targetService}': in local dev (DRY_RUN_FIRST), revert() requires explicit confirmation (--i-understand or { iUnderstand: true }).`,
+      );
+    }
+
     const result = await this.executeRevert();
 
     const timelineEvent: TimelineEvent = {

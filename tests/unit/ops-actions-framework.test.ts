@@ -193,7 +193,50 @@ describe("Epic 7 Acceptance Criterion 3: Confirmation Flag Guard & Framework Bas
     expect(result.timelineEvent).toEqual(loggedEvents[0]);
   });
 
-  it("revert logs reversal to the timeline and restores state", async () => {
+  it("revert refuses to run without the explicit confirmation flag in dev mode", async () => {
+    setDryRunFirst(true);
+    const action = new MockGenericOpsAction("billing-service");
+    await action.apply({ iUnderstand: true });
+    expect(action.applied).toBe(true);
+
+    await expect(action.revert()).rejects.toThrow(
+      DevConfirmationRequiredError,
+    );
+    await expect(action.revert()).rejects.toThrow(
+      /Ops action execution rejected for revert of mock_ops on service 'billing-service'/,
+    );
+    expect(action.applied).toBe(true); // State remains intact
+  });
+
+  it("all concrete actions (Rollback, FlagToggle, Scale) refuse to revert without confirmation in dev", async () => {
+    setDryRunFirst(true);
+
+    const rollback = new RollbackAction({
+      service: "shipping-worker",
+      currentVersion: "v2.0.0",
+      previousVersion: "v1.9.0",
+    });
+
+    const flagToggle = new FlagToggleAction({
+      service: "shipping-worker",
+      flagUrl: "http://localhost:9099/admin/flags",
+      flagKey: "beta_routing",
+      currentValue: true,
+      targetValue: false,
+    });
+
+    const scale = new ScaleAction({
+      service: "shipping-worker",
+      currentReplicas: 1,
+      targetReplicas: 3,
+    });
+
+    await expect(rollback.revert()).rejects.toThrow(DevConfirmationRequiredError);
+    await expect(flagToggle.revert()).rejects.toThrow(DevConfirmationRequiredError);
+    await expect(scale.revert()).rejects.toThrow(DevConfirmationRequiredError);
+  });
+
+  it("revert logs reversal to the timeline and restores state when confirmed", async () => {
     const loggedEvents: TimelineEvent[] = [];
     const timelineLogger = (evt: TimelineEvent) => {
       loggedEvents.push(evt);
@@ -203,7 +246,10 @@ describe("Epic 7 Acceptance Criterion 3: Confirmation Flag Guard & Framework Bas
     await action.apply({ iUnderstand: true });
     expect(action.applied).toBe(true);
 
-    const revertResult = await action.revert({ timelineLogger });
+    const revertResult = await action.revert({
+      iUnderstand: true,
+      timelineLogger,
+    });
     expect(revertResult.success).toBe(true);
     expect(action.applied).toBe(false);
     expect(loggedEvents.length).toBe(1);

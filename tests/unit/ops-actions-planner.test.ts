@@ -3,6 +3,7 @@ import { Diagnosis } from "@airp/common";
 import {
   planOpsAction,
   UnsupportedFixabilityError,
+  MissingActionParametersError,
 } from "../../services/ops-actions/src/planner.js";
 import { RollbackAction } from "../../services/ops-actions/src/actions/rollback.js";
 import { FlagToggleAction } from "../../services/ops-actions/src/actions/flag-toggle.js";
@@ -81,7 +82,9 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
       ],
     };
 
-    const action = planOpsAction(flagDiagnosis);
+    const action = planOpsAction(flagDiagnosis, {
+      servicePorts: { checkout: 8001 },
+    });
     expect(action).toBeInstanceOf(FlagToggleAction);
 
     const flagAction = action as FlagToggleAction;
@@ -223,5 +226,134 @@ describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
     expect(scale).toBeInstanceOf(ScaleAction);
     expect(scale.targetService).toBe("notification-dispatcher");
     expect(scale.targetReplicas).toBe(3);
+  });
+
+  describe("Parameter Fabrication Prevention & Refusal (Blockers 1, 2, 3)", () => {
+    it("refuses to plan (returns null) and does NOT default service to 'checkout' when service is missing", () => {
+      const diagnosisWithNoService: Diagnosis = {
+        id: "a8888888-8888-4888-8888-888888888888",
+        tenant_id: "local",
+        incident_id: "b9999999-9999-4999-8999-999999999999",
+        root_cause: "High saturation and connection pool exhaustion",
+        confidence: 0.85,
+        fixability: "ops_actionable",
+        evidence: [
+          {
+            tool: "prometheus",
+            query: "cpu",
+            observation: { detail: "CPU saturation at 99%" }, // Note: NO service field!
+            supports: true,
+          },
+        ],
+      };
+
+      // Must return null, NOT assume "checkout"
+      const action = planOpsAction(diagnosisWithNoService);
+      expect(action).toBeNull();
+
+      // With throwOnMissingParams, throws descriptive error
+      expect(() =>
+        planOpsAction(diagnosisWithNoService, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(diagnosisWithNoService, { throwOnMissingParams: true }),
+      ).toThrow(/Target service could not be determined/);
+    });
+
+    it("refuses to plan and does NOT fabricate versions ('v2.14.3' / 'v2.14.2') when deploy versions are missing", () => {
+      const deployWithoutVersions: Diagnosis = {
+        id: "a9999999-9999-4999-8999-999999999999",
+        tenant_id: "local",
+        incident_id: "baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        root_cause: "Bad deploy introduced failure",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "deploy",
+          service: "billing-service",
+          revision: "deploy", // revision contains no actual version
+          ts: "2026-10-02T14:00:00Z",
+          metadata: {}, // no previous_revision or revision
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(deployWithoutVersions);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(deployWithoutVersions, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(deployWithoutVersions, { throwOnMissingParams: true }),
+      ).toThrow(/requires currentVersion and previousVersion/);
+    });
+
+    it("refuses to plan and does NOT fabricate flag key ('new_payment_flow') when flagKey is missing", () => {
+      const flagWithoutKey: Diagnosis = {
+        id: "aaaaaaaa-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        tenant_id: "local",
+        incident_id: "bbbbbbbb-cccc-4ccc-8ccc-cccccccccccc",
+        root_cause: "Feature flag caused errors",
+        confidence: 0.87,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "checkout",
+          revision: "flag", // no actual flag key
+          ts: "2026-10-02T14:00:00Z",
+          metadata: {}, // no flag or flagKey
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(flagWithoutKey, {
+        servicePorts: { checkout: 8001 },
+      });
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(flagWithoutKey, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(flagWithoutKey, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(/requires a flagKey/);
+    });
+
+    it("refuses to plan when flag administration URL cannot be resolved (no demo port guessing)", () => {
+      const flagWithoutUrl: Diagnosis = {
+        id: "accccccc-dddd-4ddd-8ddd-dddddddddddd",
+        tenant_id: "local",
+        incident_id: "bdeeeeee-ffff-4fff-8fff-ffffffffffff",
+        root_cause: "Flag 'beta_feature' caused errors",
+        confidence: 0.88,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "unknown-microservice",
+          revision: "beta_feature",
+          ts: "2026-10-02T14:00:00Z",
+          metadata: { flag: "beta_feature", value: true },
+        },
+        evidence: [],
+      };
+
+      // Without serviceFlagUrls, servicePorts, or metadata URL, must refuse
+      const action = planOpsAction(flagWithoutUrl);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(flagWithoutUrl, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(flagWithoutUrl, { throwOnMissingParams: true }),
+      ).toThrow(/requires a flag administration endpoint URL/);
+    });
   });
 });
