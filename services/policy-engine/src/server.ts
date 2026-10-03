@@ -48,6 +48,9 @@ export function buildPolicyEngineServer(
   });
 
   const auditStore = options.auditStore || new PolicyAuditStore();
+  // Ensure the database trigger is installed on PostgreSQL if running with a database
+  auditStore.ensureDatabaseTrigger().catch(() => {});
+
   const slackProvider = new StubSlackProvider();
   const approvalManager = new ApprovalManager(rbac, auditStore, slackProvider);
   const breaker = new CircuitBreakerManager(rbac, auditStore);
@@ -67,18 +70,28 @@ export function buildPolicyEngineServer(
       const token = authHeader.slice(7).trim();
       return verifyJwt(token, options.jwtSecret);
     }
-    // Also support custom testing header or body user
-    const claimsHeader = req.headers["x-user-claims"];
-    if (claimsHeader && typeof claimsHeader === "string") {
-      try {
-        return JSON.parse(claimsHeader);
-      } catch {
-        return null;
+
+    // Gated test / dev-only insecure claims fallback:
+    // Strictly disallowed in production; requires explicit environment enablement
+    const allowInsecure =
+      process.env.NODE_ENV !== "production" &&
+      (process.env.ALLOW_INSECURE_CLAIMS === "true" ||
+        process.env.ALLOW_INSECURE_CLAIMS === "1" ||
+        (process.env.NODE_ENV === "test" && !process.env.STRICT_AUTH));
+
+    if (allowInsecure) {
+      const claimsHeader = req.headers["x-user-claims"];
+      if (claimsHeader && typeof claimsHeader === "string") {
+        try {
+          return JSON.parse(claimsHeader);
+        } catch {
+          return null;
+        }
       }
-    }
-    const body = req.body as any;
-    if (body && body.claims) {
-      return body.claims as UserClaims;
+      const body = req.body as any;
+      if (body && body.claims) {
+        return body.claims as UserClaims;
+      }
     }
     return null;
   }
@@ -175,8 +188,6 @@ export function buildPolicyEngineServer(
   server.post("/plans/:planId/approve", async (req: FastifyRequest, reply: FastifyReply) => {
     const { planId } = req.params as { planId: string };
     const body = (req.body as any) || {};
-    const role = body.role || body.by || "code_owner";
-
     const user = extractUser(req);
     if (!user) {
       return reply.status(401).send({
@@ -184,8 +195,25 @@ export function buildPolicyEngineServer(
       });
     }
 
+    const requestedRole = (body.role || body.by || "code_owner") as string;
+    if (requestedRole === "security_auditor") {
+      if (!user.roles.includes("security_auditor") && !user.roles.includes("org_admin")) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          reason: `User '${user.sub}' lacks 'security_auditor' role required to grant this approval`,
+        });
+      }
+    } else {
+      if (!user.roles.includes("approver") && !user.roles.includes("org_admin")) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          reason: `User '${user.sub}' lacks 'approver' role required to grant approvals`,
+        });
+      }
+    }
+
     try {
-      const result = await approvalManager.recordApproval(planId, user, role);
+      const result = await approvalManager.recordApproval(planId, user, requestedRole);
       return reply.status(200).send({
         success: true,
         planId,
@@ -286,4 +314,27 @@ export function buildPolicyEngineServer(
     breaker,
     clefProvider,
   };
+}
+
+if (
+  process.env.NODE_ENV !== "test" &&
+  (process.argv[1]?.endsWith("server.js") ||
+    process.argv[1]?.endsWith("server.ts") ||
+    process.env.SERVICE === "policy-engine")
+) {
+  const port = Number(process.env.POLICY_ENGINE_PORT || process.env.PORT || 8008);
+  const host = process.env.HOST || "0.0.0.0";
+  const { server, auditStore } = buildPolicyEngineServer();
+
+  auditStore.ensureDatabaseTrigger().catch((err) => {
+    console.warn("Notice: postgres trigger initialization:", err.message);
+  });
+
+  server.listen({ port, host }, (err, address) => {
+    if (err) {
+      console.error(err);
+      process.exit(1);
+    }
+    console.log(`policy-engine listening on ${address}`);
+  });
 }

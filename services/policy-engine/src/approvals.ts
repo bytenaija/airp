@@ -89,6 +89,9 @@ export class ApprovalManager {
     }
 
     const plan = state.plan;
+    if (!plan.policy_decision) {
+      plan.policy_decision = state.decision;
+    }
 
     // 1. RBAC validation
     const validation = this.rbac.validateApproval(
@@ -172,14 +175,25 @@ export class ApprovalManager {
       }
     }
 
-    // For Tier-0: check if at least 2 distinct approvals exist
+    // For Tier-0: check if at least 2 distinct approvals from distinct teams exist
     const isTier0 =
+      Boolean(state.decision.requires_distinct_teams) ||
       state.decision.reasons.some((r) => r.includes("tier-0") || r.includes("tier0")) ||
       state.requiredApprovals.includes("distinct_teams");
 
-    if (isTier0 && state.recordedApprovals.length < 2) {
-      if (!missing.includes("second_approver")) {
-        missing.push("second_approver");
+    if (isTier0) {
+      if (state.recordedApprovals.length < 2) {
+        if (!missing.includes("second_approver")) {
+          missing.push("second_approver");
+        }
+      }
+      const distinctTeams = new Set(
+        state.recordedApprovals.map((a) => a.team).filter(Boolean),
+      );
+      if (state.recordedApprovals.length >= 2 && distinctTeams.size < 2) {
+        if (!missing.includes("distinct_teams")) {
+          missing.push("distinct_teams");
+        }
       }
     }
 

@@ -21,6 +21,8 @@ export interface PlannerOptions {
   serviceReplicas?: Record<string, number>;
   currentReplicas?: number;
   targetReplicas?: number;
+  allowedOrigins?: string[];
+  allowMetadataDestination?: boolean;
   throwOnMissingParams?: boolean;
   onRollback?: (service: string, targetVersion: string) => Promise<void> | void;
   onScale?: (service: string, targetReplicas: number) => Promise<void> | void;
@@ -82,7 +84,13 @@ function isValidServiceFlagUrl(
       return true;
     }
 
-    // 2. Loopback / local development (localhost, 127.0.0.1, ::1, 0.0.0.0)
+    // 2. Explicit origin allowlist (if configured in options)
+    if (options.allowedOrigins && options.allowedOrigins.includes(url.origin)) {
+      return true;
+    }
+
+    // 3. Loopback / local development (localhost, 127.0.0.1, ::1, 0.0.0.0)
+    // Destination authority binding: loopback URLs must bind to configured servicePorts or metadataPort
     const isLocalhost =
       host === "localhost" ||
       host === "127.0.0.1" ||
@@ -101,9 +109,10 @@ function isValidServiceFlagUrl(
       if (typeof metadataPort === "number" && metadataPort > 0) {
         return port === metadataPort;
       }
-      if (port > 0 && port <= 65535) {
-        return true;
+      if (options.allowMetadataDestination) {
+        return port > 0 && port <= 65535;
       }
+      return false;
     }
 
     return false;
@@ -151,7 +160,12 @@ export function resolveFlagUrl(
     }
 
     if (candidatePort) {
-      return `http://localhost:${candidatePort}/admin/flags`;
+      if (
+        options.allowMetadataDestination ||
+        (options.servicePorts && options.servicePorts[service] === candidatePort)
+      ) {
+        return `http://localhost:${candidatePort}/admin/flags`;
+      }
     }
   }
 

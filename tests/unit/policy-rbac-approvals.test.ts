@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import crypto from "node:crypto";
 import { type RemediationPlan } from "@airp/common";
 import { PolicyEngineEvaluator } from "../../services/policy-engine/src/evaluator.js";
-import { RbacManager, UserClaims, AuthorizationError, signJwt, verifyJwt } from "../../services/policy-engine/src/rbac.js";
+import { RbacManager, UserClaims, AuthorizationError, AuthenticationError, signJwt, verifyJwt } from "../../services/policy-engine/src/rbac.js";
 import { PolicyAuditStore, InsertOnlyViolationError } from "../../services/policy-engine/src/audit.js";
 import { ApprovalManager } from "../../services/policy-engine/src/approvals.js";
 import { CircuitBreakerManager } from "../../services/policy-engine/src/breaker.js";
@@ -359,6 +359,78 @@ describe("Epic 8 Acceptance Criteria: RBAC, Approvals, Audit & Clef Guardrails",
       expect(decoded.roles).toEqual(["approver"]);
       expect(decoded.team).toBe("payments-team");
       expect(decoded.clearance).toBe("secret");
+    });
+
+    it("rejects token verification in production when POLICY_JWT_SECRET is unset", () => {
+      const prevEnv = process.env.NODE_ENV;
+      const prevSecret = process.env.POLICY_JWT_SECRET;
+      try {
+        process.env.NODE_ENV = "production";
+        delete process.env.POLICY_JWT_SECRET;
+
+        const dummyToken = signJwt({ sub: "attacker", roles: ["org_admin"] }, "secret123");
+        expect(() => verifyJwt(dummyToken)).toThrow(AuthenticationError);
+        expect(() => verifyJwt(dummyToken)).toThrow(/POLICY_JWT_SECRET environment variable is required/);
+      } finally {
+        process.env.NODE_ENV = prevEnv;
+        if (prevSecret !== undefined) process.env.POLICY_JWT_SECRET = prevSecret;
+        else delete process.env.POLICY_JWT_SECRET;
+      }
+    });
+  });
+
+  describe("Tier-0 Distinct-Team Requirement", () => {
+    it("enforces distinct team requirement for Tier-0 services (two approvers from same team rejected)", async () => {
+      const tier0Plan = createPlan({
+        service: "payments-db", // Tier-0 service
+        diff_lines: 10,
+      });
+
+      const decision = evaluator.evaluate(tier0Plan);
+      expect(decision.requires_distinct_teams).toBe(true);
+
+      const state = approvalManager.registerPlan(tier0Plan, decision);
+      expect(state.status).toBe("pending");
+
+      // Approver 1 from payments-team (owning team)
+      const user1: UserClaims = {
+        sub: "alice-payments",
+        roles: ["approver"],
+        team: "payments-team",
+      };
+      const firstResult = await approvalManager.recordApproval(tier0Plan.id, user1, "code_owner");
+      expect(firstResult.canProceed).toBe(false);
+
+      // Approver 2 from payments-team (SAME TEAM) -> Must be rejected!
+      const user2SameTeam: UserClaims = {
+        sub: "bob-payments",
+        roles: ["approver"],
+        team: "payments-team",
+      };
+
+      await expect(
+        approvalManager.recordApproval(tier0Plan.id, user2SameTeam, "oncall"),
+      ).rejects.toThrow(AuthorizationError);
+
+      await expect(
+        approvalManager.recordApproval(tier0Plan.id, user2SameTeam, "oncall"),
+      ).rejects.toThrow(/Tier-0 distinct-team requirement: plan has already been approved by team 'payments-team'/);
+
+      // Approver 3 from distinct team (org_admin with infra-team) -> Must succeed!
+      const user3DistinctTeam: UserClaims = {
+        sub: "carol-infra",
+        roles: ["org_admin"],
+        team: "infra-team",
+      };
+
+      const secondResult = await approvalManager.recordApproval(
+        tier0Plan.id,
+        user3DistinctTeam,
+        "oncall",
+      );
+      expect(secondResult.canProceed).toBe(true);
+      expect(secondResult.state.status).toBe("approved");
+      expect(secondResult.missingApprovals).toEqual([]);
     });
   });
 });

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { type RemediationPlan } from "@airp/common";
 import { PolicyEngineEvaluator } from "../../services/policy-engine/src/evaluator.js";
 
@@ -257,6 +260,76 @@ describe("Epic 8 Acceptance Criterion 1: Decision Matrix (Chapter 8.3 & 18.2)", 
       const decision = evaluator.evaluate(plan);
       expect(decision.required_approvals).toContain("security_auditor");
       expect(decision.reasons.some((r) => r.includes("top_secret"))).toBe(true);
+    });
+  });
+
+  describe("Policy as Data: Declarative YAML Rule Evaluation", () => {
+    it("evaluates custom YAML rules dynamically where modifying rules.yaml changes evaluation verdicts", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "airp-policy-test-"));
+      const customRulesPath = path.join(tmpDir, "custom-rules.yaml");
+
+      // Custom rule file: allows diff up to 150 lines to auto-merge (default is 50)
+      const customYaml = `
+version: "v2-custom"
+rules:
+  - id: "breaker_tripped"
+    when:
+      breaker_tripped: true
+    decision:
+      allowed: false
+      auto_merge_eligible: false
+      required_approvals: []
+      reason: "Halted by circuit breaker"
+  - id: "generous_auto_merge"
+    when:
+      tests_green: true
+      diff_lines_lte: 150
+      is_tier0: false
+      confidence_gte: 0.8
+      fixability: "code_fixable"
+      proactive: false
+      off_hours: false
+      breaker_tripped: false
+    decision:
+      allowed: true
+      auto_merge_eligible: true
+      required_approvals: []
+      reason: "Generous auto-merge rule satisfied for diff up to 150 lines"
+  - id: "default_fallback"
+    when: {}
+    decision:
+      allowed: true
+      auto_merge_eligible: false
+      required_approvals: ["custom_lead"]
+      reason: "Fallback requires custom_lead"
+`;
+      fs.writeFileSync(customRulesPath, customYaml, "utf-8");
+
+      const planWithLargeDiff = createPlan({
+        service: "checkout",
+        diff_lines: 120, // Exceeds default 50 lines threshold!
+        tests_green: true,
+        confidence: 0.9,
+      });
+
+      // Under standard v1 rules, 120 lines cannot auto-merge
+      const defaultDecision = evaluator.evaluate(planWithLargeDiff);
+      expect(defaultDecision.auto_merge_eligible).toBe(false);
+
+      // Under custom YAML rules, 120 lines CAN auto-merge dynamically!
+      const customDecision = evaluator.evaluate(planWithLargeDiff, {
+        rulesPath: customRulesPath,
+        off_hours: false,
+        breaker_tripped: false,
+      });
+
+      expect(customDecision.rule_version).toBe("v2-custom");
+      expect(customDecision.allowed).toBe(true);
+      expect(customDecision.auto_merge_eligible).toBe(true);
+      expect(customDecision.reasons[0]).toContain("Generous auto-merge rule satisfied");
+
+      // Clean up
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
 });

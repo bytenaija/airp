@@ -52,12 +52,22 @@ export class AuthorizationError extends Error {
   }
 }
 
-const DEFAULT_SECRET = process.env.POLICY_JWT_SECRET || "airp-default-policy-jwt-secret-key-12345";
+export function getJwtSecret(secret?: string): string {
+  if (secret) return secret;
+  if (process.env.POLICY_JWT_SECRET) return process.env.POLICY_JWT_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    throw new AuthenticationError(
+      "POLICY_JWT_SECRET environment variable is required in production",
+    );
+  }
+  return "airp-default-policy-jwt-secret-key-12345";
+}
 
 /**
  * Creates a signed JWT for local dev / testing (HS256)
  */
-export function signJwt(claims: UserClaims, secret: string = DEFAULT_SECRET): string {
+export function signJwt(claims: UserClaims, secret?: string): string {
+  const effectiveSecret = getJwtSecret(secret);
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const payload = {
@@ -71,7 +81,7 @@ export function signJwt(claims: UserClaims, secret: string = DEFAULT_SECRET): st
   const data = `${b64Header}.${b64Payload}`;
 
   const signature = crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", effectiveSecret)
     .update(data)
     .digest("base64url");
 
@@ -81,7 +91,8 @@ export function signJwt(claims: UserClaims, secret: string = DEFAULT_SECRET): st
 /**
  * Verifies and decodes a signed JWT (HS256)
  */
-export function verifyJwt(token: string, secret: string = DEFAULT_SECRET): UserClaims {
+export function verifyJwt(token: string, secret?: string): UserClaims {
+  const effectiveSecret = getJwtSecret(secret);
   const parts = token.split(".");
   if (parts.length !== 3) {
     throw new AuthenticationError("Invalid JWT token format");
@@ -91,7 +102,7 @@ export function verifyJwt(token: string, secret: string = DEFAULT_SECRET): UserC
   const data = `${b64Header}.${b64Payload}`;
 
   const expectedSig = crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", effectiveSecret)
     .update(data)
     .digest("base64url");
 
@@ -154,13 +165,13 @@ export class RbacManager {
     service: string,
     customOwnershipPath?: string,
   ): boolean {
+    if (user.roles.includes("org_admin") || user.roles.includes("policy_admin")) {
+      return true;
+    }
+
     const ownership = this.loadOwnership(customOwnershipPath);
     const svc = ownership.services?.[service];
     if (!svc) {
-      // If service is unmapped, allow org_admin or policy_admin, or team if matches service
-      if (user.roles.includes("org_admin") || user.roles.includes("policy_admin")) {
-        return true;
-      }
       return false;
     }
 
@@ -244,6 +255,26 @@ export class RbacManager {
         authorized: false,
         reason: `Approver '${user.sub}' has already submitted an approval for this plan`,
       };
+    }
+
+    // 5. Distinct team check for Tier-0 services or plans requiring distinct teams
+    const isTier0 =
+      plan.policy_decision?.requires_distinct_teams ||
+      plan.policy_decision?.reasons?.some((r) => r.includes("tier-0") || r.includes("tier0")) ||
+      plan.service === "payments-db" ||
+      plan.service === "checkout-db" ||
+      plan.service === "auth" ||
+      plan.service === "gateway" ||
+      plan.service === "user-vault";
+
+    if (isTier0) {
+      const userTeam = user.team || user.teams?.[0];
+      if (userTeam && existingApprovals.some((a) => a.team && a.team === userTeam)) {
+        return {
+          authorized: false,
+          reason: `Tier-0 distinct-team requirement: plan has already been approved by team '${userTeam}'. Tier-0 services require approval from distinct teams.`,
+        };
+      }
     }
 
     return { authorized: true };

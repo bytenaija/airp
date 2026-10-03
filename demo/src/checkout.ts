@@ -24,7 +24,7 @@ export function buildCheckoutServer(
 
   registerInstrumentationHooks(server, inst);
   registerFaultRoutes(server, faultManager);
-  registerFlagRoutes(server, flagsManager);
+  registerFlagRoutes(server, flagsManager, faultManager);
 
   server.get("/health", async () => ({ status: "ok", service: "checkout" }));
 

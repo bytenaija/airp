@@ -67,7 +67,7 @@ rules:
       required_approvals: ["code_owner", "oncall"]
       requires_distinct_teams: true
       min_approvals: 2
-      reason: "Tier-0 service requires two approvers from distinct teams"
+      reason: "Service '${service}' is tier-0 critical infrastructure: requires two distinct approvers from distinct teams"
 
   - id: "large_diff_requires_approval"
     description: "Diffs exceeding 50 lines require human review and approvals"
@@ -132,10 +132,10 @@ abac_rules:
     when:
       data_classification: ["restricted", "pii"]
     additional_approvals: ["security_auditor"]
-    reason: "Plan involves restricted or PII data; requires security_auditor sign-off"
+    reason: "Plan touches '${data_classification}' data (restricted/pii): requires security_auditor approval"
 
   - id: "abac_high_clearance"
     when:
       clearance: ["secret", "top_secret"]
     additional_approvals: ["security_auditor"]
-    reason: "Plan requires classified clearance; requires security_auditor sign-off"
+    reason: "Plan touches '${clearance}' clearance requirement: requires security_auditor approval"

@@ -319,20 +319,44 @@ describe("Epic 7 Acceptance Criterion 3: Confirmation Flag Guard & Framework Bas
       );
     });
 
-    it("ScaleAction dryRun returns canApply=false and apply throws when no execution backend is configured", async () => {
-      const scale = new ScaleAction({
-        service: "payments",
-        currentReplicas: 1,
-        targetReplicas: 3,
-      });
+    it("records apply_failed and revert_failed events in timelineLogger when execution backend fails", async () => {
+      const loggedEvents: TimelineEvent[] = [];
+      const failingAction = new (class extends MockGenericOpsAction {
+        protected async executeApply(): Promise<any> {
+          throw new Error("Simulated docker socket crash on apply");
+        }
+        protected async executeRevert(): Promise<any> {
+          throw new Error("Simulated docker socket crash on revert");
+        }
+      })("search-indexer");
 
-      const dryRun = await scale.dryRun();
-      expect(dryRun.canApply).toBe(false);
-      expect(dryRun.warnings.some((w) => w.toLowerCase().includes("no execution backend configured"))).toBe(true);
+      // Verify apply failure is logged
+      await expect(
+        failingAction.apply({
+          iUnderstand: true,
+          timelineLogger: async (evt) => {
+            loggedEvents.push(evt);
+          },
+        }),
+      ).rejects.toThrow("Simulated docker socket crash on apply");
 
-      await expect(scale.apply({ iUnderstand: true })).rejects.toThrow(
-        /Action validation failed for scale on service 'payments'/,
-      );
+      expect(loggedEvents.length).toBe(1);
+      expect(loggedEvents[0].action).toBe("apply_failed:mock_ops");
+      expect(loggedEvents[0].detail).toContain("Simulated docker socket crash on apply");
+
+      // Verify revert failure is logged
+      await expect(
+        failingAction.revert({
+          iUnderstand: true,
+          timelineLogger: async (evt) => {
+            loggedEvents.push(evt);
+          },
+        }),
+      ).rejects.toThrow("Simulated docker socket crash on revert");
+
+      expect(loggedEvents.length).toBe(2);
+      expect(loggedEvents[1].action).toBe("revert_failed:mock_ops");
+      expect(loggedEvents[1].detail).toContain("Simulated docker socket crash on revert");
     });
   });
 });

@@ -266,6 +266,8 @@ export const PolicyDecisionSchema = z.object({
   rule_version: z.string(),
   reasons: z.array(z.string()).default([]),
   advisory: z.unknown().optional(),
+  requires_distinct_teams: z.boolean().optional(),
+  min_approvals: z.number().int().optional(),
 });
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
 

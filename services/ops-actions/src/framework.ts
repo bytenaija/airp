@@ -160,7 +160,29 @@ export abstract class ReversibleAction {
     // Guarantee inverse is precomputed prior to applying changes
     const precomputedInverse = this.inverse;
 
-    const result = await this.executeApply();
+    let result: Omit<ActionResult, "inverseAction" | "timelineEvent">;
+    try {
+      result = await this.executeApply();
+    } catch (execErr: any) {
+      if (options.timelineLogger) {
+        try {
+          await options.timelineLogger({
+            ts: new Date().toISOString(),
+            actor: options.actor || "airp-ops-remediation",
+            action: `apply_failed:${this.actionType}`,
+            detail: JSON.stringify({
+              service: this.targetService,
+              error: execErr?.message || String(execErr),
+              description: this.describe(),
+              inversePrecomputed: precomputedInverse.describe(),
+            }),
+          });
+        } catch {
+          // Ignore timeline logger failure on error path
+        }
+      }
+      throw execErr;
+    }
 
     const timelineEvent: TimelineEvent = {
       ts: new Date().toISOString(),
@@ -215,7 +237,28 @@ export abstract class ReversibleAction {
       );
     }
 
-    const result = await this.executeRevert();
+    let result: Omit<ActionResult, "inverseAction" | "timelineEvent">;
+    try {
+      result = await this.executeRevert();
+    } catch (revertErr: any) {
+      if (options.timelineLogger) {
+        try {
+          await options.timelineLogger({
+            ts: new Date().toISOString(),
+            actor: options.actor || "airp-ops-remediation",
+            action: `revert_failed:${this.actionType}`,
+            detail: JSON.stringify({
+              service: this.targetService,
+              error: revertErr?.message || String(revertErr),
+              description: this.describe(),
+            }),
+          });
+        } catch {
+          // Ignore timeline logger failure on error path
+        }
+      }
+      throw revertErr;
+    }
 
     const timelineEvent: TimelineEvent = {
       ts: new Date().toISOString(),

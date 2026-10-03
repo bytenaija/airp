@@ -180,6 +180,33 @@ describe("Epic 7 Acceptance Criterion 1: Action Execution & Reversibility", () =
       const data = (await res.json()) as any;
       expect(data.error).toContain("Bad Request");
     });
+
+    it("rejects enabling failure-inducing flag (new_payment_flow) when fault injection is disabled", async () => {
+      // Create server with faults explicitly disabled
+      const disabledFaultManager = new FaultManager(false);
+      const disabledFlagsManager = new FlagsManager();
+      const disabledServer = buildCheckoutServer(
+        disabledFaultManager,
+        `http://127.0.0.1:${mockPaymentsPort}`,
+        disabledFlagsManager,
+      );
+      await disabledServer.server.listen({ port: 0, host: "127.0.0.1" });
+      const addr = disabledServer.server.server.address() as any;
+      const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+      try {
+        const res = await fetch(`${baseUrl}/admin/flags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flag: "new_payment_flow", value: true }),
+        });
+        expect(res.status).toBe(403);
+        const data = (await res.json()) as any;
+        expect(data.error).toContain("Fault injection is disabled");
+      } finally {
+        await disabledServer.server.close();
+      }
+    });
   });
 
   // -------------------------------------------------------------

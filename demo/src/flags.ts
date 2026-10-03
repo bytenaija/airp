@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import type { FaultManager } from "./faults.js";
 
 export class FlagsManager {
   private flags: Map<string, boolean> = new Map([
@@ -30,6 +31,7 @@ export class FlagsManager {
 export function registerFlagRoutes(
   server: FastifyInstance,
   flagsManager: FlagsManager,
+  faultManager?: FaultManager,
 ) {
   server.get("/admin/flags", async (_req, reply) => {
     return reply.send({
@@ -39,6 +41,23 @@ export function registerFlagRoutes(
 
   server.post("/admin/flags", async (req, reply) => {
     const body = (req.body as any) || {};
+
+    // Gating check for failure-inducing flags:
+    // If fault injection is disabled, reject attempts to enable failure-inducing flags (new_payment_flow)
+    const faultsEnabled = faultManager
+      ? faultManager.isEnabled()
+      : process.env.FAULTS_ENABLED === "1" || process.env.FAULTS_ENABLED === "true";
+
+    const isEnablingFailureFlag =
+      (body.flag === "new_payment_flow" && body.value === true) ||
+      (body.flags && body.flags.new_payment_flow === true) ||
+      body.new_payment_flow === true;
+
+    if (isEnablingFailureFlag && !faultsEnabled) {
+      return reply.status(403).send({
+        error: "Fault injection is disabled (FAULTS_ENABLED != 1)",
+      });
+    }
     let appliedCount = 0;
 
     if (typeof body.flag === "string" && typeof body.value === "boolean") {

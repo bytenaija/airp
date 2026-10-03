@@ -1,8 +1,30 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import dotenv from "dotenv";
+import crypto from "node:crypto";
 
 dotenv.config();
+
+function mintCliJwt(
+  claims: { sub: string; roles: string[]; team?: string },
+  secret: string,
+): string {
+  const header = { alg: "HS256", typ: "JWT" };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iat: now,
+    exp: now + 3600 * 24,
+    ...claims,
+  };
+  const b64Header = Buffer.from(JSON.stringify(header)).toString("base64url");
+  const b64Payload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const data = `${b64Header}.${b64Payload}`;
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(data)
+    .digest("base64url");
+  return `${data}.${signature}`;
+}
 
 const program = new Command();
 
@@ -523,12 +545,30 @@ program
     if (options.token) {
       headers.Authorization = `Bearer ${options.token}`;
     } else {
-      // In local CLI without external OIDC, pass user claims for dev authentication
-      headers["x-user-claims"] = JSON.stringify({
-        sub: approver,
-        roles: ["approver"],
-        team,
-      });
+      const jwtSecret =
+        process.env.POLICY_JWT_SECRET ||
+        (process.env.NODE_ENV !== "production"
+          ? "airp-default-policy-jwt-secret-key-12345"
+          : undefined);
+
+      if (jwtSecret) {
+        const roles =
+          approvalRole === "security_auditor"
+            ? ["security_auditor", "approver"]
+            : ["approver"];
+        const token = mintCliJwt({ sub: approver, roles, team }, jwtSecret);
+        headers.Authorization = `Bearer ${token}`;
+      } else {
+        headers["x-user-claims"] = JSON.stringify({
+          sub: approver,
+          roles: [
+            approvalRole === "security_auditor"
+              ? "security_auditor"
+              : "approver",
+          ],
+          team,
+        });
+      }
     }
 
     try {
