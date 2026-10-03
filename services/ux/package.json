@@ -1,23 +1,22 @@
 {
-  "name": "@airp/agent-runtime",
+  "name": "@airp/ux",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "start": "node dist/server.js"
+    "test": "vitest run"
   },
   "dependencies": {
     "@airp/common": "*",
     "@airp/handoff": "*",
-    "ai": "^4.3.19",
-    "dotenv": "^16.4.5",
     "fastify": "^4.27.0",
-    "prom-client": "^15.1.2",
+    "js-yaml": "^4.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.14.0",
     "typescript": "^5.4.5"
   }
