@@ -68,6 +68,14 @@ id = "<hyperdrive-id>"
 binding = "BLOB_BUCKET"
 bucket_name = "<r2-bucket-name>"
 
+# --- Vectorize: code chunks, runbooks, embedding search ---
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "<vectorize-index-name>"
+# The index must have a metadata index on __namespace (and on any
+# metadata keys used in query filters) and use the cosine distance
+# metric. See docs/storage-backends.md.
+
 # --- Cron: proactive sweep ---
 [triggers]
 crons = ["*/15 * * * *"]

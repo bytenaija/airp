@@ -97,10 +97,24 @@ own `AirpAgent` DO directly.
   is the worker's `queue()` handler by design (ack by returning,
   retry via the queue's retry policy); `dequeue`/`ack`/`depth` throw
   a descriptive error instead of silently misbehaving.
-- Relational: Hyperdrive-backed `RelationalStore` needs a Postgres
-  wire driver that runs in workerd; that lands in a later Epic 20
-  package. Workflow/agent status until then goes through the
-  incidents HTTP API, which the services back with Postgres as today.
+- Relational: `HyperdriveRelationalStore`
+  (`infra/cloudflare/native/src/hyperdrive-storage.ts`) implements
+  the package-1 `RelationalStore` against managed Postgres (Neon)
+  through the `HYPERDRIVE` binding, using node-postgres under
+  `nodejs_compat` (Cloudflare's documented Hyperdrive client).
+  `createHyperdrivePool(env.HYPERDRIVE.connectionString)` builds the
+  pool; the connection string always comes from the binding, never
+  from code. Real transactions with rollback, tenant_id filtering on
+  every query. Tested against an in-memory Postgres fake executing
+  the store's actual statements, including the conformance contract
+  (tenant isolation, filters, limits, ordering, error types).
+- Vectors: `VectorizeVectorStore`
+  (`infra/cloudflare/native/src/vectorize-storage.ts`) implements
+  the package-1 `VectorStore` against the `VECTORIZE_INDEX`
+  binding, multiplexing namespaces onto one index (id prefixes plus
+  a `__namespace` metadata filter; cosine metric). Tested against a
+  fake index with real cosine ranking, including the conformance
+  contract (ranking, metadata filtering, namespace isolation).
 
 ## Deploy
 
@@ -132,8 +146,5 @@ queue, Hyperdrive, and R2 bindings from `wrangler.native.toml`
 
 ## Deferred (later Epic 20 packages)
 
-- Hyperdrive-backed `RelationalStore` (needs a workerd-safe Postgres driver)
-- Vectorize-backed `VectorStore`
 - The LLM reasoning loop inside `AirpAgent` (needs provider credentials)
-- `airp deploy` CLI (own package)
 - Migrating services onto the storage interfaces
