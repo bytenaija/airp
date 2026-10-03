@@ -89,7 +89,7 @@ describe("BlobOutcomeStore", () => {
       expect(store).toBeInstanceOf(BlobOutcomeStore);
       await store.add(record("inc-9"));
       expect((await store.get("inc-9"))?.incident_id).toBe("inc-9");
-      await store.close();
+      await store.close?.();
     } finally {
       if (prev === undefined) delete process.env.FLYWHEEL_STORE;
       else process.env.FLYWHEEL_STORE = prev;
