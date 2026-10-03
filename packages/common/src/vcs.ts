@@ -15,6 +15,13 @@ export interface CreatePullRequestOptions {
   branchName?: string;
   baseBranch?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Internal: the remediation is already committed on the target branch
+   * (e.g. GitHubProvider fallback after a successful local commit whose
+   * push failed). When true, providers must NOT re-run git add/commit:
+   * committing a clean tree exits non-zero.
+   */
+  alreadyCommitted?: boolean;
 }
 
 export interface PullRequestResult {
@@ -124,7 +131,11 @@ export class LocalGitProvider implements VCSProvider {
 
     // Commit the ACTUAL patched source files (from the diff) plus the
     // description. Never commit an empty branch: the fix must be present.
-    if (isGitRepo) {
+    // When alreadyCommitted is set (GitHubProvider fallback after a
+    // successful local commit whose push failed), skip re-staging and
+    // re-committing: the tree is already committed and `git commit` on a
+    // clean tree exits non-zero.
+    if (isGitRepo && !options.alreadyCommitted) {
       const filesToStage = ["PR_DESCRIPTION.md"];
       if (options.diff) {
         for (const f of diffTargetFiles(options.diff)) {
@@ -210,6 +221,9 @@ export class GitHubProvider implements VCSProvider {
     // Push branch if in git repo
     const repoDir = path.resolve(options.repoDir);
     if (fs.existsSync(path.join(repoDir, ".git"))) {
+      // Tracks whether the remediation commit below succeeded, so the
+      // push-failure fallback does not re-commit an already-committed tree.
+      let committedLocally = false;
       try {
         execFileSync("git", ["checkout", "-B", branchName], {
           cwd: repoDir,
@@ -246,6 +260,7 @@ export class GitHubProvider implements VCSProvider {
           ],
           { cwd: repoDir, stdio: "pipe" },
         );
+        committedLocally = true;
         // Refuse to clobber an existing remote branch: fail instead of --force.
         const lsRemote = (() => {
           try {
@@ -269,11 +284,16 @@ export class GitHubProvider implements VCSProvider {
           stdio: "pipe",
         });
       } catch (err: any) {
-        // Fall back to local file if git push fails
+        // Fall back to local file if git push fails. The remediation may
+        // already be committed locally: pass that through so the fallback
+        // does not re-run git commit on a clean tree (which exits non-zero).
         console.warn(
           `[GitHubProvider] Push failed (${err.message}), falling back to LocalGitProvider`,
         );
-        return this.localFallback.createPullRequest(options);
+        return this.localFallback.createPullRequest({
+          ...options,
+          alreadyCommitted: committedLocally,
+        });
       }
     }
 

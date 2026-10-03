@@ -160,6 +160,7 @@ export async function runPatchPipeline(
   // UNPATCHED code inside the sandbox. A genuine FAIL_TO_PASS reproducer
   // fails here; if it passes, the test does not reproduce the incident.
   let baselineFailed: boolean | null = null;
+  let baselineInconclusiveReason: string | null = null;
   let baselineLogs = "";
   if (synthesizedTest?.available !== false) {
     const baseline = await runInSandbox({
@@ -170,8 +171,20 @@ export async function runPatchPipeline(
         : params.testCommand,
       config: params.sandboxConfig,
     });
-    baselineFailed = !baseline.success;
     baselineLogs = baseline.logs;
+    if (baseline.success) {
+      baselineFailed = false;
+    } else if (baseline.failureReason === "test_failure") {
+      // The test genuinely failed on unpatched code: it reproduces the incident.
+      baselineFailed = true;
+    } else {
+      // Infrastructure failure (fail-closed with no isolation backend,
+      // sandbox exception, timeout, patch apply error, ...): the baseline
+      // is INCONCLUSIVE. It must not be counted as reproducing the incident.
+      baselineFailed = null;
+      baselineInconclusiveReason =
+        baseline.failureReason ?? "unknown infrastructure error";
+    }
   }
 
   let lastLogs = "";
@@ -245,7 +258,9 @@ export async function runPatchPipeline(
           ? "FAIL_TO_PASS: measured — synthesized regression test FAILED on unpatched code and PASSES on patched code."
           : baselineFailed === false
             ? "FAIL_TO_PASS: NOT PROVEN — synthesized test passed on unpatched code too; it does not reproduce the incident."
-            : "FAIL_TO_PASS: UNKNOWN — no reproducer available; baseline not measured.";
+            : baselineInconclusiveReason
+              ? `FAIL_TO_PASS: INCONCLUSIVE — baseline could not be measured (infrastructure failure: ${baselineInconclusiveReason}); not counted as reproduction.`
+              : "FAIL_TO_PASS: UNKNOWN — no reproducer available; baseline not measured.";
       const testResults = [
         `1. ${failToPass}`,
         "2. PASS_TO_PASS: measured — sandbox validation command exited 0 on patched code.",

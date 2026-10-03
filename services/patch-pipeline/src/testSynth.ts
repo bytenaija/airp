@@ -166,7 +166,7 @@ function generateVitestContent(
  * No confident reproducer could be synthesized; this file is a placeholder
  * and MUST NOT be treated as test evidence.
  */
-describe("Regression unavailable: " + ${safeIncidentId} + ", () => {
+describe("Regression unavailable: " + ${safeIncidentId}, () => {
   it.skip("no reproducer synthesized", () => {});
 });
 `,

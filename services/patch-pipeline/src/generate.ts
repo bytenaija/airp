@@ -420,7 +420,7 @@ function findEnclosingFunctionReturnType(
   for (let i = lineIdx; i >= Math.max(0, lineIdx - 40); i--) {
     const line = lines[i];
     // Matches: `function name(...): Type`, `name(...): Type {`, `const name = (...): Type =>`
-    const m = line.match(/\)\s*:\s*([A-Za-z_$][A-Za-z0-9_$<>\[\]| ]*?)\s*[{=]/);
+    const m = line.match(/\)\s*:\s*([A-Za-z_$][A-Za-z0-9_$<>[\]| ]*?)\s*[{=]/);
     if (m) {
       return m[1].trim();
     }
@@ -441,10 +441,11 @@ function defaultValueForType(returnType: string | null): string | null {
     return null;
   }
   const t = returnType.replace(/\s+/g, "");
+  // Array patterns BEFORE primitives: `number[]` contains the word `number`.
+  if (/Array<|\[\]/.test(t)) return "[]";
   if (/\bnumber\b/.test(t)) return "0";
   if (/\bstring\b/.test(t)) return '""';
   if (/\bboolean\b/.test(t)) return "false";
-  if (/Array<|\[\]/.test(t)) return "[]";
   if (/\bvoid\b/.test(t) || t === "undefined" || t === "never") return "";
   if (/\bany\b|\bunknown\b|\bobject\b|\bRecord<|^[{]/.test(t)) return "{}";
   // Union types: pick the first non-nullish member we recognize.
