@@ -15,10 +15,21 @@ export interface VectorDocument {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * A single metadata filter predicate.
+ *
+ * A plain value means exact equality with the document's metadata value.
+ * `{ $in: [...] }` means the metadata value must equal one of the listed
+ * values (the `file_path IN (...)` predicate the hybrid code-index ranking
+ * needs). All backends implement both forms; plain values keep working
+ * exactly as before, so this is backward compatible.
+ */
+export type VectorFilterValue = unknown | { $in: unknown[] };
+
 export interface VectorQuery {
   embedding: number[];
   topK?: number;
-  filter?: Record<string, unknown>;
+  filter?: Record<string, VectorFilterValue>;
 }
 
 export interface VectorHit {

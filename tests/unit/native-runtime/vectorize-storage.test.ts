@@ -48,6 +48,15 @@ interface StoredVector {
   metadata: Record<string, unknown>;
 }
 
+function isInFilter(value: unknown): value is { $in: unknown[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "$in" in value &&
+    Array.isArray((value as { $in: unknown }).$in)
+  );
+}
+
 class FakeVectorizeIndex implements VectorizeIndexLike {
   readonly vectors = new Map<string, StoredVector>();
   lastQueryOptions: VectorizeQueryOptions | null = null;
@@ -83,7 +92,14 @@ class FakeVectorizeIndex implements VectorizeIndexLike {
     const filter = options.filter ?? {};
     const matches: VectorizeMatch[] = [...this.vectors.entries()]
       .filter(([, v]) =>
-        Object.entries(filter).every(([k, want]) => v.metadata[k] === want),
+        Object.entries(filter).every(([k, want]) => {
+          // Mirror the real Vectorize behavior for the interface's
+          // filter forms: exact match, or { $in: [...] } membership.
+          if (isInFilter(want)) {
+            return want.$in.some((one) => v.metadata[k] === one);
+          }
+          return v.metadata[k] === want;
+        }),
       )
       .map(([id, v]) => ({
         id,
@@ -167,6 +183,34 @@ describe("VectorizeVectorStore", () => {
       });
       expect(hits.map((h) => h.id)).toEqual(["b"]);
       expect(await store.search("other", { embedding: [1, 0] })).toHaveLength(0);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("supports the $in membership filter", async () => {
+    const { store } = makeStore();
+    try {
+      await store.upsert("ns", [
+        doc("a", [1, 0], { metadata: { file_path: "src/a.ts" } }),
+        doc("b", [1, 0], { metadata: { file_path: "src/b.ts" } }),
+        doc("c", [1, 0], { metadata: { file_path: "src/c.ts" } }),
+      ]);
+      const hits = await store.search("ns", {
+        embedding: [1, 0],
+        filter: { file_path: { $in: ["src/a.ts", "src/c.ts"] } },
+      });
+      expect(hits.map((h) => h.id).sort()).toEqual(["a", "c"]);
+
+      // Combined with an exact-match predicate.
+      const both = await store.search("ns", {
+        embedding: [1, 0],
+        filter: {
+          file_path: { $in: ["src/a.ts", "src/b.ts", "src/c.ts"] },
+        },
+        topK: 10,
+      });
+      expect(both).toHaveLength(3);
     } finally {
       await store.close();
     }

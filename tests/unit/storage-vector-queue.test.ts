@@ -109,4 +109,54 @@ describe("MemoryVectorStore", () => {
       await v.close();
     }
   });
+
+  it("supports the $in membership filter", async () => {
+    const v = new MemoryVectorStore();
+    try {
+      await v.upsert("ns", [
+        {
+          id: "a",
+          text: "a",
+          embedding: [1, 0],
+          metadata: { file_path: "src/a.ts", lang: "ts" },
+        },
+        {
+          id: "b",
+          text: "b",
+          embedding: [1, 0],
+          metadata: { file_path: "src/b.ts", lang: "ts" },
+        },
+        {
+          id: "c",
+          text: "c",
+          embedding: [1, 0],
+          metadata: { file_path: "src/c.ts", lang: "py" },
+        },
+      ]);
+      const hits = await v.search("ns", {
+        embedding: [1, 0],
+        filter: { file_path: { $in: ["src/a.ts", "src/c.ts"] } },
+      });
+      expect(hits.map((h) => h.id).sort()).toEqual(["a", "c"]);
+
+      // $in composes with exact-match predicates.
+      const both = await v.search("ns", {
+        embedding: [1, 0],
+        filter: {
+          file_path: { $in: ["src/a.ts", "src/b.ts"] },
+          lang: "ts",
+        },
+      });
+      expect(both.map((h) => h.id).sort()).toEqual(["a", "b"]);
+
+      // Empty membership matches nothing.
+      const none = await v.search("ns", {
+        embedding: [1, 0],
+        filter: { file_path: { $in: [] } },
+      });
+      expect(none).toHaveLength(0);
+    } finally {
+      await v.close();
+    }
+  });
 });

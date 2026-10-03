@@ -33,6 +33,7 @@ import type { ListOptions, Page } from "./types.js";
 import { assertTenant } from "./types.js";
 import type {
   VectorDocument,
+  VectorFilterValue,
   VectorHit,
   VectorQuery,
   VectorStore,
@@ -226,15 +227,29 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
+function isInPredicate(value: unknown): value is { $in: unknown[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "$in" in value &&
+    Array.isArray((value as { $in: unknown }).$in)
+  );
+}
+
 function matchesFilter(
   doc: VectorDocument,
-  filter?: Record<string, unknown>,
+  filter?: Record<string, VectorFilterValue>,
 ): boolean {
   if (!filter) {
     return true;
   }
   const meta = doc.metadata || {};
-  return Object.entries(filter).every(([k, v]) => meta[k] === v);
+  return Object.entries(filter).every(([k, v]) => {
+    if (isInPredicate(v)) {
+      return v.$in.some((want) => meta[k] === want);
+    }
+    return meta[k] === v;
+  });
 }
 
 export class MemoryVectorStore implements VectorStore {

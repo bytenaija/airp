@@ -10,6 +10,9 @@
  * - The index must have a metadata index on `__namespace` (and on any
  *   metadata keys used in query filters); configure it in the
  *   Vectorize index settings or the namespace filter cannot run.
+ * - Filter predicates pass straight through to the Vectorize query API,
+ *   which supports the interface's `{ $in: [...] }` membership form
+ *   natively alongside exact-match values.
  * - Vector text travels in vector metadata. Keep chunk text small;
  *   very large texts belong in R2 with only a reference in metadata.
  * - The index's distance metric should be cosine so scores match the
