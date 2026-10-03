@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -151,6 +152,10 @@ export class NginxTemplateWeightUpdater implements WeightUpdater {
         .replace(/\${CANARY_STATUS}/g, canaryStatus)
         .replace(/\${NGINX_PORT}/g, String(this.options.nginxPort || 8001));
 
+      const outDir = path.dirname(this.options.outputPath);
+      if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir, { recursive: true });
+      }
       fs.writeFileSync(this.options.outputPath, rendered, "utf8");
 
       if (this.options.reloadCommand) {

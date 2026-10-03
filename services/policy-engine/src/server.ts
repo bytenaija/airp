@@ -75,13 +75,22 @@ export function buildPolicyEngineServer(
     (rolloutUrl
       ? async (plan: RemediationPlan) => {
           try {
-            await fetch(`${rolloutUrl.replace(/\/$/, "")}/rollout/plan`, {
+            const res = await fetch(`${rolloutUrl.replace(/\/$/, "")}/rollout/plan`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ plan }),
             });
-          } catch {
-            // best-effort dispatch
+            if (!res.ok) {
+              server.log.warn(
+                { status: res.status, planId: plan.id, rolloutUrl },
+                "[policy-engine] Rollout controller rejected approved plan",
+              );
+            }
+          } catch (err) {
+            server.log.error(
+              { err, planId: plan.id, rolloutUrl },
+              "[policy-engine] Failed to dispatch approved plan to rollout controller",
+            );
           }
         }
       : undefined);

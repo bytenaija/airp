@@ -185,6 +185,7 @@ services:
       - CANARY_STATUS=down
     volumes:
       - ./canary/nginx-canary.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - nginx_conf:/etc/nginx/conf.d
     networks:
       default:
         aliases:
@@ -278,6 +279,55 @@ services:
       - changefeed
       - ingest-gateway
 
+  policy-engine:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-policy-engine
+    restart: unless-stopped
+    command: ["node", "services/policy-engine/dist/server.js"]
+    ports:
+      - "8008:8008"
+    environment:
+      - NODE_ENV=production
+      - PORT=8008
+      - DATABASE_URL=postgresql://airp:airp_password@postgres:5432/airp
+      - OWNERSHIP_PATH=/app/infra/ownership.yaml
+      - TIER0_PATH=/app/infra/tier0.yaml
+      - ROLLOUT_CONTROLLER_URL=http://rollout-controller:8009
+    volumes:
+      - ./ownership.yaml:/app/infra/ownership.yaml:ro
+      - ./tier0.yaml:/app/infra/tier0.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  rollout-controller:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-rollout-controller
+    restart: unless-stopped
+    command: ["node", "services/rollout-controller/dist/server.js"]
+    ports:
+      - "8009:8009"
+    environment:
+      - NODE_ENV=production
+      - PORT=8009
+      - NGINX_TEMPLATE_PATH=/app/infra/canary/nginx-canary.conf.template
+      - NGINX_OUTPUT_PATH=/etc/nginx/conf.d/default.conf
+      - PROMETHEUS_URL=http://prometheus:9090
+      - STABLE_UPSTREAM=demo:8001
+      - CANARY_UPSTREAM=checkout-canary:8001
+      - NGINX_PORT=8001
+      - CANARY_REPO_PATH=/app/demo
+    volumes:
+      - ./canary/nginx-canary.conf.template:/app/infra/canary/nginx-canary.conf.template:ro
+      - nginx_conf:/etc/nginx/conf.d
+    depends_on:
+      - prometheus
+      - nginx
+
 volumes:
   postgres_data:
   prometheus_data:
@@ -285,3 +335,4 @@ volumes:
   tempo_data:
   grafana_data:
   app_logs:
+  nginx_conf:

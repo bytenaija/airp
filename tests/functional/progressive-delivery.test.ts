@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
 import { FastifyInstance } from "fastify";
 import {
   type RemediationPlan,
@@ -10,7 +14,9 @@ import {
   RolloutController,
   MockSLOGateEvaluator,
   InMemoryWeightUpdater,
+  NginxTemplateWeightUpdater,
   MockCanaryPatchApplier,
+  GitCanaryPatchApplier,
 } from "../../services/rollout-controller/src/index.js";
 import { buildPolicyEngineServer } from "../../services/policy-engine/src/server.js";
 import { PolicyAuditStore } from "../../services/policy-engine/src/audit.js";
@@ -410,6 +416,163 @@ describe("Epic 9 Functional Acceptance Tests: Progressive Delivery & Safety Inte
       expect(dispatchedPlan?.service).toBe("checkout");
     } finally {
       await policyServer.close();
+    }
+  });
+
+  // --- REAL ON-DISK NGINX TEMPLATE & REWRITE DEMONSTRATION ---
+  it("NginxTemplateWeightUpdater renders real disk files across progressive rollout and asserts 100% stable revert on rollback", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "airp-nginx-test-"));
+    const templatePath = path.resolve(process.cwd(), "infra/canary/nginx-canary.conf.template");
+    const outputPath = path.join(tmpDir, "default.conf");
+
+    expect(fs.existsSync(templatePath)).toBe(true);
+
+    try {
+      const updater = new NginxTemplateWeightUpdater({
+        templatePath,
+        outputPath,
+        stableUpstream: "demo:8001",
+        canaryUpstream: "checkout-canary:8001",
+        nginxPort: 8001,
+      });
+
+      // 1. Initial / canary_1 stage (99% stable, 1% canary)
+      await updater.setWeights("canary_1", 99, 1, "", "");
+      expect(fs.existsSync(outputPath)).toBe(true);
+      let content = fs.readFileSync(outputPath, "utf8");
+      expect(content).toContain("server demo:8001 weight=99");
+      expect(content).toContain("server checkout-canary:8001 weight=1");
+      expect(content).not.toContain("weight=1 down");
+
+      // 2. canary_10 stage (90% stable, 10% canary)
+      await updater.setWeights("canary_10", 90, 10, "", "");
+      content = fs.readFileSync(outputPath, "utf8");
+      expect(content).toContain("server demo:8001 weight=90");
+      expect(content).toContain("server checkout-canary:8001 weight=10");
+
+      // 3. canary_50 stage (50% stable, 50% canary)
+      await updater.setWeights("canary_50", 50, 50, "", "");
+      content = fs.readFileSync(outputPath, "utf8");
+      expect(content).toContain("server demo:8001 weight=50");
+      expect(content).toContain("server checkout-canary:8001 weight=50");
+
+      // 4. Automated rollback stage (revert weights to 100% stable, canary marked down)
+      await updater.setWeights("rolled_back", 100, 1, "", "down");
+      content = fs.readFileSync(outputPath, "utf8");
+      expect(content).toContain("server demo:8001 weight=100");
+      expect(content).toContain("server checkout-canary:8001 weight=1 down");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("RolloutController end-to-end with real NginxTemplateWeightUpdater rewrites disk configuration during canary and rollback", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "airp-controller-disk-"));
+    const templatePath = path.resolve(process.cwd(), "infra/canary/nginx-canary.conf.template");
+    const confPath = path.join(tmpDir, "nginx.conf");
+
+    try {
+      const weightUpdater = new NginxTemplateWeightUpdater({
+        templatePath,
+        outputPath: confPath,
+        stableUpstream: "demo:8001",
+        canaryUpstream: "checkout-canary:8001",
+      });
+
+      const sloEvaluator = new MockSLOGateEvaluator(false); // simulates SLO breach on evaluation
+
+      const canaryApplier = new MockCanaryPatchApplier();
+
+      const controller = new RolloutController({
+        weightUpdater,
+        sloEvaluator,
+        canaryApplier,
+        holdMs: 0,
+      });
+
+      const plan: RemediationPlan = {
+        id: crypto.randomUUID(),
+        tenant_id: "local",
+        incident_id: crypto.randomUUID(),
+        service: "checkout",
+        actions: [
+          {
+            kind: "patch",
+            payload: { diff: "--- a/file.ts\n+++ b/file.ts\n+bad", target_file: "file.ts" },
+            reversible: true,
+          },
+        ],
+        tests_green: true,
+        diff_lines: 2,
+        confidence: 0.9,
+        fixability: "code_fixable",
+        proactive: false,
+      };
+
+      const incident = makeIncident("checkout", "mitigating");
+      const record = await controller.executeRollout(plan, incident);
+
+      expect(record.status).toBe("rolled_back");
+      expect(record.reason).toContain("SLO burn breach");
+
+      // Verify the real file on disk was rewritten to 100% stable with canary down
+      expect(fs.existsSync(confPath)).toBe(true);
+      const confContent = fs.readFileSync(confPath, "utf8");
+      expect(confContent).toContain("server demo:8001 weight=100");
+      expect(confContent).toContain("server checkout-canary:8001 weight=1 down");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("GitCanaryPatchApplier applies real git patch to canary working directory and cleanly reverts on rollback", async () => {
+    const gitDir = fs.mkdtempSync(path.join(os.tmpdir(), "airp-git-canary-"));
+
+    try {
+      execSync("git init -b main", { cwd: gitDir, stdio: "ignore" });
+      execSync("git config user.email 'test@test.local'", { cwd: gitDir, stdio: "ignore" });
+      execSync("git config user.name 'AIRP Tester'", { cwd: gitDir, stdio: "ignore" });
+
+      const targetFile = path.join(gitDir, "service.ts");
+      fs.writeFileSync(targetFile, 'console.log("stable-v1");\n', "utf8");
+      execSync("git add service.ts && git commit -m 'Initial commit'", {
+        cwd: gitDir,
+        stdio: "ignore",
+      });
+
+      const applier = new GitCanaryPatchApplier({ workingDirectory: gitDir });
+
+      const diff = `--- a/service.ts\n+++ b/service.ts\n@@ -1,1 +1,1 @@\n-console.log("stable-v1");\n+console.log("canary-v2-applied");\n`;
+      const plan: RemediationPlan = {
+        id: crypto.randomUUID(),
+        tenant_id: "local",
+        incident_id: crypto.randomUUID(),
+        service: "checkout",
+        actions: [
+          {
+            kind: "patch",
+            payload: { diff, target_file: "service.ts" },
+            reversible: true,
+          },
+        ],
+        tests_green: true,
+        diff_lines: 2,
+        confidence: 0.95,
+        fixability: "code_fixable",
+        proactive: false,
+      };
+
+      // 1. Apply patch to canary working tree
+      const applyResult = await applier.applyPatch(plan);
+      expect(applyResult.applied).toBe(true);
+      expect(fs.readFileSync(targetFile, "utf8")).toBe('console.log("canary-v2-applied");\n');
+
+      // 2. Revert patch cleanly
+      const revertResult = await applier.revertPatch(plan);
+      expect(revertResult.reverted).toBe(true);
+      expect(fs.readFileSync(targetFile, "utf8")).toBe('console.log("stable-v1");\n');
+    } finally {
+      fs.rmSync(gitDir, { recursive: true, force: true });
     }
   });
 });

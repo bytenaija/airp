@@ -8,10 +8,15 @@ import { SLOGateEvaluator, PrometheusSLOGateEvaluator, SLOCheckResult } from "./
 import {
   WeightUpdater,
   InMemoryWeightUpdater,
+  NginxTemplateWeightUpdater,
   RolloutStage,
   STAGE_DEFAULT_WEIGHTS,
 } from "./weightUpdater.js";
-import { CanaryPatchApplier, MockCanaryPatchApplier } from "./canaryApplier.js";
+import {
+  CanaryPatchApplier,
+  MockCanaryPatchApplier,
+  GitCanaryPatchApplier,
+} from "./canaryApplier.js";
 
 export type ExecutionStatus =
   | "idle"
@@ -46,6 +51,9 @@ export interface RolloutControllerOptions {
   sloEvaluator?: SLOGateEvaluator;
   weightUpdater?: WeightUpdater;
   canaryApplier?: CanaryPatchApplier;
+  templatePath?: string;
+  outputPath?: string;
+  canaryWorkingDirectory?: string;
   holdMs?: number; // Configurable hold time per stage. Default: 0 for tests, or parse from env HOLD_MINUTES
   onIncidentUpdate?: (
     incidentId: string,
@@ -72,8 +80,45 @@ export class RolloutController {
   constructor(options: RolloutControllerOptions = {}) {
     this.circuitBreaker = options.circuitBreaker || new CircuitBreaker();
     this.sloEvaluator = options.sloEvaluator || new PrometheusSLOGateEvaluator();
-    this.weightUpdater = options.weightUpdater || new InMemoryWeightUpdater();
-    this.canaryApplier = options.canaryApplier || new MockCanaryPatchApplier();
+
+    const templatePath =
+      options.templatePath ||
+      process.env.NGINX_TEMPLATE_PATH ||
+      (process.env.NODE_ENV === "production"
+        ? "/app/infra/canary/nginx-canary.conf.template"
+        : undefined);
+
+    const outputPath =
+      options.outputPath ||
+      process.env.NGINX_OUTPUT_PATH ||
+      "/etc/nginx/conf.d/default.conf";
+
+    this.weightUpdater =
+      options.weightUpdater ||
+      (templatePath
+        ? new NginxTemplateWeightUpdater({
+            templatePath,
+            outputPath,
+            stableUpstream: process.env.STABLE_UPSTREAM || "demo:8001",
+            canaryUpstream: process.env.CANARY_UPSTREAM || "checkout-canary:8001",
+            nginxPort: Number(process.env.NGINX_PORT || 8001),
+            reloadCommand: process.env.NGINX_RELOAD_COMMAND,
+          })
+        : new InMemoryWeightUpdater());
+
+    const canaryWorkDir =
+      options.canaryWorkingDirectory ||
+      process.env.CANARY_WORKTREE_PATH ||
+      process.env.CANARY_REPO_PATH ||
+      (process.env.NODE_ENV === "production" ? "/app/demo" : undefined);
+
+    this.canaryApplier =
+      options.canaryApplier ||
+      (canaryWorkDir
+        ? new GitCanaryPatchApplier({
+            workingDirectory: canaryWorkDir,
+          })
+        : new MockCanaryPatchApplier());
 
     const envHoldMin = process.env.HOLD_MINUTES
       ? parseFloat(process.env.HOLD_MINUTES)

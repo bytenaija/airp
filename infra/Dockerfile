@@ -23,6 +23,7 @@ COPY config ./config
 COPY infra/topology.yaml ./infra/topology.yaml
 COPY infra/ownership.yaml ./infra/ownership.yaml
 COPY infra/tier0.yaml ./infra/tier0.yaml
+COPY infra/canary ./infra/canary
 COPY docs/runbooks ./docs/runbooks
 COPY agent ./agent
 COPY packages/common ./packages/common
@@ -40,7 +41,7 @@ RUN npm run build
 RUN cd services/changefeed && npx prisma generate
 RUN cd services/ingest-gateway && npx prisma generate
 
-EXPOSE 8001 8002 8003 8004 8005 8006 8007
+EXPOSE 8001 8002 8003 8004 8005 8006 8007 8008 8009
 
 CMD ["node", "demo/dist/index.js"]
 

@@ -2,8 +2,9 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import { type RemediationPlan, type IncidentRecord } from "@airp/common";
 import { RolloutController, RolloutControllerOptions } from "./controller.js";
 import { CircuitBreaker } from "./circuitBreaker.js";
-import { WeightUpdater } from "./weightUpdater.js";
+import { WeightUpdater, NginxTemplateWeightUpdater } from "./weightUpdater.js";
 import { SLOGateEvaluator } from "./sloEvaluator.js";
+import { GitCanaryPatchApplier } from "./canaryApplier.js";
 
 export interface RolloutServerOptions extends RolloutControllerOptions {
   logger?: boolean;
@@ -177,17 +178,46 @@ export function buildRolloutServer(options: RolloutServerOptions = {}): {
 
 if (
   process.env.NODE_ENV !== "test" &&
-  process.argv[1]?.endsWith("server.js")
+  (process.argv[1]?.endsWith("server.js") || process.argv[1]?.endsWith("server.ts"))
 ) {
   const port = Number(process.env.ROLLOUT_CONTROLLER_PORT || process.env.PORT || 8009);
   const host = process.env.HOST || "0.0.0.0";
-  const { server } = buildRolloutServer({ logger: true });
+
+  const templatePath =
+    process.env.NGINX_TEMPLATE_PATH ||
+    "/app/infra/canary/nginx-canary.conf.template";
+  const outputPath =
+    process.env.NGINX_OUTPUT_PATH ||
+    "/etc/nginx/conf.d/default.conf";
+
+  const weightUpdater = new NginxTemplateWeightUpdater({
+    templatePath,
+    outputPath,
+    stableUpstream: process.env.STABLE_UPSTREAM || "demo:8001",
+    canaryUpstream: process.env.CANARY_UPSTREAM || "checkout-canary:8001",
+    nginxPort: Number(process.env.NGINX_PORT || 8001),
+    reloadCommand: process.env.NGINX_RELOAD_COMMAND,
+  });
+
+  const canaryApplier = new GitCanaryPatchApplier({
+    workingDirectory:
+      process.env.CANARY_WORKTREE_PATH ||
+      process.env.CANARY_REPO_PATH ||
+      "/app/demo",
+  });
+
+  const { server } = buildRolloutServer({
+    logger: true,
+    weightUpdater,
+    canaryApplier,
+  });
 
   server.listen({ port, host }, (err, address) => {
     if (err) {
       console.error("Failed to start rollout controller:", err);
       process.exit(1);
     }
-    console.log(`[rollout-controller] listening on ${address}`);
+    console.log(`[rollout-controller] listening on ${address} with Nginx template & Git canary applier`);
   });
 }
+
