@@ -1,0 +1,44 @@
+{
+  "id": "11111111-0000-4000-a000-000000000012",
+  "tenant_id": "local",
+  "title": "Alert storm across checkout, fraud-check, and notification services",
+  "severity": "SEV1",
+  "status": "open",
+  "created_at": "2026-10-02T14:01:00.000Z",
+  "updated_at": "2026-10-02T14:01:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "payments",
+      "metric": "http_errors_total",
+      "detail": "Root service payments failing with 500 error",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:01:00.000Z"
+    },
+    {
+      "type": "metric",
+      "service": "checkout",
+      "metric": "http_errors_total",
+      "detail": "Downstream checkout cascading error",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:01:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "payments-team",
+    "tier": "tier-1",
+    "recent_changes": [
+      {
+        "type": "deploy",
+        "service": "payments",
+        "revision": "v2.15.0",
+        "ts": "2026-10-02T14:00:00.000Z",
+        "metadata": {
+          "commit": "7c6b5a4",
+          "message": "Update payment gateway routing"
+        }
+      }
+    ]
+  }
+}

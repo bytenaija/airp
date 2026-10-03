@@ -1,0 +1,21 @@
+{
+  "scenarioId": "scenario-05-auth-type-error",
+  "name": "Auth Claims Verification TypeError Deploy",
+  "category": "deploy_regression",
+  "trueRootCause": {
+    "service": "auth",
+    "description": "Deploy v1.8.0 introduced TypeError on undefined claims payload in verifyToken()",
+    "implicatedRevision": "v1.8.0",
+    "suspectFile": "services/auth/src/verify.ts"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "deploy_regression",
+  "expectedTop3": [
+    "deploy_regression",
+    "code_bug",
+    "runtime_exception"
+  ],
+  "expectedConfidence": 0.89,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

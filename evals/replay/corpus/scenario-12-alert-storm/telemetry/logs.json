@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:01:00.000Z",
+    "service": "payments",
+    "line": "FatalGatewayConfigError: Gateway route table corrupted in v2.15.0",
+    "labels": {
+      "service": "payments",
+      "level": "error"
+    }
+  }
+]

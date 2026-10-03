@@ -1,0 +1,19 @@
+{
+  "scenarioId": "scenario-07-inventory-deadlock",
+  "name": "Inventory DB Deadlock on Reservation",
+  "category": "deadlock",
+  "trueRootCause": {
+    "service": "inventory",
+    "description": "Concurrent row locking without ordered keys causing PostgreSQL deadlock aborts"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "code_bug",
+  "expectedTop3": [
+    "code_bug",
+    "concurrency_issue",
+    "resource_saturation"
+  ],
+  "expectedConfidence": 0.84,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "type": "deploy",
+    "service": "checkout",
+    "revision": "v1.4.1",
+    "ts": "2026-10-02T14:00:00.000Z",
+    "metadata": {
+      "commit": "987ab4c",
+      "message": "Update checkout form rendering"
+    }
+  }
+]

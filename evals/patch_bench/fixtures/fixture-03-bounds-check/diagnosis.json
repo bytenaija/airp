@@ -1,0 +1,9 @@
+{
+  "id": "22222222-0000-4000-a000-000000000003",
+  "incident_id": "11111111-0000-4000-a000-000000000009",
+  "tenant_id": "local",
+  "root_cause": "NullPointerException in formatBuffer when buffer object is null or undefined",
+  "confidence": 0.82,
+  "fixability": "code_fixable",
+  "evidence": []
+}

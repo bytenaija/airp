@@ -149,6 +149,11 @@ labeled outcomes, `airp flywheel export --format clef-jsonl` exports training
 data, and `airp runbook publish <draft>` approves draft runbooks. See
 `docs/learning-flywheel.md`.
 
+Incident replay, patch benchmarks, and regression gates are run via the
+evaluation harness: `airp eval --all` runs the full replay corpus, patch
+benchmark, end-to-end scenarios, and CI regression gates. See
+`docs/evaluation-harness.md`.
+
 ### 7. Deploy somewhere real
 
 Concrete guides are in `docs/deployment/`: `vps.md` (single Ubuntu VPS),

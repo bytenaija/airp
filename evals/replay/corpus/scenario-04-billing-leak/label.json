@@ -1,0 +1,20 @@
+{
+  "scenarioId": "scenario-04-billing-leak",
+  "name": "Billing DB Connection Leak",
+  "category": "saturation",
+  "trueRootCause": {
+    "service": "billing",
+    "description": "Unclosed client connection handles in invoice generator causing resource exhaustion",
+    "culpritMetric": "db_connections_active"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "resource_saturation",
+  "expectedTop3": [
+    "resource_saturation",
+    "code_bug",
+    "deploy_regression"
+  ],
+  "expectedConfidence": 0.81,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

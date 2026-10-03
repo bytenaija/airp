@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:05:00.000Z",
+    "service": "fraud-check",
+    "line": "PoolAcquireTimeoutException: Timed out waiting for connection from pool after 5000ms",
+    "labels": {
+      "service": "fraud-check",
+      "level": "error"
+    }
+  }
+]

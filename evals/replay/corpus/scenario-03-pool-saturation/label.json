@@ -1,0 +1,20 @@
+{
+  "scenarioId": "scenario-03-pool-saturation",
+  "name": "Fraud Check Concurrency Pool Saturation",
+  "category": "saturation",
+  "trueRootCause": {
+    "service": "fraud-check",
+    "description": "Database connection pool saturated under sudden traffic spike",
+    "culpritMetric": "pool_utilization"
+  },
+  "trueFixability": "ops_revert",
+  "expectedTop1": "resource_saturation",
+  "expectedTop3": [
+    "resource_saturation",
+    "dependency_failure",
+    "code_bug"
+  ],
+  "expectedConfidence": 0.82,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

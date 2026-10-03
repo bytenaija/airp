@@ -1,0 +1,25 @@
+{
+  "id": "11111111-0000-4000-a000-000000000003",
+  "tenant_id": "local",
+  "title": "Connection pool exhaustion in fraud-check under traffic surge",
+  "severity": "SEV2",
+  "status": "open",
+  "created_at": "2026-10-02T14:05:00.000Z",
+  "updated_at": "2026-10-02T14:05:00.000Z",
+  "signals": [
+    {
+      "type": "metric",
+      "service": "fraud-check",
+      "metric": "pool_utilization",
+      "detail": "fraud-check connection pool at 100% capacity",
+      "status": "firing",
+      "timestamp": "2026-10-02T14:05:00.000Z"
+    }
+  ],
+  "timeline": [],
+  "enrichment": {
+    "owner": "risk-team",
+    "tier": "tier-2",
+    "recent_changes": []
+  }
+}

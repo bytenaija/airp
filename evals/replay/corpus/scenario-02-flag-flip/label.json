@@ -1,0 +1,20 @@
+{
+  "scenarioId": "scenario-02-flag-flip",
+  "name": "Experimental Payment Flow Flag Misconfiguration",
+  "category": "flag_misconfig",
+  "trueRootCause": {
+    "service": "payments",
+    "description": "Feature flag experimental_payment_flow enabled unverified validation rules",
+    "changeEventId": "experimental_payment_flow"
+  },
+  "trueFixability": "ops_revert",
+  "expectedTop1": "bad_flag",
+  "expectedTop3": [
+    "bad_flag",
+    "config_error",
+    "deploy_regression"
+  ],
+  "expectedConfidence": 0.85,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

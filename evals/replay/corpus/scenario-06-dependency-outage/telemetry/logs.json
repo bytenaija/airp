@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:03:00.000Z",
+    "service": "payments",
+    "line": "UpstreamDependencyError: Gateway at api.bank-partner.net responded 503 Service Unavailable",
+    "labels": {
+      "service": "payments",
+      "level": "error"
+    }
+  }
+]

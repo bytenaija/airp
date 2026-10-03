@@ -1,0 +1,20 @@
+{
+  "scenarioId": "scenario-09-redos-filter",
+  "name": "Compliance Filter Regex Backtracking ReDoS",
+  "category": "saturation",
+  "trueRootCause": {
+    "service": "compliance",
+    "description": "Catastrophic backtracking on unescaped nested quantifier in sanitizeTaxId()",
+    "culpritMetric": "cpu_utilization_percent"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "resource_saturation",
+  "expectedTop3": [
+    "resource_saturation",
+    "code_bug",
+    "cpu_exhaustion"
+  ],
+  "expectedConfidence": 0.83,
+  "minConfidence": 0.7,
+  "adversarial": false
+}

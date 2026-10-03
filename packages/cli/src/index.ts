@@ -2,6 +2,9 @@
 import { Command } from "commander";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   IOutcomeStore,
   createOutcomeStore,
@@ -849,6 +852,117 @@ runbookCmd
       }
     } catch (err: any) {
       console.error(`Runbook drafts error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// Command: eval
+program
+  .command("eval")
+  .description(
+    "Run offline incident replay, patch benchmark, scenario evals, or CI regression gates",
+  )
+  .option("--replay", "Run replay evaluation across frozen incident corpus")
+  .option("--patch-bench", "Run patch pipeline benchmark against hidden tests")
+  .option(
+    "--scenarios",
+    "Run Chapter 18.5 end-to-end integration scenarios against running stack",
+  )
+  .option("--gates", "Run CI regression gates against baseline metrics")
+  .option(
+    "--all",
+    "Run replay, patch benchmark, scenarios, and CI regression gates",
+  )
+  .option(
+    "--degrade-prompt",
+    "Simulate degraded prompt to verify gate enforcement",
+  )
+  .option(
+    "--gateway <url>",
+    "Gateway URL for scenarios (default: http://localhost:8005)",
+  )
+  .action(async (options) => {
+    let repoRoot = process.cwd();
+    let curr = repoRoot;
+    while (curr !== path.dirname(curr)) {
+      const candidatePkg = path.join(curr, "package.json");
+      if (fs.existsSync(candidatePkg)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(candidatePkg, "utf-8"));
+          if (pkg.name === "airp") {
+            repoRoot = curr;
+            break;
+          }
+        } catch {
+          // ignore parse error
+        }
+      }
+      curr = path.dirname(curr);
+    }
+
+    const runScript = (relPath: string, args: string[] = []): boolean => {
+      const scriptPath = path.resolve(repoRoot, relPath);
+      const tsxBin = path.resolve(repoRoot, "node_modules", ".bin", "tsx");
+      const cmd = fs.existsSync(tsxBin) ? tsxBin : "npx";
+      const cmdArgs = fs.existsSync(tsxBin)
+        ? [scriptPath, ...args]
+        : ["tsx", scriptPath, ...args];
+
+      const res = spawnSync(cmd, cmdArgs, {
+        cwd: repoRoot,
+        stdio: "inherit",
+        env: { ...process.env },
+      });
+      return res.status === 0;
+    };
+
+    const hasSpecificAction =
+      options.replay ||
+      options.patchBench ||
+      options.scenarios ||
+      options.gates ||
+      options.all;
+
+    let overallSuccess = true;
+
+    if (options.all) {
+      console.log("\n>>> Running Full Evaluation Suite (Scenarios + Gates)\n");
+      const scSuccess = runScript(
+        "evals/scenarios/runner.ts",
+        options.gateway ? [options.gateway] : [],
+      );
+      const gateArgs = options.degradePrompt ? ["--degrade-prompt"] : [];
+      const gtSuccess = runScript("evals/gates/check.ts", gateArgs);
+      overallSuccess = scSuccess && gtSuccess;
+    } else if (hasSpecificAction) {
+      if (options.replay) {
+        const ok = runScript("evals/replay/grade.ts");
+        if (!ok) overallSuccess = false;
+      }
+      if (options.patchBench) {
+        const ok = runScript("evals/patch_bench/runner.ts");
+        if (!ok) overallSuccess = false;
+      }
+      if (options.scenarios) {
+        const ok = runScript(
+          "evals/scenarios/runner.ts",
+          options.gateway ? [options.gateway] : [],
+        );
+        if (!ok) overallSuccess = false;
+      }
+      if (options.gates) {
+        const gateArgs = options.degradePrompt ? ["--degrade-prompt"] : [];
+        const ok = runScript("evals/gates/check.ts", gateArgs);
+        if (!ok) overallSuccess = false;
+      }
+    } else {
+      // Default: run replay, patch bench, prompt integrity, and check gates
+      const gateArgs = options.degradePrompt ? ["--degrade-prompt"] : [];
+      const ok = runScript("evals/gates/check.ts", gateArgs);
+      if (!ok) overallSuccess = false;
+    }
+
+    if (!overallSuccess) {
       process.exitCode = 1;
     }
   });

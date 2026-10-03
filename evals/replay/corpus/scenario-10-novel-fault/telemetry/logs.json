@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:15:00.000Z",
+    "service": "kernel-node",
+    "line": "HARDWARE_TRAP: 0x88F7B01 bus parity unrecoverable machine check architecture error",
+    "labels": {
+      "service": "kernel-node",
+      "level": "fatal"
+    }
+  }
+]

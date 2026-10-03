@@ -1,0 +1,15 @@
+[
+  {
+    "traceId": "tr-09-1",
+    "spans": [
+      {
+        "spanId": "comp-1",
+        "name": "POST /compliance/check",
+        "serviceName": "compliance",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

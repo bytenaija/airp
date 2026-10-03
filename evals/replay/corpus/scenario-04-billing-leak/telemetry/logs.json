@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-10-02T14:10:00.000Z",
+    "service": "billing",
+    "line": "ConnectionLeakWarning: Connection handle acquired at generateInvoice() was never released",
+    "labels": {
+      "service": "billing",
+      "level": "error"
+    }
+  }
+]

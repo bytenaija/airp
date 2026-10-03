@@ -1,0 +1,12 @@
+[
+  {
+    "type": "deploy",
+    "service": "auth",
+    "revision": "v1.8.0",
+    "ts": "2026-10-02T14:00:00.000Z",
+    "metadata": {
+      "commit": "b8c7d6e",
+      "message": "Refactor JWT claims validation"
+    }
+  }
+]

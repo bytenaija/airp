@@ -1,0 +1,15 @@
+[
+  {
+    "traceId": "tr-11-1",
+    "spans": [
+      {
+        "spanId": "chk-11",
+        "name": "POST /checkout",
+        "serviceName": "checkout",
+        "status": {
+          "code": "ERROR"
+        }
+      }
+    ]
+  }
+]

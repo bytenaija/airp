@@ -1,0 +1,21 @@
+{
+  "scenarioId": "scenario-08-pricing-zero-div",
+  "name": "Pricing Engine Division By Zero Deploy",
+  "category": "deploy_regression",
+  "trueRootCause": {
+    "service": "pricing",
+    "description": "Deploy v3.1.2 failed to guard against zero item quantity in discount formula",
+    "implicatedRevision": "v3.1.2",
+    "suspectFile": "services/pricing/src/discount.ts"
+  },
+  "trueFixability": "autonomous_patch",
+  "expectedTop1": "deploy_regression",
+  "expectedTop3": [
+    "deploy_regression",
+    "code_bug",
+    "runtime_exception"
+  ],
+  "expectedConfidence": 0.87,
+  "minConfidence": 0.7,
+  "adversarial": false
+}
