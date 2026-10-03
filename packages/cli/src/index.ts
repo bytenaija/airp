@@ -603,4 +603,100 @@ program
     }
   });
 
+// Command: feedback
+program
+  .command("feedback <id>")
+  .description("Submit human feedback or override on an incident investigation")
+  .requiredOption(
+    "--verdict <verdict>",
+    "Feedback verdict: 'approve', 'override', or 'correct'",
+  )
+  .option("--note <note>", "Feedback note / rationale", "")
+  .option(
+    "--server <url>",
+    "Timeline Viewer / Feedback API server URL",
+    process.env.AIRP_VIEWER_URL || "http://localhost:8012",
+  )
+  .option("--user <user>", "Submitting user identifier", process.env.USER || "human")
+  .option(
+    "--team <team>",
+    "Team affiliation of the user",
+    process.env.AIRP_TEAM || process.env.USER_TEAM || "platform-team",
+  )
+  .option("--token <token>", "Bearer authentication token")
+  .option(
+    "--dev-mint",
+    "Allow minting ephemeral tokens for development/testing only (requires VIEWER_JWT_SECRET or POLICY_JWT_SECRET)",
+    false,
+  )
+  .action(async (id, options) => {
+    const validVerdicts = ["approve", "override", "correct"];
+    if (!validVerdicts.includes(options.verdict)) {
+      console.error(
+        `Error: --verdict must be one of: ${validVerdicts.join(", ")}, got '${options.verdict}'`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const serverUrl = (options.server || "http://localhost:8012").replace(/\/$/, "");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (options.token) {
+      headers.Authorization = `Bearer ${options.token}`;
+    } else if (options.devMint && (process.env.VIEWER_JWT_SECRET || process.env.POLICY_JWT_SECRET)) {
+      const secret = process.env.VIEWER_JWT_SECRET || process.env.POLICY_JWT_SECRET;
+      console.warn("Notice: Minting development JWT token with caller claims (--dev-mint).");
+      const token = mintCliJwt(
+        { sub: options.user, roles: ["viewer", "approver"], team: options.team },
+        secret!,
+      );
+      headers.Authorization = `Bearer ${token}`;
+    } else {
+      console.error(
+        "Error: Authentication required for Timeline Viewer / Feedback API. Please provide an issued token via --token <token> (or use --dev-mint in development/testing environments).",
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    try {
+      const res = await fetch(`${serverUrl}/feedback`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          incident_id: id,
+          verdict: options.verdict,
+          note: options.note,
+          user: options.user,
+          team: options.team,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Feedback submission failed (${res.status}): ${errText}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const data = (await res.json()) as any;
+      const fb = data.feedback || data;
+      console.log(`\nFEEDBACK RECORDED for incident '${id}':`);
+      console.log("-".repeat(60));
+      console.log(`Verdict:     ${fb.verdict.toUpperCase()}`);
+      console.log(`Note:        ${fb.note || "(none)"}`);
+      console.log(`User:        ${fb.user}`);
+      console.log(`Team:        ${fb.team}`);
+      console.log(`Recorded At: ${fb.created_at}`);
+      console.log("-".repeat(60));
+    } catch (err: any) {
+      console.error(`Feedback command error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
 program.parse(process.argv);
+

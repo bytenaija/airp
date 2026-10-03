@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIRP Incident Timeline & Handoff Viewer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0284c7;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #a855f7;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font);
+      line-height: 1.5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .logo-area h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    .logo-area p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+    }
+    .auth-bar input {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 6px 10px;
+      border-radius: 4px;
+      width: 220px;
+    }
+    button {
+      background: var(--primary);
+      color: #0f172a;
+      border: none;
+      padding: 6px 14px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: var(--primary-hover); }
+
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 8px;
+    }
+    .nav-tab {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+    .nav-tab.active {
+      background: var(--card-bg);
+      color: var(--primary);
+      border-color: var(--card-border);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-sev1 { background: #ef444433; color: #f87171; border: 1px solid #ef4444; }
+    .badge-sev2 { background: #f59e0b33; color: #fbbf24; border: 1px solid #f59e0b; }
+    .badge-sev3 { background: #38bdf833; color: #38bdf8; border: 1px solid #38bdf8; }
+    .badge-status { background: #334155; color: #cbd5e1; }
+    .badge-success { background: #22c55e33; color: #4ade80; border: 1px solid #22c55e; }
+    .badge-danger { background: #ef444433; color: #f87171; border: 1px solid #ef4444; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      font-size: 1.15rem;
+      margin-bottom: 12px;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .incident-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .incident-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .incident-meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Timeline list */
+    .timeline {
+      position: relative;
+      padding-left: 24px;
+      border-left: 2px solid var(--card-border);
+      margin-top: 16px;
+    }
+    .timeline-item {
+      position: relative;
+      margin-bottom: 18px;
+    }
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      left: -31px;
+      top: 4px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--primary);
+      border: 2px solid var(--bg);
+    }
+    .timeline-item.tool::before { background: var(--purple); }
+    .timeline-item.diag::before { background: var(--warning); }
+    .timeline-item.resolve::before { background: var(--success); }
+    .timeline-ts {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .timeline-action {
+      font-weight: 600;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+    .timeline-detail {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-top: 2px;
+      font-family: monospace;
+      background: #0f172a66;
+      padding: 4px 8px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+
+    /* Evidence List */
+    .evidence-item {
+      background: #0f172a88;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .evidence-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .evidence-tool {
+      font-family: monospace;
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .evidence-query {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .evidence-obs {
+      font-size: 0.8rem;
+      color: #cbd5e1;
+      font-family: monospace;
+      background: #111827;
+      padding: 6px;
+      border-radius: 4px;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    /* Hypotheses */
+    .hypo-bar {
+      margin-bottom: 12px;
+    }
+    .hypo-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+    .progress-track {
+      background: #334155;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      transition: width 0.3s;
+    }
+    .progress-fill.high { background: var(--success); }
+    .progress-fill.med { background: var(--warning); }
+    .progress-fill.low { background: var(--danger); }
+
+    /* Handoff Markdown viewer */
+    .handoff-box {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 16px;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #e2e8f0;
+      line-height: 1.6;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    /* Feedback form */
+    .feedback-form select,
+    .feedback-form textarea {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-family: var(--font);
+    }
+    .feedback-form textarea { resize: vertical; min-height: 80px; }
+
+    /* Dashboard table */
+    .table-responsive { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+    }
+    tr:hover { background: #243248; }
+
+    .toast {
+      padding: 8px 14px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      margin-top: 10px;
+      display: none;
+    }
+    .toast.success { background: #22c55e22; border: 1px solid #22c55e; color: #4ade80; display: block; }
+    .toast.error { background: #ef444422; border: 1px solid #ef4444; color: #f87171; display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo-area">
+        <h1>AIRP Timeline & Incident Handoff</h1>
+        <p id="env-mode-label">Zero-install local viewer (works offline &amp; from file://)</p>
+      </div>
+      <div class="auth-bar">
+        <label for="jwt-input">Bearer Token:</label>
+        <input type="text" id="jwt-input" placeholder="Paste demo JWT token..." />
+        <button id="auth-btn">Apply Token</button>
+      </div>
+    </header>
+
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="incident-view">Incident Investigation</button>
+      <button class="nav-tab" data-tab="handoff-view">Handoff Report (3 AM)</button>
+      <button class="nav-tab" data-tab="dashboard-view">Team Override Rate Dashboard</button>
+    </div>
+
+    <!-- TAB 1: INCIDENT INVESTIGATION -->
+    <div id="tab-incident-view">
+      <div class="card">
+        <div class="incident-header">
+          <div>
+            <div id="incident-title" class="incident-title">Loading incident...</div>
+            <div id="incident-meta" class="incident-meta">Service: - | Detected: -</div>
+          </div>
+          <div>
+            <span id="badge-severity" class="badge badge-sev1">SEV1</span>
+            <span id="badge-status" class="badge badge-status">investigating</span>
+            <span id="badge-team" class="badge" style="background:#3b82f633; color:#60a5fa; border:1px solid #3b82f6;">team</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <!-- Timeline & Investigation Steps -->
+          <div class="card">
+            <h2>📜 Incident Timeline & Tool Calls</h2>
+            <div id="timeline-container" class="timeline"></div>
+          </div>
+
+          <!-- Evidence List -->
+          <div class="card">
+            <h2>🔍 Collected Evidence & Findings</h2>
+            <div id="evidence-container"></div>
+          </div>
+        </div>
+
+        <div>
+          <!-- Hypotheses with Confidence Over Time -->
+          <div class="card">
+            <h2>🎯 Hypotheses Evolution</h2>
+            <div id="hypotheses-container"></div>
+          </div>
+
+          <!-- Human Feedback Panel -->
+          <div class="card">
+            <h2>✍️ Human Feedback & Override</h2>
+            <div class="feedback-form">
+              <label for="feedback-verdict" style="font-size:0.8rem; color:var(--text-muted);">Verdict:</label>
+              <select id="feedback-verdict">
+                <option value="approve">Approve Agent Diagnosis</option>
+                <option value="override">Override (Agent Incorrect)</option>
+                <option value="correct">Correct Parameters</option>
+              </select>
+
+              <label for="feedback-note" style="font-size:0.8rem; color:var(--text-muted);">Note / Rationale:</label>
+              <textarea id="feedback-note" placeholder="Explanation of human override or verification..."></textarea>
+
+              <button id="submit-feedback-btn" style="width:100%;">Submit Feedback</button>
+              <div id="feedback-toast" class="toast"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: HANDOFF REPORT -->
+    <div id="tab-handoff-view" style="display:none;">
+      <div class="card">
+        <h2>📄 Incident Handoff Report (<span id="handoff-filename">handoff.md</span>)</h2>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+          Product at 3 AM: required sections guaranteed (root cause, confidence, evidence trail, recommended actions, runbook links, owner/on-call).
+        </p>
+        <div id="handoff-content" class="handoff-box">Loading handoff report...</div>
+      </div>
+    </div>
+
+    <!-- TAB 3: TEAM OVERRIDE DASHBOARD -->
+    <div id="tab-dashboard-view" style="display:none;">
+      <div class="card">
+        <h2>📊 Per-Team Override Rate Dashboard</h2>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+          Tracked per Chapter 10.3 as a trust metric for learning flywheel calibration.
+        </p>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Team</th>
+                <th>Total Reviewed</th>
+                <th>Approved</th>
+                <th>Overrides</th>
+                <th>Corrected</th>
+                <th>Override Rate</th>
+                <th>Trust Gauge</th>
+              </tr>
+            </thead>
+            <tbody id="dashboard-tbody">
+              <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading dashboard data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Self-contained demo fallback data for zero-install file:// execution
+    const SAMPLE_INCIDENT = {
+      id: "inc-demo-npe-001",
+      title: "Checkout 500 error spike: NPE in payment retry path",
+      service: "checkout",
+      team: "checkout-team",
+      severity: "SEV1",
+      status: "diagnosed",
+      started_at: new Date(Date.now() - 3600000).toISOString(),
+      detected_at: new Date(Date.now() - 3000000).toISOString(),
+      signals: [{ type: "metric", service: "checkout", metric: "http_errors_total", detail: "Error rate 18.5%" }],
+      hypotheses: [
+        { id: "hypo-1", name: "Deploy regression (v2.14.3 NPE in retry)", confidence: 0.35, class: "change_caused" },
+        { id: "hypo-2", name: "Database partition failure", confidence: 0.12, class: "infra" },
+        { id: "hypo-3", name: "Third-party gateway timeout", confidence: 0.08, class: "dependency" }
+      ],
+      evidence: [
+        { tool: "metrics_query", query: "rate(http_errors_total{service='checkout'}[5m])", observation: "18.5% 500 status spike", supports: true },
+        { tool: "code_blame", query: "checkout/retry.ts:47", observation: "Commit 6ef97: 'Optimize retry path, skip empty check'", supports: true },
+        { tool: "log_cluster", query: "service:payments severity:ERROR", observation: "java.lang.NullPointerException at CartProcessor.java:47", supports: true },
+        { tool: "database_ping", query: "pg_isready -h db-primary", observation: "Database responding normally in 1ms", supports: false, rationale: "Ruled out DB outage" }
+      ],
+      timeline: [
+        { ts: new Date(Date.now() - 3000000).toISOString(), actor: "ingest-gateway", action: "incident_opened", detail: "Checkout error spike detected" },
+        { ts: new Date(Date.now() - 2800000).toISOString(), actor: "agent-runtime", action: "investigation_started", detail: "Agent began investigating SEV1" },
+        { ts: new Date(Date.now() - 2500000).toISOString(), actor: "agent-runtime", action: "tool_call", detail: "metrics_query: rate(http_errors_total)" },
+        { ts: new Date(Date.now() - 2000000).toISOString(), actor: "agent-runtime", action: "tool_call", detail: "code_blame: demo/src/payments.ts:47" },
+        { ts: new Date(Date.now() - 1500000).toISOString(), actor: "agent-runtime", action: "human_handoff_initiated", detail: "Confidence 35% < threshold 70%. Handoff report generated." }
+      ]
+    };
+
+    const SAMPLE_HANDOFF_MD = `# Incident Handoff Report: Checkout 500 error spike: NPE in payment retry path
+
+> **Incident ID:** \`inc-demo-npe-001\`
+> **Service:** \`checkout\` | **Severity:** \`SEV1\` | **Status:** \`diagnosed\`
+> **Detected At:** ${SAMPLE_INCIDENT.detected_at} | **Report Generated:** ${new Date().toISOString()}
+
+## 1. Root Cause (Best Understanding)
+NullPointerException in payment retry logic due to missing null-check on optional cart item parameter. Confidence is below autonomous actuation threshold (0.35 < 0.70).
+
+## 2. Confidence and Rationale
+- **Confidence Score:** 35.0% (🔴 Low)
+- **Reasoning:** Ambiguity in downstream fraud-check traces prevents definitive autonomous actuation. Autonomous actuation halted; escalated to human.
+
+## 3. Evidence Trail
+| # | Tool | Query | Finding / Observation | Verdict |
+|---|------|-------|------------------------|---------|
+| 1 | \`metrics_query\` | \`rate(http_errors_total)\` | 18.5% 500 status spike | ✅ Supports |
+| 2 | \`code_blame\` | \`checkout/retry.ts:47\` | Commit 6ef97: 'Optimize retry path' | ✅ Supports |
+| 3 | \`log_cluster\` | \`service:payments severity:ERROR\` | NullPointerException at CartProcessor:47 | ✅ Supports |
+| 4 | \`database_ping\` | \`pg_isready -h db-primary\` | Database responding normally in 1ms | ❌ Against |
+
+## 4. What Was Tried and Ruled Out
+- **database_ping: pg_isready -h db-primary:** Ruled out DB outage; database health confirmed.
+
+## 5. Recommended Actions
+1. Inspect payments retry path in demo/src/payments.ts line 47.
+2. Verify if rolling back commit 6ef97 or deploying null guard resolves 500s.
+3. Consult on-call runbook for checkout-team.
+
+## 6. Runbook Links
+- [CHECKOUT Operational Runbook](docs/runbooks/checkout.md)
+- [Deployment & Rollback Runbook](docs/runbooks/deploy-rollback.md)
+
+## 7. Owner and On-Call
+- **Owning Team:** \`checkout-team\`
+- **Owners:** @team-checkout, @alice
+- **Primary On-Call:** alice
+- **Secondary On-Call:** bob
+- **PagerDuty Schedule:** \`checkout-tier1\`
+`;
+
+    const SAMPLE_DASHBOARD = [
+      { team: "checkout-team", total: 10, approved: 7, overrides: 2, corrected: 1, override_rate: 0.2000 },
+      { team: "payments-team", total: 8, approved: 6, overrides: 1, corrected: 1, override_rate: 0.1250 },
+      { team: "risk-team", total: 4, approved: 4, overrides: 0, corrected: 0, override_rate: 0.0000 },
+      { team: "platform-team", total: 6, approved: 5, overrides: 1, corrected: 0, override_rate: 0.1667 }
+    ];
+
+    // State
+    let currentIncident = SAMPLE_INCIDENT;
+    let currentHandoffMd = SAMPLE_HANDOFF_MD;
+    let token = localStorage.getItem("airp_viewer_token") || "";
+
+    // DOM Elements
+    const jwtInput = document.getElementById("jwt-input");
+    const authBtn = document.getElementById("auth-btn");
+    const envModeLabel = document.getElementById("env-mode-label");
+    const timelineContainer = document.getElementById("timeline-container");
+    const evidenceContainer = document.getElementById("evidence-container");
+    const hypothesesContainer = document.getElementById("hypotheses-container");
+    const handoffContent = document.getElementById("handoff-content");
+    const dashboardTbody = document.getElementById("dashboard-tbody");
+    const feedbackVerdict = document.getElementById("feedback-verdict");
+    const feedbackNote = document.getElementById("feedback-note");
+    const submitFeedbackBtn = document.getElementById("submit-feedback-btn");
+    const feedbackToast = document.getElementById("feedback-toast");
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Initialize Auth from Storage (do not harvest tokens from URL query parameters)
+    const urlParams = new URLSearchParams(window.location.search);
+    token = localStorage.getItem("airp_viewer_token") || "";
+    jwtInput.value = token;
+
+    authBtn.addEventListener("click", () => {
+      token = jwtInput.value.trim();
+      localStorage.setItem("airp_viewer_token", token);
+      showToast("Token updated", "success");
+      loadLiveIncident();
+      loadLiveDashboard();
+    });
+
+    // Navigation Tabs
+    document.querySelectorAll(".nav-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        const tabId = tab.getAttribute("data-tab");
+        document.getElementById("tab-incident-view").style.display = tabId === "incident-view" ? "block" : "none";
+        document.getElementById("tab-handoff-view").style.display = tabId === "handoff-view" ? "block" : "none";
+        document.getElementById("tab-dashboard-view").style.display = tabId === "dashboard-view" ? "block" : "none";
+      });
+    });
+
+    // Render Logic
+    function renderIncident(inc) {
+      document.getElementById("incident-title").textContent = inc.title || "";
+      document.getElementById("incident-meta").textContent = `Service: ${inc.service || "-"} | ID: ${inc.id} | Detected: ${inc.detected_at || "-"}`;
+      document.getElementById("badge-severity").textContent = inc.severity || "SEV1";
+      document.getElementById("badge-status").textContent = inc.status || "open";
+      document.getElementById("badge-team").textContent = inc.team || inc.enrichment?.owner || "checkout-team";
+
+      // Render Timeline
+      timelineContainer.innerHTML = "";
+      const events = inc.timeline || [];
+      events.forEach(ev => {
+        const item = document.createElement("div");
+        item.className = "timeline-item";
+        const actionStr = String(ev.action || "");
+        if (actionStr.includes("tool")) item.classList.add("tool");
+        if (actionStr.includes("diagnosed") || actionStr.includes("handoff")) item.classList.add("diag");
+        if (actionStr.includes("resolved")) item.classList.add("resolve");
+
+        item.innerHTML = `
+          <div class="timeline-ts">${escapeHtml(new Date(ev.ts).toLocaleTimeString())} - ${escapeHtml(ev.actor)}</div>
+          <div class="timeline-action">${escapeHtml(ev.action)}</div>
+          ${ev.detail ? `<div class="timeline-detail">${escapeHtml(ev.detail)}</div>` : ""}
+        `;
+        timelineContainer.appendChild(item);
+      });
+
+      // Render Evidence
+      evidenceContainer.innerHTML = "";
+      const evList = inc.evidence || (inc.diagnosis && inc.diagnosis.evidence) || [];
+      if (evList.length === 0) {
+        evidenceContainer.innerHTML = "<p style='color:var(--text-muted);font-size:0.85rem;'>No evidence items recorded yet.</p>";
+      } else {
+        evList.forEach((e, idx) => {
+          const card = document.createElement("div");
+          card.className = "evidence-item";
+          const queryStr = typeof e.query === "object" ? JSON.stringify(e.query) : String(e.query || "");
+          const obsStr = typeof e.observation === "object" ? JSON.stringify(e.observation) : String(e.observation || "");
+          card.innerHTML = `
+            <div class="evidence-header">
+              <span class="evidence-tool">${idx + 1}. ${escapeHtml(e.tool)}</span>
+              <span class="badge ${e.supports ? 'badge-success' : 'badge-danger'}">${e.supports ? 'Supports' : 'Against'}</span>
+            </div>
+            <div class="evidence-query">Query: ${escapeHtml(queryStr)}</div>
+            <div class="evidence-obs">${escapeHtml(obsStr)}</div>
+          `;
+          evidenceContainer.appendChild(card);
+        });
+      }
+
+      // Render Hypotheses
+      hypothesesContainer.innerHTML = "";
+      const hypos = inc.hypotheses || [];
+      if (hypos.length === 0) {
+        hypothesesContainer.innerHTML = "<p style='color:var(--text-muted);font-size:0.85rem;'>No hypothesis models initialized.</p>";
+      } else {
+        hypos.forEach(h => {
+          const pct = Math.round((h.confidence || 0) * 100);
+          const colorClass = pct >= 70 ? "high" : pct >= 40 ? "med" : "low";
+          const div = document.createElement("div");
+          div.className = "hypo-bar";
+          div.innerHTML = `
+            <div class="hypo-header">
+              <span>${escapeHtml(h.name || h.id)}</span>
+              <strong>${pct}%</strong>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill ${colorClass}" style="width: ${pct}%"></div>
+            </div>
+          `;
+          hypothesesContainer.appendChild(div);
+        });
+      }
+    }
+
+    function renderHandoff(md) {
+      handoffContent.textContent = md;
+    }
+
+    function renderDashboard(metrics) {
+      dashboardTbody.innerHTML = "";
+      metrics.forEach(row => {
+        const tr = document.createElement("tr");
+        const ratePct = (row.override_rate * 100).toFixed(1);
+        const trustColor = row.override_rate > 0.4 ? "var(--danger)" : row.override_rate > 0.2 ? "var(--warning)" : "var(--success)";
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(row.team)}</strong></td>
+          <td>${escapeHtml(String(row.total))}</td>
+          <td><span style="color:var(--success); font-weight:600;">${escapeHtml(String(row.approved))}</span></td>
+          <td><span style="color:var(--danger); font-weight:600;">${escapeHtml(String(row.overrides))}</span></td>
+          <td>${escapeHtml(String(row.corrected))}</td>
+          <td><strong>${ratePct}%</strong></td>
+          <td>
+            <div class="progress-track" style="width: 100px;">
+              <div class="progress-fill" style="width: ${ratePct}%; background: ${trustColor};"></div>
+            </div>
+          </td>
+        `;
+        dashboardTbody.appendChild(tr);
+      });
+    }
+
+    function showToast(msg, type = "success") {
+      feedbackToast.textContent = msg;
+      feedbackToast.className = `toast ${type}`;
+      setTimeout(() => { feedbackToast.className = "toast"; }, 4000);
+    }
+
+    // Submit Feedback
+    submitFeedbackBtn.addEventListener("click", async () => {
+      const verdict = feedbackVerdict.value;
+      const note = feedbackNote.value.trim();
+      const incidentId = currentIncident.id;
+
+      if (!incidentId) {
+        showToast("Missing incident ID", "error");
+        return;
+      }
+
+      if (window.location.protocol === "file:") {
+        // Local simulation for file://
+        showToast(`Feedback '${verdict}' saved locally (file:// mode)`, "success");
+        feedbackNote.value = "";
+        return;
+      }
+
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            incident_id: incidentId,
+            verdict,
+            note
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          showToast(err.error || "Failed to submit feedback", "error");
+          return;
+        }
+
+        showToast("Feedback submitted and linked successfully!", "success");
+        feedbackNote.value = "";
+        loadLiveDashboard();
+      } catch (err) {
+        showToast("Network error submitting feedback: " + err.message, "error");
+      }
+    });
+
+    // Live Data Loaders
+    async function loadLiveIncident() {
+      if (window.location.protocol === "file:") {
+        envModeLabel.textContent = "Offline zero-install mode (file:// protocol)";
+        renderIncident(SAMPLE_INCIDENT);
+        renderHandoff(SAMPLE_HANDOFF_MD);
+        return;
+      }
+
+      envModeLabel.textContent = "Live connected mode (" + window.location.origin + ")";
+      const headers = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      try {
+        const incidentId = urlParams.get("id") || "latest";
+        const res = await fetch(`/api/incidents/${incidentId}`, { headers });
+        if (res.status === 401) {
+          showToast("Authentication required: please enter a valid Bearer token", "error");
+          timelineContainer.innerHTML = "<p style='color:var(--danger);font-size:0.85rem;padding:1rem;'>Authentication required (HTTP 401). Please configure a valid Bearer token above.</p>";
+          evidenceContainer.innerHTML = "<p style='color:var(--text-muted);font-size:0.85rem;padding:1rem;'>No evidence available (unauthenticated).</p>";
+          hypothesesContainer.innerHTML = "";
+          handoffContent.textContent = "Authentication required (HTTP 401). Please enter a valid Bearer token to inspect handoff reports.";
+          return;
+        }
+        if (res.status === 403) {
+          const err = await res.json();
+          showToast(err.error || "Cross-team access forbidden", "error");
+          timelineContainer.innerHTML = `<p style='color:var(--danger);font-size:0.85rem;padding:1rem;'>Access denied (HTTP 403): ${escapeHtml(err.error || "Cross-team access forbidden")}</p>`;
+          evidenceContainer.innerHTML = "<p style='color:var(--text-muted);font-size:0.85rem;padding:1rem;'>No evidence available (cross-team access denied).</p>";
+          hypothesesContainer.innerHTML = "";
+          handoffContent.textContent = `Access denied (HTTP 403): ${err.error || "Cross-team access forbidden"}`;
+          return;
+        }
+        if (res.ok) {
+          const data = await res.json();
+          currentIncident = data.incident || data;
+          renderIncident(currentIncident);
+
+          if (data.handoff_md) {
+            renderHandoff(data.handoff_md);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load live incident:", err);
+        timelineContainer.innerHTML = `<p style='color:var(--text-muted);font-size:0.85rem;padding:1rem;'>Unable to connect to Timeline API: ${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    async function loadLiveDashboard() {
+      if (window.location.protocol === "file:") {
+        renderDashboard(SAMPLE_DASHBOARD);
+        return;
+      }
+
+      try {
+        const headers = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const res = await fetch("/api/metrics/override-rate", { headers });
+        if (res.status === 401) {
+          dashboardTbody.innerHTML = "<tr><td colspan='7' style='text-align:center;color:var(--danger);padding:1.5rem;'>Authentication required to view override-rate metrics (HTTP 401).</td></tr>";
+          return;
+        }
+        if (res.status === 403) {
+          dashboardTbody.innerHTML = "<tr><td colspan='7' style='text-align:center;color:var(--danger);padding:1.5rem;'>Access denied for team override-rate metrics (HTTP 403).</td></tr>";
+          return;
+        }
+        if (res.ok) {
+          const data = await res.json();
+          renderDashboard(data.metrics || []);
+        }
+      } catch (err) {
+        console.warn("Could not load live dashboard:", err);
+      }
+    }
+
+    // Initial render
+    if (window.location.protocol === "file:") {
+      renderIncident(SAMPLE_INCIDENT);
+      renderHandoff(SAMPLE_HANDOFF_MD);
+      renderDashboard(SAMPLE_DASHBOARD);
+    } else {
+      loadLiveIncident();
+      loadLiveDashboard();
+    }
+  </script>
+</body>
+</html>

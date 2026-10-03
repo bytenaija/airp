@@ -10,7 +10,13 @@ import {
   LLMClient,
   type LLMClientConfig,
   IncidentCostTracker,
+  type NotificationProvider,
+  LocalNotify,
 } from "@airp/common";
+import {
+  writeHandoffFiles,
+  resolveServiceOwnership,
+} from "@airp/handoff";
 import {
   AgentTools,
   type AgentToolsOptions,
@@ -43,6 +49,11 @@ export const DEFAULT_BUDGETS: Required<AgentBudgetConfig> = {
 export interface RuntimeOptions {
   budgets?: AgentBudgetConfig;
   confidenceThreshold?: number; // default 0.7
+  forceLowConfidence?: boolean;
+  forcedConfidence?: number;
+  notificationProvider?: NotificationProvider;
+  outboxDir?: string;
+  ownershipPath?: string;
   tools?: AgentTools;
   toolsOptions?: AgentToolsOptions;
   llmClient?: LLMClient;
@@ -71,6 +82,11 @@ interface InvestigationContext {
 export class InvestigationAgentRuntime {
   private readonly budgets: Required<AgentBudgetConfig>;
   private readonly confidenceThreshold: number;
+  private readonly forceLowConfidence: boolean;
+  private readonly forcedConfidence?: number;
+  private readonly notificationProvider?: NotificationProvider;
+  private readonly outboxDir: string;
+  private readonly ownershipPath: string;
   private readonly tools: AgentTools;
   private readonly llmClient: LLMClient;
   private readonly promptsDir: string;
@@ -90,6 +106,25 @@ export class InvestigationAgentRuntime {
       },
     };
     this.confidenceThreshold = options.confidenceThreshold ?? 0.7;
+    this.forceLowConfidence =
+      options.forceLowConfidence ??
+      (process.env.FORCE_LOW_CONFIDENCE === "true" || process.env.FORCE_LOW_CONFIDENCE === "1");
+    this.forcedConfidence =
+      options.forcedConfidence ??
+      (process.env.AGENT_FORCED_CONFIDENCE
+        ? parseFloat(process.env.AGENT_FORCED_CONFIDENCE)
+        : undefined);
+    this.outboxDir =
+      options.outboxDir ||
+      process.env.AIRP_OUTBOX_DIR ||
+      path.resolve(process.cwd(), "outbox");
+    this.notificationProvider =
+      options.notificationProvider || new LocalNotify({ outboxDir: this.outboxDir });
+    this.ownershipPath =
+      options.ownershipPath ||
+      process.env.OWNERSHIP_PATH ||
+      path.resolve(process.cwd(), "infra/ownership.yaml");
+
     this.tools = options.tools || new AgentTools(options.toolsOptions);
     this.promptsDir =
       options.promptsDir ||
@@ -205,6 +240,32 @@ export class InvestigationAgentRuntime {
       `Investigation started for incident ${incident.id} (${incident.severity})`,
     );
 
+    const primaryService =
+      incident.signals[0]?.service || (incident as any).service || "checkout";
+    const ownership = resolveServiceOwnership(primaryService, this.ownershipPath);
+    const team =
+      (incident as any).team ||
+      incident.enrichment?.owner ||
+      ownership?.team ||
+      `${primaryService}-team`;
+    (incident as any).team = team;
+
+    if (this.notificationProvider) {
+      try {
+        await this.notificationProvider.send({
+          type: "investigation-start",
+          incident_id: incident.id,
+          service: primaryService,
+          team,
+          severity: incident.severity,
+          title: incident.title || `Incident ${incident.id}`,
+          summary: `Investigation started for incident ${incident.id} (${incident.severity}) on service '${primaryService}'`,
+        });
+      } catch {
+        // Notification delivery should not abort investigation
+      }
+    }
+
     const startTime = Date.now();
     let toolCallCount = 0;
     const tokenTracker = new IncidentCostTracker(incident.id);
@@ -278,8 +339,7 @@ export class InvestigationAgentRuntime {
           `max tool calls (${this.budgets.maxToolCalls}) exceeded`,
           leading.evidence,
         );
-        incident.status = "diagnosed";
-        return diagnosis;
+        return this.postInvestigation(incident, diagnosis);
       }
 
       // Check 2: Wall clock timeout
@@ -296,8 +356,7 @@ export class InvestigationAgentRuntime {
           `wall-clock timeout (${this.budgets.wallClockTimeoutMs}ms) exceeded`,
           leading.evidence,
         );
-        incident.status = "diagnosed";
-        return diagnosis;
+        return this.postInvestigation(incident, diagnosis);
       }
 
       // Check 3: Token budget
@@ -313,8 +372,7 @@ export class InvestigationAgentRuntime {
           `token budget (${tokenBudget}) exceeded`,
           leading.evidence,
         );
-        incident.status = "diagnosed";
-        return diagnosis;
+        return this.postInvestigation(incident, diagnosis);
       }
 
       // If confidence threshold is already reached and blame closed, or if simulated steps done
@@ -369,13 +427,7 @@ export class InvestigationAgentRuntime {
           context,
           nextStep.diagnosis,
         );
-        incident.status = "diagnosed";
-        this.appendTimeline(
-          incident,
-          "investigation_concluded",
-          `Diagnosis produced: ${finalDiagnosis.root_cause} (confidence: ${(finalDiagnosis.confidence * 100).toFixed(1)}%, fixability: ${finalDiagnosis.fixability})`,
-        );
-        return finalDiagnosis;
+        return this.postInvestigation(incident, finalDiagnosis);
       }
 
       if (nextStep.type === "malformed") {
@@ -385,8 +437,7 @@ export class InvestigationAgentRuntime {
           nextStep.rawText || "Invalid non-JSON response",
           hypothesisManager.getLeadingHypothesis().evidence,
         );
-        incident.status = "diagnosed";
-        return retryResult;
+        return this.postInvestigation(incident, retryResult);
       }
 
       // Execute Tool Call
@@ -481,14 +532,7 @@ export class InvestigationAgentRuntime {
       context,
     );
 
-    incident.status = "diagnosed";
-    this.appendTimeline(
-      incident,
-      "investigation_concluded",
-      `Diagnosis produced: ${finalDiagnosis.root_cause} (confidence: ${(finalDiagnosis.confidence * 100).toFixed(1)}%, fixability: ${finalDiagnosis.fixability})`,
-    );
-
-    return finalDiagnosis;
+    return this.postInvestigation(incident, finalDiagnosis);
   }
 
   private async llmDrivenStep(
@@ -911,20 +955,28 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
           defaultRootCause = `Undetermined root cause for incident ${incident.id}; requires human investigation`;
         }
 
-        const candidateConfidence =
+        let candidateConfidence =
           rawDiagnosis?.confidence !== undefined
             ? rawDiagnosis.confidence
             : leading.confidence; // No artificial floor!
 
+        if (this.forceLowConfidence) {
+          candidateConfidence = this.forcedConfidence ?? 0.35;
+        } else if (this.forcedConfidence !== undefined) {
+          candidateConfidence = this.forcedConfidence;
+        }
+
         const candidateFixability =
-          rawDiagnosis?.fixability ||
-          (candidateConfidence >= this.confidenceThreshold &&
-          leading.class === "change_caused"
-            ? "code_fixable"
-            : candidateConfidence >= this.confidenceThreshold &&
-                (leading.class === "dependency" || leading.class === "infra")
-              ? "ops_actionable"
-              : "human_only");
+          this.forceLowConfidence || candidateConfidence < this.confidenceThreshold
+            ? "human_only"
+            : rawDiagnosis?.fixability ||
+              (candidateConfidence >= this.confidenceThreshold &&
+              leading.class === "change_caused"
+                ? "code_fixable"
+                : candidateConfidence >= this.confidenceThreshold &&
+                    (leading.class === "dependency" || leading.class === "infra")
+                  ? "ops_actionable"
+                  : "human_only");
 
         const candidateDiagnosis: Diagnosis = {
           id: rawDiagnosis?.id || crypto.randomUUID(),
@@ -1063,5 +1115,107 @@ Respond with the next tool to execute, or decide to conclude if confidence thres
       initialError,
       evidence,
     );
+  }
+
+  private async postInvestigation(
+    incident: IncidentRecord,
+    finalDiagnosis: Diagnosis,
+  ): Promise<Diagnosis> {
+    incident.status = "diagnosed";
+    this.appendTimeline(
+      incident,
+      "investigation_concluded",
+      `Diagnosis produced: ${finalDiagnosis.root_cause} (confidence: ${(finalDiagnosis.confidence * 100).toFixed(1)}%, fixability: ${finalDiagnosis.fixability})`,
+    );
+
+    const primaryService =
+      incident.signals[0]?.service || (incident as any).service || "checkout";
+    const ownership = resolveServiceOwnership(primaryService, this.ownershipPath);
+    const team =
+      (incident as any).team ||
+      incident.enrichment?.owner ||
+      ownership?.team ||
+      `${primaryService}-team`;
+    (incident as any).team = team;
+    (incident as any).diagnosis = finalDiagnosis;
+
+    if (this.notificationProvider) {
+      try {
+        await this.notificationProvider.send({
+          type: "diagnosis-ready",
+          incident_id: incident.id,
+          service: primaryService,
+          team,
+          severity: incident.severity,
+          title: incident.title || `Incident ${incident.id}`,
+          summary: `Diagnosis concluded for ${incident.id}: ${finalDiagnosis.root_cause} (confidence: ${(finalDiagnosis.confidence * 100).toFixed(1)}%, fixability: ${finalDiagnosis.fixability})`,
+          details: {
+            diagnosis_id: finalDiagnosis.id,
+            confidence: finalDiagnosis.confidence,
+            fixability: finalDiagnosis.fixability,
+            root_cause: finalDiagnosis.root_cause,
+          },
+        });
+      } catch {
+        // Notification delivery should not fail investigation
+      }
+    }
+
+    if (finalDiagnosis.fixability === "human_only") {
+      this.appendTimeline(
+        incident,
+        "human_handoff_initiated",
+        `Autonomous fixability is human_only (confidence: ${(finalDiagnosis.confidence * 100).toFixed(1)}%). Handoff report generated and incident escalated to ${team}.`,
+      );
+
+      try {
+        if (!fs.existsSync(this.outboxDir)) {
+          fs.mkdirSync(this.outboxDir, { recursive: true });
+        }
+
+        const incidentHandoffDir = path.join(this.outboxDir, "handoffs", incident.id);
+        const reportResult = await writeHandoffFiles(incidentHandoffDir, {
+          diagnosis: finalDiagnosis,
+          incident,
+          ownershipPath: this.ownershipPath,
+        });
+
+        // Also write handoff.md and handoff.json directly in this.outboxDir
+        fs.writeFileSync(path.join(this.outboxDir, "handoff.md"), reportResult.report.markdown, "utf8");
+        fs.writeFileSync(
+          path.join(this.outboxDir, "handoff.json"),
+          JSON.stringify(reportResult.report.json, null, 2),
+          "utf8",
+        );
+
+        (incident as any).handoff_md = reportResult.report.markdown;
+        (incident as any).handoff_json = reportResult.report.json;
+
+        if (this.notificationProvider) {
+          await this.notificationProvider.send({
+            type: "handoff",
+            incident_id: incident.id,
+            service: primaryService,
+            team,
+            severity: incident.severity,
+            title: `Handoff Escalation: ${incident.title || incident.id}`,
+            summary: `Incident ${incident.id} escalated to ${team} on-call. Root cause: ${finalDiagnosis.root_cause}. Handoff report generated at ${reportResult.markdownPath}`,
+            details: {
+              markdown_path: reportResult.markdownPath,
+              json_path: reportResult.jsonPath,
+              owner_on_call: reportResult.report.data.owner_on_call,
+            },
+          });
+        }
+      } catch (err: any) {
+        this.appendTimeline(
+          incident,
+          "handoff_error",
+          `Failed to generate handoff files: ${err.message}`,
+        );
+      }
+    }
+
+    return finalDiagnosis;
   }
 }
