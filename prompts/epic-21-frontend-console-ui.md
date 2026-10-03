@@ -32,34 +32,43 @@ SCOPE — the 45 pages (full descriptions in
   OAuth clients, telemetry tokens, labels, pages, notifications, support.
 
 BUILD:
-1. New TypeScript frontend app in the repo (strict mode, Node 20+ toolchain,
-   no paid cloud services required for local dev or CI). Component-based
-   (React or equivalent mainstream choice — pick one and be consistent).
-2. Theme system: all five accent token sets from
+1. New frontend app in the repo built on TanStack Start (https://tanstack.com
+   — MIT-licensed, no paid tiers, self-hostable) with React and TypeScript
+   in strict mode, Node 20+ toolchain, Vite build. No paid cloud services
+   required for local dev or CI. The app must run from the existing Docker
+   Compose stack and deploy to the production targets (VPS, Cloudflare)
+   without vendor lock-in.
+2. Routing: TanStack Router — one type-safe route per page in the 45-page
+   inventory. The route tree is the source of truth for navigation; no
+   ad-hoc show/hide view switching.
+3. Server state: TanStack Query for all backend data fetching. Caching,
+   retries, and loading/error states come from Query, not hand-rolled
+   fetch wrappers.
+4. Theme system: all five accent token sets from
    `docs/frontend/page-inventory-and-theme.md` (signal-green, ember-orange,
    cyan, violet, crimson) implemented as CSS custom properties, applied via
    a `data-theme` attribute on the root element. Switching accent = changing
    the attribute; no redeploy, no rebuild.
-3. Feature flag `ui.theme.accent`: values
+5. Feature flag `ui.theme.accent`: values
    `signal-green | ember-orange | cyan | violet | crimson`; default `violet`;
    per-workspace setting, changeable at runtime from Workspace settings by
    workspace admins only; persisted per workspace.
-4. App shell: icon nav rail + sub-navigation + content area, as in the
+6. App shell: icon nav rail + sub-navigation + content area, as in the
    prototype. Every one of the 45 pages reachable through the nav, no dead
    entries.
-5. Data layer: one repository interface per domain (incidents, threads,
+7. Data layer: one repository interface per domain (incidents, threads,
    patches, flags, connectors, billing, members, ...). Real implementations
    call the backend APIs from Epics 1-20; stub implementations are explicit
    test doubles used only where the backend is not built yet, and are
    clearly labeled as stubs.
-6. In-app navigation MUST use `<button>` elements (or framework equivalents),
+8. In-app navigation MUST use TanStack Router links and `<button>` elements,
    never `<a href="#">` with click handlers — hash-links fail to fire in
    some embedded WebViews. Verified during prototyping.
-7. Responsive: usable at 1280px desktop and 390px mobile widths. No page may
+9. Responsive: usable at 1280px desktop and 390px mobile widths. No page may
    require horizontal scrolling for its primary content at either width.
-8. Auth pages (sign up / sign in / password reset) and the public landing
+10. Auth pages (sign up / sign in / password reset) and the public landing
    page render without a session; all app pages require one.
-9. Copy: plain professional English, no lorem ipsum anywhere in the shipped
+11. Copy: plain professional English, no lorem ipsum anywhere in the shipped
    UI.
 
 ACCEPTANCE CRITERIA:
@@ -83,4 +92,3 @@ ACCEPTANCE CRITERIA:
 - Anything deliberately left stubbed is listed in the PR description with
   the backend epic that will fill it in.
 
-<!-- CI retrigger note: compose-stack check flaked on the docs-only de29178 (stack failed to start; unrelated to this change). -->
