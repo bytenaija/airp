@@ -11,9 +11,18 @@ everything except 80/443/22.
    (for example Standard_B2s, 2 vCPU, 4 GB RAM) is the
    cost-conscious baseline; size up within B-series or move to D-series
    if the observability data grows.
-2. Attach a managed disk with enough space for container images, the
-   postgres volume, and Loki/Tempo/Prometheus data (64 GB is a
+2. Attach a managed disk for the Docker data directory. This is
+   required: a plain host volume is not acceptable for production.
+   Format and mount it at `/var/lib/docker` so the `postgres_data`,
+   `loki_data`, `tempo_data`, `prometheus_data`, `grafana_data`, and
+   `app_logs` volumes all live on the managed disk (64 GB is a
    reasonable starting point).
+
+   Blob artifacts (handoff reports, patch artifacts, air-gap bundles,
+   eval data) do not go on disk at all: create an S3 bucket (or use
+   R2). The BlobStore abstraction and its S3/R2 implementations are
+   Epic 20 work; the environment variables to point the stack at the
+   bucket will be documented when it lands.
 3. Associate a static public IP and point your DNS A record at it.
 
 ## NSG rules
