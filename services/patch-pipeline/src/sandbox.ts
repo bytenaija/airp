@@ -56,6 +56,27 @@ export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024; // 100 KB log cap
 
 /**
+ * Distinguishes a genuine test failure (the test ran and assertions failed)
+ * from a test-runner load error (the runner itself broke: missing module,
+ * missing binary, npm/npx errors). Both are non-zero exits, but only the
+ * former counts as FAIL_TO_PASS evidence. Runner errors are infrastructure.
+ */
+export function classifyNonZeroExit(logs: string): "test_failure" | "test_runner_error" {
+  const runnerErrorPatterns = [
+    /cannot find module/i,
+    /err_module_not_found/i,
+    /command not found/i,
+    /npm err!/i,
+    /npx.*(?:not found|error)/i,
+    /no such file or directory/i,
+    /failed to load/i,
+  ];
+  return runnerErrorPatterns.some((p) => p.test(logs))
+    ? "test_runner_error"
+    : "test_failure";
+}
+
+/**
  * Validates that an image string is pinned to an immutable sha256 digest,
  * strictly rejecting floating tags per Chapter 21.3.
  */
@@ -369,7 +390,7 @@ async function executeMicroSandbox(
         failureReason: isTimedOut
           ? "timeout"
           : code !== 0
-            ? "test_failure"
+            ? classifyNonZeroExit(outputBuffer)
             : undefined,
       });
     });
@@ -459,7 +480,7 @@ async function executeDockerSandbox(
         failureReason: isTimedOut
           ? "timeout"
           : code !== 0
-            ? "test_failure"
+            ? classifyNonZeroExit(outputBuffer)
             : undefined,
       });
     });
@@ -557,7 +578,7 @@ async function executeInsecureLocalProcess(
         failureReason: isTimedOut
           ? "timeout"
           : code !== 0
-            ? "test_failure"
+            ? classifyNonZeroExit(outputBuffer)
             : undefined,
       });
     });

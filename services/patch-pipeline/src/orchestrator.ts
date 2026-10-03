@@ -162,15 +162,39 @@ export async function runPatchPipeline(
   let baselineFailed: boolean | null = null;
   let baselineInconclusiveReason: string | null = null;
   let baselineLogs = "";
+  // The test command used for both the baseline and the patched validation
+  // runs. They MUST be identical, otherwise FAIL_TO_PASS compares two
+  // different tests and the evidence is meaningless.
+  const validationTestCommand = synthesizedTest
+    ? `npx --no-install vitest run ${synthesizedTest.relativeFilePath}`
+    : params.testCommand;
+
   if (synthesizedTest?.available !== false) {
-    const baseline = await runInSandbox({
-      repoSnapshotDir: repoSnapshot,
-      scratchDir: scratchClone,
-      testCommand: synthesizedTest
-        ? `npx --no-install vitest run ${synthesizedTest.relativeFilePath}`
-        : params.testCommand,
-      config: params.sandboxConfig,
-    });
+    let baseline: SandboxResult;
+    try {
+      baseline = await runInSandbox({
+        repoSnapshotDir: repoSnapshot,
+        scratchDir: scratchClone,
+        testCommand: validationTestCommand,
+        config: params.sandboxConfig,
+      });
+    } catch (err: any) {
+      // runInSandbox threw (e.g. no isolation backend available and the
+      // backend throws instead of returning a result). The baseline is
+      // inconclusive, not a reproducer failure.
+      baselineFailed = null;
+      baselineInconclusiveReason = `sandbox threw: ${err.message}`;
+      baselineLogs = err.stack ?? String(err);
+      baseline = {
+        success: false,
+        exitCode: 1,
+        logs: baselineLogs,
+        executionTimeMs: 0,
+        timedOut: false,
+        securityChecksPassed: true,
+        failureReason: "sandbox_exception",
+      };
+    }
     baselineLogs = baseline.logs;
     if (baseline.success) {
       baselineFailed = false;
@@ -225,7 +249,9 @@ export async function runPatchPipeline(
         repoSnapshotDir: repoSnapshot,
         scratchDir: scratchClone,
         patchDiff: generatedDiff,
-        testCommand: params.testCommand,
+        // Same test command as the baseline run: FAIL_TO_PASS requires the
+        // identical test to fail before and pass after the patch.
+        testCommand: validationTestCommand,
         config: params.sandboxConfig,
       });
     } catch (err: any) {
