@@ -90,9 +90,12 @@ export interface StorageBundle {
 
 /**
  * Build the full storage bundle from the environment. Relational,
- * vector, and queue surfaces currently resolve to in-memory fakes;
+ * vector, and queue surfaces resolve to in-memory fakes here because
  * their production backends (Hyperdrive Postgres, Vectorize,
- * Cloudflare Queues) land in later Epic 20 steps. See
+ * Cloudflare Queues) need Worker bindings, not env vars: the native
+ * Worker wires them through the binding adapters in
+ * infra/cloudflare/native/src/ (native-storage.ts,
+ * hyperdrive-storage.ts, vectorize-storage.ts). See
  * docs/storage-backends.md.
  */
 export function createStorageFromEnv(

@@ -7,9 +7,10 @@
  *   - blobs:    R2Bucket binding  -> BlobStore
  *   - queue:    Queue producer binding -> Queue (produce side)
  *   - relational: Hyperdrive -> managed Postgres. The Postgres wire
- *     driver that runs in workerd lands in a later Epic 20 package;
- *     until then, workflow status is surfaced through the existing
- *     incidents HTTP API (see StepServices.writeStatus).
+ *     driver that runs in workerd is HyperdriveRelationalStore
+ *     (hyperdrive-storage.ts); workflow status is additionally surfaced
+ *     through the existing incidents HTTP API (see
+ *     StepServices.writeStatus).
  *
  * The adapters implement the package-1 interfaces structurally
  * (imported as types only, so @airp/common's Node-targeted runtime is
@@ -120,6 +121,14 @@ export class QueueBindingError extends Error {
  * depth) cannot go through a producer binding by design; the queue()
  * handler in worker.ts is the consumer, so those methods throw a
  * descriptive error instead of silently misbehaving.
+ *
+ * Named-queue collapse: the package-1 Queue interface takes a queue
+ * name, but a Worker has one producer binding per declared queue. This
+ * adapter sends every message to its single bound queue regardless of
+ * the name passed to enqueue(); callers that need distinct queues must
+ * use distinct QueueBindingQueue instances bound to distinct
+ * Cloudflare queues. The name is accepted (not validated) so the
+ * adapter stays a drop-in for the interface.
  */
 export class QueueBindingQueue implements StorageQueue {
   /**

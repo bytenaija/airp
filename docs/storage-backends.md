@@ -24,7 +24,9 @@ The managed Postgres behind Hyperdrive is Neon. Topology:
 ```
 Neon project (Postgres origin, e.g. the `airp` project)
   -> Hyperdrive (connection pooling + acceleration, configured with the
-     Neon pooled connection string)
+     Neon *unpooled* (direct) connection string: Hyperdrive is itself a
+     pooler, so pointing it at Neon's pooled PgBouncer endpoint would be
+     double pooling)
   -> Workers (Hyperdrive binding -> node-postgres over the Hyperdrive
      connection string, under nodejs_compat)
 ```
@@ -32,8 +34,8 @@ Neon project (Postgres origin, e.g. the `airp` project)
 Neon is linked to the repo with the Neon CLI (`neon link`), which
 pulls `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` into
 `.env.local` (gitignored, never committed). Hyperdrive is configured
-with the pooled URL; migrations and one-off admin go through the
-unpooled URL. `HYPERDRIVE_SCHEMA_SQL` in
+with the **unpooled** URL (`DATABASE_URL_UNPOOLED`); migrations and
+one-off admin also go through the unpooled URL. `HYPERDRIVE_SCHEMA_SQL` in
 `infra/cloudflare/native/src/hyperdrive-storage.ts` mirrors the
 Prisma-managed tables for operators who provision outside Prisma
 migrations; apply it with `psql` against the unpooled URL, never from

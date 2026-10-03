@@ -40,6 +40,7 @@ import type {
   PatchAttemptResult,
   HandoffResult,
   SweepCandidate,
+  InvestigationPoll,
 } from "./step-executor.js";
 import type { DiagnosisSummary } from "./session.js";
 
@@ -90,6 +91,27 @@ export function createFetchStepServices(
       input,
       candidates,
     ): Promise<DiagnosisSummary> {
+      await this.startInvestigation(input, candidates);
+      // Blocking poll for the local pipeline runner. The Cloudflare
+      // Workflow entrypoint uses startInvestigation + pollInvestigation
+      // with durable step.sleep()s instead.
+      for (let i = 0; i < 60; i++) {
+        const poll = await this.pollInvestigation(input);
+        if (poll.diagnosis) {
+          return poll.diagnosis;
+        }
+        if (poll.phase === "failed" || poll.phase === "handed_off") {
+          throw new Error(`investigation ended in phase ${poll.phase}`);
+        }
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      throw new Error("investigation timed out waiting for diagnosis");
+    },
+
+    async startInvestigation(
+      input,
+      candidates,
+    ): Promise<void> {
       const sessionId = `wf-${input.incidentId}`;
       const stub = await getAirpAgentStub(env, sessionId);
       const start = await stub.fetch(
@@ -108,30 +130,19 @@ export function createFetchStepServices(
       if (!start.ok) {
         throw new Error(`agent investigate -> ${start.status}`);
       }
-      // The model tool loop runs inside the agent host (see agent-host.ts
-      // extension point). The workflow polls for the captured diagnosis.
-      for (let i = 0; i < 60; i++) {
-        const res = await stub.fetch(new Request("https://agent/state"));
-        const data = (await res.json()) as {
-          session: {
-            phase: string;
-            diagnosis?: DiagnosisSummary;
-          };
+    },
+
+    async pollInvestigation(input): Promise<InvestigationPoll> {
+      const sessionId = `wf-${input.incidentId}`;
+      const stub = await getAirpAgentStub(env, sessionId);
+      const res = await stub.fetch(new Request("https://agent/state"));
+      const data = (await res.json()) as {
+        session: {
+          phase: string;
+          diagnosis?: DiagnosisSummary;
         };
-        if (data.session.diagnosis) {
-          return data.session.diagnosis;
-        }
-        if (
-          data.session.phase === "failed" ||
-          data.session.phase === "handed_off"
-        ) {
-          throw new Error(
-            `investigation ended in phase ${data.session.phase}`,
-          );
-        }
-        await new Promise((r) => setTimeout(r, 5000));
-      }
-      throw new Error("investigation timed out waiting for diagnosis");
+      };
+      return { phase: data.session.phase, diagnosis: data.session.diagnosis };
     },
 
     async proposePatch(
@@ -236,9 +247,33 @@ export class RemediationWorkflow extends WorkflowEntrypoint<
     const sweepResult = await runStep(sweepDef, () => services.sweep(input));
 
     const investigateDef = stepById(plan, "investigate");
-    const diagnosis = await runStep(investigateDef, () =>
-      services.investigate(input, sweepResult.candidates),
+    await runStep(investigateDef, () =>
+      services.startInvestigation(input, sweepResult.candidates),
     );
+
+    // Durable diagnosis poll: every poll is its own step and the waits
+    // are step.sleep()s, so a worker eviction resumes the poll instead
+    // of restarting up to 5 minutes of polling from zero.
+    const maxPolls = 60;
+    let diagnosis: DiagnosisSummary | undefined;
+    for (let i = 0; i < maxPolls; i++) {
+      const poll = await step.do(
+        `remediation:investigate-poll-${i}`,
+        async (): Promise<InvestigationPoll> =>
+          services.pollInvestigation(input),
+      );
+      if (poll.diagnosis) {
+        diagnosis = poll.diagnosis;
+        break;
+      }
+      if (poll.phase === "failed" || poll.phase === "handed_off") {
+        throw new Error(`investigation ended in phase ${poll.phase}`);
+      }
+      await step.sleep("remediation:investigate-wait", "5 seconds");
+    }
+    if (!diagnosis) {
+      throw new Error("investigation timed out waiting for diagnosis");
+    }
 
     const branch = resolvePostInvestigationStep(diagnosis.confidence);
     if (branch === "patch") {

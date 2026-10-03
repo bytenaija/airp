@@ -111,13 +111,75 @@ function createApp() {
 
 const app = createApp();
 
+/**
+ * Workflow instance statuses that mean the run is over. A new incident
+ * message for the same incident id starts a fresh run instead of being
+ * treated as a duplicate.
+ */
+const TERMINAL_WORKFLOW_STATUSES = new Set([
+  "complete",
+  "errored",
+  "terminated",
+]);
+
+/**
+ * Start a remediation workflow run for a queue message, idempotently.
+ *
+ * The workflow id is derived from the incident id, so when a batch is
+ * retried (e.g. a later message threw), messages that were already
+ * processed do not start duplicate runs: the existing active run is
+ * reused. If the previous run already reached a terminal state, a
+ * fresh run is started. Any other create failure is rethrown so the
+ * batch retries with the queue's retry policy.
+ */
+async function startRemediationRun(
+  env: NativeEnv,
+  body: { incidentId: string; severity?: string; service?: string },
+): Promise<void> {
+  const workflowId = `remediation-${body.incidentId}`;
+  const params = {
+    incidentId: body.incidentId,
+    severity: (body.severity as RemediationInput["severity"]) ?? "SEV3",
+    trigger: "queue" as const,
+    service: body.service,
+  };
+  try {
+    await env.REMEDIATION_WORKFLOW.create({ id: workflowId, params });
+    return;
+  } catch (err) {
+    let status: string | null = null;
+    try {
+      const existing = await env.REMEDIATION_WORKFLOW.get(workflowId);
+      status = String(await existing.status());
+    } catch {
+      status = null;
+    }
+    if (status === null) {
+      // No existing run: create failed for a real reason; rethrow the
+      // original error so the batch retries.
+      throw err;
+    }
+    if (!TERMINAL_WORKFLOW_STATUSES.has(status)) {
+      // A run for this incident is still active: this batch is being
+      // retried, so treat the message as handled.
+      return;
+    }
+    // Previous run is terminal: start a fresh run with a unique id.
+    await env.REMEDIATION_WORKFLOW.create({
+      id: `${workflowId}-${Date.now()}`,
+      params,
+    });
+  }
+}
+
 export default {
   fetch: app.fetch,
 
   /**
    * Changefeed consumer: each incident message starts a remediation
    * workflow run. Returning normally acks the batch; a throw retries
-   * the batch with the queue's retry policy.
+   * the batch with the queue's retry policy. Creation is idempotent
+   * per incident (see startRemediationRun).
    */
   async queue(
     batch: MessageBatch<{ incidentId: string; severity?: string; service?: string }>,
@@ -128,14 +190,7 @@ export default {
       if (!body?.incidentId) {
         continue;
       }
-      await env.REMEDIATION_WORKFLOW.create({
-        params: {
-          incidentId: body.incidentId,
-          severity: (body.severity as RemediationInput["severity"]) ?? "SEV3",
-          trigger: "queue",
-          service: body.service,
-        },
-      });
+      await startRemediationRun(env, body);
     }
   },
 

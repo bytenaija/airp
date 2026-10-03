@@ -40,6 +40,12 @@ export interface HandoffResult {
   reportKey: string;
 }
 
+/** One non-blocking read of an investigation session's state. */
+export interface InvestigationPoll {
+  phase: string;
+  diagnosis?: DiagnosisSummary;
+}
+
 /**
  * External services a step can call. The native worker implements these
  * with fetch() against the edge router / service endpoints; tests use
@@ -52,11 +58,28 @@ export interface StepServices {
    * Run the investigation through the AirpAgent session and return the
    * captured diagnosis. Implementations POST to the agent DO's
    * /investigate, drive the tool loop, then POST /diagnosis.
+   *
+   * This is the blocking convenience used by the local pipeline runner
+   * (runPipelinePlan). The Cloudflare Workflow entrypoint prefers the
+   * durable primitives below: startInvestigation once, then poll with
+   * pollInvestigation, so each poll checkpoints as its own step and
+   * sleeps survive worker eviction.
    */
   investigate(
     input: RemediationInput,
     candidates: SweepCandidate[],
   ): Promise<DiagnosisSummary>;
+  /**
+   * Start the investigation session (POST the agent DO's /investigate).
+   * Returns once the session is running; use pollInvestigation to wait
+   * for the diagnosis.
+   */
+  startInvestigation(
+    input: RemediationInput,
+    candidates: SweepCandidate[],
+  ): Promise<void>;
+  /** Single non-blocking check of the investigation session state. */
+  pollInvestigation(input: RemediationInput): Promise<InvestigationPoll>;
   proposePatch(
     input: RemediationInput,
     diagnosis: DiagnosisSummary,

@@ -2,7 +2,10 @@
  * Unit tests for `airp deploy` (Epic 20, work package 4).
  * All subprocess calls are mocked; no real deploys happen.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   buildDeployPlan,
   resolveTarget,
@@ -195,7 +198,8 @@ describe("preflight", () => {
 });
 
 describe("executePlan", () => {
-  const repoRoot = "/home/hatch/workspace/airp-cf";
+  // Opaque option value only: exec is mocked, so this never touches the FS.
+  const repoRoot = path.join(tmpdir(), "airp-deploy-test-root");
   const tinyPlan: DeployPlan = {
     target: "compose",
     steps: [
@@ -265,13 +269,34 @@ describe("executePlan", () => {
 });
 
 describe("findRepoRoot", () => {
-  it("finds the airp root from a nested directory", () => {
-    expect(findRepoRoot("/home/hatch/workspace/airp-cf/packages/cli/src")).toBe(
-      "/home/hatch/workspace/airp-cf",
+  // Portable fixture: a temp dir shaped like an airp checkout
+  // (package.json with name "airp" at the root, nested dirs below).
+  const fixtures: string[] = [];
+  afterEach(() => {
+    for (const dir of fixtures.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  function makeRepoFixture(): { root: string; nested: string } {
+    const root = mkdtempSync(path.join(tmpdir(), "airp-deploy-test-"));
+    fixtures.push(root);
+    writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "airp", version: "0.0.0-test" }),
     );
+    const nested = path.join(root, "packages", "cli", "src");
+    mkdirSync(nested, { recursive: true });
+    return { root, nested };
+  }
+
+  it("finds the airp root from a nested directory", () => {
+    const { root, nested } = makeRepoFixture();
+    expect(findRepoRoot(nested)).toBe(root);
   });
 
   it("throws outside a checkout", () => {
-    expect(() => findRepoRoot("/tmp")).toThrow(DeployError);
+    const empty = mkdtempSync(path.join(tmpdir(), "airp-deploy-empty-"));
+    fixtures.push(empty);
+    expect(() => findRepoRoot(empty)).toThrow(DeployError);
   });
 });

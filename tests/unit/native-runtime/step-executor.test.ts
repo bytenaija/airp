@@ -55,6 +55,13 @@ function fakeServices(
       calls.push("investigate");
       return diagnosis;
     },
+    async startInvestigation() {
+      calls.push("startInvestigation");
+    },
+    async pollInvestigation() {
+      calls.push("pollInvestigation");
+      return { phase: "awaiting_approval", diagnosis };
+    },
     async proposePatch() {
       calls.push("patch");
       return { success: true, pullRequestUrl: "https://example/pr/1" };

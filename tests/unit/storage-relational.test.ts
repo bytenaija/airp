@@ -143,6 +143,26 @@ describe("MemoryRelationalStore audit and change events", () => {
     }
   });
 
+  it("rejects audit writes and reads without a tenant scope", async () => {
+    const db = new MemoryRelationalStore();
+    try {
+      await expect(
+        db.audit.record({
+          eventType: "policy.decision",
+          identity: "agent",
+          policyVersion: "v2",
+          targetId: "inc-1",
+          actionOrDecision: "approve",
+        } as never),
+      ).rejects.toThrow(/tenant scope/i);
+      await expect(db.audit.getLogs({} as never)).rejects.toThrow(
+        /tenant scope/i,
+      );
+    } finally {
+      await db.close();
+    }
+  });
+
   it("records and lists change events", async () => {
     const db = new MemoryRelationalStore();
     try {

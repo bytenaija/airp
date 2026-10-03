@@ -82,7 +82,11 @@ export interface AlertRepository {
 
 export interface AuditRecord {
   id?: string;
-  tenantId?: string;
+  /**
+   * Tenant scope. Required: audit writes and reads are always
+   * tenant-scoped, and backends reject entries without one.
+   */
+  tenantId: string;
   timestamp?: string;
   eventType: string;
   identity: string;
@@ -93,7 +97,8 @@ export interface AuditRecord {
 }
 
 export interface AuditLogFilter {
-  tenantId?: string;
+  /** Tenant scope. Required: backends reject unscoped audit reads. */
+  tenantId: string;
   eventType?: string;
   targetId?: string;
   limit?: number;
@@ -101,7 +106,12 @@ export interface AuditLogFilter {
 
 export interface AuditRepository {
   record(entry: AuditRecord): Promise<AuditRecord>;
-  getLogs(filter?: AuditLogFilter): Promise<AuditRecord[]>;
+  /**
+   * Audit reads are always tenant-scoped. There is no privileged
+   * cross-tenant read: callers that need multiple tenants query each
+   * tenant explicitly.
+   */
+  getLogs(filter: AuditLogFilter): Promise<AuditRecord[]>;
 }
 
 export interface ChangeEventRecord {

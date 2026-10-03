@@ -457,8 +457,10 @@ class MemoryAuditRepository implements AuditRepository {
   private readonly entries: Array<AuditRecord & { storedAt: string }> = [];
 
   async record(entry: AuditRecord): Promise<AuditRecord> {
+    const tenantId = assertTenant(entry.tenantId);
     const stored = {
       ...entry,
+      tenantId,
       id: entry.id || randomId(),
       timestamp: entry.timestamp || nowIso(),
       storedAt: nowIso(),
@@ -468,15 +470,16 @@ class MemoryAuditRepository implements AuditRepository {
     return { ...rest };
   }
 
-  async getLogs(filter?: AuditLogFilter): Promise<AuditRecord[]> {
+  async getLogs(filter: AuditLogFilter): Promise<AuditRecord[]> {
+    const tenantId = assertTenant(filter.tenantId);
     return this.entries
       .filter(
         (e) =>
-          (!filter?.tenantId || e.tenantId === filter.tenantId) &&
-          (!filter?.eventType || e.eventType === filter.eventType) &&
-          (!filter?.targetId || e.targetId === filter.targetId),
+          e.tenantId === tenantId &&
+          (!filter.eventType || e.eventType === filter.eventType) &&
+          (!filter.targetId || e.targetId === filter.targetId),
       )
-      .slice(0, filter?.limit ?? 100)
+      .slice(0, filter.limit ?? 100)
       .map(({ storedAt: _s, ...rest }) => ({ ...rest }));
   }
 }

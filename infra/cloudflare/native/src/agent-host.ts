@@ -157,6 +157,13 @@ export class AirpAgent extends Agent<NativeEnv, AgentSessionState> {
    * Begin (or resume) an investigation session for an incident. Resets a
    * fresh session when the DO is new; resumes when one already exists.
    *
+   * Terminal sessions are not resumed: if the session already reached
+   * `done` or `handed_off`, this throws SessionTransitionError (only a
+   * `failed` session may transition back to `investigating`). Callers
+   * that need a fresh investigation after a terminal state must use a
+   * new session id; the DO name is the session id, so a new id gets a
+   * new isolated session.
+   *
    * EXTENSION POINT: the LLM reasoning loop calls gatedToolCall for each
    * model-requested tool and captureDiagnosis when the model concludes.
    * Wire the provider client here at deploy time (Workers AI / AI

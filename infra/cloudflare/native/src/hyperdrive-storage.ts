@@ -298,7 +298,9 @@ function rowToAlert(row: Record<string, unknown>): QueuedAlert {
 function rowToAudit(row: Record<string, unknown>): AuditRecord {
   return {
     id: String(row.id),
-    tenantId: row.tenant_id == null ? undefined : String(row.tenant_id),
+    tenantId: assertTenant(
+      row.tenant_id == null ? "" : String(row.tenant_id),
+    ),
     timestamp: toIso(row.timestamp),
     eventType: String(row.event_type),
     identity: String(row.identity),
@@ -502,7 +504,14 @@ class PgAlertRepository implements AlertRepository {
     const res = await this.db.query(
       `INSERT INTO alerts ${ALERT_COLUMNS} VALUES ${tuples.join(", ")} RETURNING *`,
       params,
-    );
+    ).catch((err: unknown) => {
+      if ((err as { code?: string }).code === "23505") {
+        throw new Error(
+          `Alert already exists: ${alerts.map((a) => a.id).join(", ")}`,
+        );
+      }
+      throw err;
+    });
     return res.rows.map((row) => {
       const { incidentId: _incidentId, processed: _processed, ...alert } =
         rowToAlert(row);
@@ -577,7 +586,7 @@ class PgAuditRepository implements AuditRepository {
        RETURNING *`,
       [
         entry.id ?? newId(),
-        entry.tenantId ?? null,
+        assertTenant(entry.tenantId),
         entry.timestamp ?? nowIso(),
         entry.eventType,
         entry.identity,
@@ -590,25 +599,21 @@ class PgAuditRepository implements AuditRepository {
     return rowToAudit(res.rows[0]);
   }
 
-  async getLogs(filter?: AuditLogFilter): Promise<AuditRecord[]> {
-    const conds: string[] = [];
-    const params: unknown[] = [];
-    if (filter?.tenantId !== undefined) {
-      params.push(filter.tenantId);
-      conds.push(`tenant_id = $${params.length}`);
-    }
-    if (filter?.eventType !== undefined) {
+  async getLogs(filter: AuditLogFilter): Promise<AuditRecord[]> {
+    const tenantId = assertTenant(filter.tenantId);
+    const conds: string[] = [`tenant_id = $1`];
+    const params: unknown[] = [tenantId];
+    if (filter.eventType !== undefined) {
       params.push(filter.eventType);
       conds.push(`event_type = $${params.length}`);
     }
-    if (filter?.targetId !== undefined) {
+    if (filter.targetId !== undefined) {
       params.push(filter.targetId);
       conds.push(`target_id = $${params.length}`);
     }
-    params.push(filter?.limit ?? 100);
-    const where = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
+    params.push(filter.limit ?? 100);
     const res = await this.db.query(
-      `SELECT * FROM audit_log ${where} ORDER BY timestamp DESC LIMIT $${params.length}`,
+      `SELECT * FROM audit_log WHERE ${conds.join(" AND ")} ORDER BY timestamp DESC LIMIT $${params.length}`,
       params,
     );
     return res.rows.map(rowToAudit);

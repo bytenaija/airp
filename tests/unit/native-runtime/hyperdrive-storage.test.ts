@@ -634,8 +634,28 @@ describe("HyperdriveRelationalStore audit and change events", () => {
       expect(logs[0].metadata).toEqual({});
       expect(await store.audit.getLogs({ tenantId: "t2" })).toHaveLength(0);
       expect(
-        await store.audit.getLogs({ eventType: "other" }),
+        await store.audit.getLogs({ tenantId: "t1", eventType: "other" }),
       ).toHaveLength(0);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("rejects audit writes and reads without a tenant scope", async () => {
+    const { store } = makeStore();
+    try {
+      await expect(
+        store.audit.record({
+          eventType: "policy.decision",
+          identity: "agent",
+          policyVersion: "v2",
+          targetId: "inc-1",
+          actionOrDecision: "approve",
+        } as never),
+      ).rejects.toThrow(/tenant scope/i);
+      await expect(
+        store.audit.getLogs({} as never),
+      ).rejects.toThrow(/tenant scope/i);
     } finally {
       await store.close();
     }

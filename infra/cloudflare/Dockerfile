@@ -67,6 +67,8 @@ ENV PORT=8000
 
 COPY --from=builder --chown=appuser:appuser /app/package.json /app/package-lock.json ./
 COPY --from=builder --chown=appuser:appuser /app/node_modules ./node_modules
+# Drop devDependencies: the builder needs them, the runtime does not.
+RUN npm prune --omit=dev --no-audit --no-fund
 COPY --from=builder --chown=appuser:appuser /app/packages ./packages
 COPY --from=builder --chown=appuser:appuser /app/services ./services
 COPY --from=builder --chown=appuser:appuser /app/infra ./infra
