@@ -34,7 +34,8 @@ export class DeployError extends Error {
 /** Walk up from cwd to the repo root (package.json with name "airp"). */
 export function findRepoRoot(startDir: string = process.cwd()): string {
   let curr = path.resolve(startDir);
-  while (true) {
+  let parent = path.dirname(curr);
+  while (parent !== curr) {
     const candidate = path.join(curr, "package.json");
     if (fs.existsSync(candidate)) {
       try {
@@ -44,15 +45,13 @@ export function findRepoRoot(startDir: string = process.cwd()): string {
         // ignore parse errors and keep walking
       }
     }
-    const parent = path.dirname(curr);
-    if (parent === curr) {
-      throw new DeployError(
-        "Could not find the AIRP repo root (no package.json with name \"airp\" above the current directory). " +
-          "Run `airp deploy` from inside the airp checkout.",
-      );
-    }
     curr = parent;
+    parent = path.dirname(curr);
   }
+  throw new DeployError(
+    'Could not find the AIRP repo root (no package.json with name "airp" above the current directory). ' +
+      "Run `airp deploy` from inside the airp checkout.",
+  );
 }
 
 /** Default exec: run synchronously, capture output. */
