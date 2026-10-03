@@ -27,3 +27,9 @@ ACCEPTANCE CRITERIA:
 - The auto-merge-never invariant holds under the full Epic 8 decision
   matrix extended with proactive=true (parametrized test).
 - Sweep rate limit enforced (test with 10 candidates → exactly 3 processed).
+
+---
+## Standing operational requirements (apply to every epic)
+
+1. README/docs maintenance: any change or deviation in how to run, configure, or deploy the system MUST update README.md and the relevant docs/ page in the same PR. A PR that changes runtime behavior without the matching doc updates does not meet the acceptance bar.
+2. End-to-end proof: the PR for this epic MUST demonstrate a full end-to-end run of the stack (`docker compose -f infra/docker-compose.yml up`, smoke test, and this epic's feature working) and attach screenshots to the PR showing the running system and the feature in action. Screenshots may be captured via Antigravity computer use on the maintainer's machine.

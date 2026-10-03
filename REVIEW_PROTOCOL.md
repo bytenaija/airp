@@ -1,7 +1,7 @@
 # REVIEW_PROTOCOL.md — How the boss reviews
 
 This document defines the review loop between the builder (Gemini) and the
-reviewer (Muse). The builder's instructions are in `GEMINI.md`; this is the
+reviewer (Muse). The builder's instructions are in `AGENT.md`; this is the
 reviewer's side of the contract.
 
 ## Roles
@@ -21,7 +21,7 @@ The reviewer runs scheduled checks (roughly every 5 minutes) that:
    - CI is green on the PR's latest commit (read the check runs via the
      API). Red or missing CI means the PR is not ready: post a brief note
      and re-check next cycle instead of approving.
-   - The PR description meets the evidence standard (GEMINI.md): CI run
+   - The PR description meets the evidence standard (AGENT.md): CI run
      link, acceptance-criteria checklist with code/test pointers, test
      report, explicit deferrals.
    - Every actionable comment from automated reviewers (e.g. CodeRabbit)
