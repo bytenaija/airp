@@ -89,3 +89,19 @@ Unpublished runbook drafts and unreviewed outcomes are never included.
 The plain `jsonl` format carries the same records as
 `symptoms -> diagnosis -> fix -> outcome` rows for general fine-tuning work
 (schema `flywheel-dataset-v1`).
+
+## Storage boundary
+
+The flywheel distinguishes structured relational records from artifact blobs:
+
+- **Outcome records**: Recorded in Postgres (selected via `FLYWHEEL_STORE=postgres`
+  with `DATABASE_URL`). Production environments must configure `DATABASE_URL`
+  explicitly. The file-backed JSONL store remains the local default for
+  tests and single-node development without external services.
+- **Flywheel artifacts**: Flywheel-produced artifacts (exported fine-tuning
+  datasets, runbook drafts, and eval data) move to the Epic 20 BlobStore (S3
+  or Cloudflare R2) when it lands. Local disk writes (`data/flywheel/` and
+  `docs/runbooks/drafts/`) serve as the interim local behavior. Outcome
+  records themselves stay in Postgres. No BlobStore code is introduced in
+  this follow-up.
+

@@ -1,6 +1,10 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { FlywheelEmbedder, OutcomeStore } from "@airp/flywheel";
+import {
+  FlywheelEmbedder,
+  IOutcomeStore,
+  createOutcomeStore,
+} from "@airp/flywheel";
 import { findSimilarIncidents } from "./incidentsSimilar.js";
 import {
   QueryClient,
@@ -51,7 +55,7 @@ export interface AgentToolsOptions {
   changeFeedUrl?: string;
   defaultTimeoutMs?: number;
   changeEvents?: ChangeEvent[];
-  outcomeStore?: OutcomeStore;
+  outcomeStore?: IOutcomeStore;
   embedder?: FlywheelEmbedder;
 }
 
@@ -103,7 +107,7 @@ export class AgentTools {
   private readonly changeFeedUrl: string;
   private readonly defaultTimeoutMs: number;
   private changeEvents: ChangeEvent[] = [];
-  private readonly outcomeStore: OutcomeStore;
+  private readonly outcomeStore: IOutcomeStore;
   private readonly embedder: FlywheelEmbedder;
 
   private static readonly READ_ONLY_OPERATIONS = new Set([
@@ -137,7 +141,7 @@ export class AgentTools {
     ).replace(/\/$/, "");
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 5000;
     this.changeEvents = options.changeEvents ?? [];
-    this.outcomeStore = options.outcomeStore || new OutcomeStore();
+    this.outcomeStore = options.outcomeStore || createOutcomeStore();
     this.embedder = options.embedder || new FlywheelEmbedder();
   }
 

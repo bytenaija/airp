@@ -1,7 +1,7 @@
 import {
   FlywheelEmbedder,
   OutcomeRecord,
-  OutcomeStore,
+  IOutcomeStore,
 } from "@airp/flywheel";
 
 export interface SimilarIncidentHit {
@@ -20,7 +20,7 @@ export interface SimilarIncidentHit {
 }
 
 export interface SimilarityDeps {
-  store: OutcomeStore;
+  store: IOutcomeStore;
   embedder?: Pick<FlywheelEmbedder, "embedText">;
 }
 
@@ -44,7 +44,8 @@ export async function findSimilarIncidents(
   const queryVector = await embedder.embedText(symptoms);
 
   const scored: { record: OutcomeRecord; similarity: number }[] = [];
-  for (const record of deps.store.list()) {
+  const records = await deps.store.list();
+  for (const record of records) {
     if (!record.symptom_embedding || record.symptom_embedding.length === 0) {
       continue;
     }

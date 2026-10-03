@@ -15,6 +15,16 @@ export interface OutcomeStoreOptions {
   path?: string;
 }
 
+export interface IOutcomeStore {
+  add(record: OutcomeRecord): Promise<OutcomeRecord> | OutcomeRecord;
+  get(incidentId: string): Promise<OutcomeRecord | undefined> | OutcomeRecord | undefined;
+  list(): Promise<OutcomeRecord[]> | OutcomeRecord[];
+  trailingMttrs(): Promise<number[]> | number[];
+  markReviewed(incidentId: string): Promise<boolean> | boolean;
+  count(): Promise<number> | number;
+  close?(): Promise<void> | void;
+}
+
 export function defaultStorePath(): string {
   return (
     process.env.FLYWHEEL_STORE_PATH ||
@@ -22,7 +32,7 @@ export function defaultStorePath(): string {
   );
 }
 
-export class OutcomeStore {
+export class OutcomeStore implements IOutcomeStore {
   readonly path: string;
 
   constructor(options: OutcomeStoreOptions = {}) {

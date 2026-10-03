@@ -3,7 +3,8 @@ import { Command } from "commander";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
 import {
-  OutcomeStore,
+  IOutcomeStore,
+  createOutcomeStore,
   exportDataset,
   validateClefJsonl,
   publishRunbook,
@@ -706,8 +707,11 @@ program
     }
   });
 
-function getFlywheelStore(storePath?: string): OutcomeStore {
-  return new OutcomeStore(storePath ? { path: storePath } : {});
+function getFlywheelStore(storePath?: string): IOutcomeStore {
+  if (storePath) {
+    return createOutcomeStore({ store: "file", path: storePath });
+  }
+  return createOutcomeStore();
 }
 
 // Command group: flywheel
@@ -732,10 +736,11 @@ flywheelCmd
       process.exitCode = 1;
       return;
     }
+    const store = getFlywheelStore(options.store);
     try {
-      const store = getFlywheelStore(options.store);
-      const document = exportDataset(store, format);
-      const eligible = store.list().filter((r) => r.reviewed).length;
+      const document = await exportDataset(store, format);
+      const allRecords = await store.list();
+      const eligible = allRecords.filter((r) => r.reviewed).length;
       if (format === "clef-jsonl") {
         const check = validateClefJsonl(document);
         if (!check.valid) {
@@ -757,6 +762,10 @@ flywheelCmd
     } catch (err: any) {
       console.error(`Flywheel export error: ${err.message}`);
       process.exitCode = 1;
+    } finally {
+      if (store.close) {
+        await store.close();
+      }
     }
   });
 
@@ -767,9 +776,9 @@ flywheelCmd
   .option("--store <path>", "Outcome store JSONL path")
   .option("--reviewed-only", "Show only reviewed records", false)
   .action(async (options) => {
+    const store = getFlywheelStore(options.store);
     try {
-      const store = getFlywheelStore(options.store);
-      let records = store.list();
+      let records = await store.list();
       if (options.reviewedOnly) {
         records = records.filter((r) => r.reviewed);
       }
@@ -785,6 +794,10 @@ flywheelCmd
     } catch (err: any) {
       console.error(`Flywheel list error: ${err.message}`);
       process.exitCode = 1;
+    } finally {
+      if (store.close) {
+        await store.close();
+      }
     }
   });
 
