@@ -8,3 +8,5 @@ coverage/
 *.tsbuildinfo
 outbox/
 evals/results/
+docs/assets/
+screenshots/
