@@ -43,6 +43,9 @@ export interface PatchPipelineParams {
   maxAttempts?: number; // default 4
   sandboxConfig?: SandboxConfig;
   testCommand?: string;
+  proactive?: boolean;
+  labels?: string[];
+  header?: string;
 }
 
 export interface PatchPipelineResult {
@@ -281,23 +284,27 @@ export async function runPatchPipeline(
       // PASS_TO_PASS is true because the patched run just succeeded.
       const failToPass =
         baselineFailed === true
-          ? "FAIL_TO_PASS: measured — synthesized regression test FAILED on unpatched code and PASSES on patched code."
+          ? "FAIL_TO_PASS: measured - synthesized regression test FAILED on unpatched code and PASSES on patched code."
           : baselineFailed === false
-            ? "FAIL_TO_PASS: NOT PROVEN — synthesized test passed on unpatched code too; it does not reproduce the incident."
+            ? "FAIL_TO_PASS: NOT PROVEN - synthesized test passed on unpatched code too; it does not reproduce the incident."
             : baselineInconclusiveReason
-              ? `FAIL_TO_PASS: INCONCLUSIVE — baseline could not be measured (infrastructure failure: ${baselineInconclusiveReason}); not counted as reproduction.`
-              : "FAIL_TO_PASS: UNKNOWN — no reproducer available; baseline not measured.";
+              ? `FAIL_TO_PASS: INCONCLUSIVE - baseline could not be measured (infrastructure failure: ${baselineInconclusiveReason}); not counted as reproduction.`
+              : "FAIL_TO_PASS: UNKNOWN - no reproducer available; baseline not measured.";
       const testResults = [
         `1. ${failToPass}`,
-        "2. PASS_TO_PASS: measured — sandbox validation command exited 0 on patched code.",
+        "2. PASS_TO_PASS: measured - sandbox validation command exited 0 on patched code.",
         `Baseline logs (unpatched): ${baselineLogs.slice(0, 500) || "n/a"}`,
         `Sandbox Execution Time: ${sandboxResult.executionTimeMs}ms`,
         `Sandbox Exit Code: ${sandboxResult.exitCode}`,
         `Patch generator: ${usedLLM ? "LLM" : `deterministic (${fallbackReason || "no reason given"})`}`,
       ].join("\n");
 
+      const isProactive = Boolean(params.proactive);
+      // Branch name mirrors the VCS provider default: airp/proactive-<id> for
+      // proactive sweeps, airp/fix-<id> otherwise.
+      const rollbackBranch = `airp/${isProactive ? "proactive" : "fix"}-${params.incidentId}`;
       const rollbackPlan = [
-        `1. Revert pull request branch \`airp/fix-${params.incidentId}\` or git revert the merge commit.`,
+        `1. Revert pull request branch \`${rollbackBranch}\` or git revert the merge commit.`,
         `2. If deployed, redeploy previous stable revision \`${params.diagnosis.implicated_change?.revision || "HEAD~1"}\`.`,
         "3. Verify telemetry error rate returns to normal baseline.",
       ].join("\n");
@@ -310,6 +317,14 @@ export async function runPatchPipeline(
           .join("\n") ||
         "RCA evidence confirmed suspect location and error step.";
 
+      const prLabels = params.labels ?? (isProactive ? ["proactive"] : undefined);
+      const prHeader =
+        params.header ??
+        (isProactive ? "found by sweep, no incident, please review" : undefined);
+      const incidentLink = isProactive
+        ? "none (proactive sweep)"
+        : `/incidents/${params.incidentId}`;
+
       const pullRequest = await vcs.createPullRequest({
         incidentId: params.incidentId,
         repoDir: scratchClone,
@@ -318,8 +333,11 @@ export async function runPatchPipeline(
         evidenceSummary,
         testResults,
         rollbackPlan,
-        incidentLink: `/incidents/${params.incidentId}`,
+        incidentLink,
         diff: generatedDiff,
+        isProactive,
+        labels: prLabels,
+        header: prHeader,
       });
 
       return {

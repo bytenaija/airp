@@ -1,0 +1,133 @@
+# Proactive Sweep Mode (Epic 13)
+
+Proactive sweep mode discovers and remediates code-fixable bugs from historical telemetry before they trigger alerts or page operators. Operating permanently at reduced privilege, the sweep pipeline mines recurring error clusters from pluggable error sources (Loki log streams by default), runs root-cause analysis and test-driven patch synthesis, and opens human-reviewed pull requests.
+
+## Architecture
+
+The proactive sweep pipeline consists of three core components:
+
+```
++-------------------------------------------------------+
+| SweepMiner (node-cron, in-process, zero infra)         |
+| 1. Collect error events via SweepSource plugins       |
+|    (default: LokiSweepSource over the lookback window)|
+| 2. Cluster events into signatures via clusterLogs     |
+| 3. Filter out signatures linked to active incidents   |
+| 4. Emit candidate {signature, service, first_seen...} |
++-------------------------------------------------------+
+                           |
+                           v
++-------------------------------------------------------+
+| SweepWorker (Rate-limited, max 3/day)                 |
+| 1. Check daily run count against quota limit          |
+| 2. Run investigation agent (Epic 4 runtime)           |
+| 3. Synthesize patch and reproduction tests (Epic 6)   |
+| 4. Verify candidate patch in sandbox (fail-closed)    |
++-------------------------------------------------------+
+                           |
+                           v
++-------------------------------------------------------+
+| Policy Invariant (v2/rules.yaml + Engine Invariant)   |
+| - Proactive plans: auto_merge_eligible = false (NEVER)|
+| - Label: proactive                                    |
+| - Branch: airp/proactive-${id}                        |
+| - Description header:                                 |
+|   "> found by sweep, no incident, please review"      |
++-------------------------------------------------------+
+```
+
+### 1. Sweep Miner (`services/sweep/src/miner.ts`)
+
+The `SweepMiner` runs as an in-process scheduled job via `node-cron`. It does
+not query Loki directly: it consumes a `SweepSource` interface, so error
+signals can come from any pluggable source:
+
+```ts
+interface SweepSource {
+  name: string;
+  listErrorEvents(window: { start: Date; end: Date }): Promise<SweepEvent[]>;
+}
+```
+
+- **Default source**: `LokiSweepSource` queries historical logs from Loki over a configurable lookback window (default: 7 days). The services to scan come from the `services` option or the `SWEEP_SERVICES` env var (comma-separated); there are no built-in defaults.
+- **Future sources**: catalog connectors that carry error data (for example issue trackers or error-tracking tools from Epic 17) can implement `SweepSource` and register as additional sources with zero miner changes.
+- **Event Clustering**: The miner applies the Epic 5 `clusterLogs` algorithm to the collected events to aggregate repeating templates into distinct error signatures.
+- **Incident De-duplication**: Cross-references discovered signatures against known active and resolved incidents from the incident store or ingest gateway. Only recurring unlinked signatures are surfaced.
+- **Candidate Emission**: Emits `SweepCandidate` objects containing `signature`, `service`, `first_seen`, `count_7d`, and representative sample log lines.
+
+### 2. Sweep Worker (`services/sweep/src/worker.ts`)
+
+The `SweepWorker` processes emitted candidates under strict safeguards:
+
+- **Daily Rate Limiting**: Enforces a strict quota (default: max 3 processed candidates per 24-hour day). Any candidates exceeding this limit are skipped or queued for the subsequent day.
+- **Proactive Investigation**: Runs the investigation agent runtime (`runInvestigation`) with `isProactive: true`. The agent formulates hypotheses, analyzes stack traces, and localizes the fault in the repository.
+- **Patch Synthesis and Test Verification**: Drives the patch pipeline (`runPatchPipeline`) to generate a targeted null-guard or logic patch, synthesize a reproduction test, and execute the sandbox test suite. The worker leaves `sandboxConfig` unset by default, so Epic 6 fails closed: patch validation refuses to execute without a real sandbox backend (MicroSandbox microVM or hardened Docker) unless insecure local execution is explicitly opted in.
+- **Graceful Failure Handling**: If an issue is diagnosed as human-only (such as external dependency outages or unfixable architecture shifts) or if tests fail to pass, the worker skips PR creation cleanly.
+
+### 3. Policy Engine Invariant (Rule Version v2)
+
+Proactive fixes run permanently under reduced privilege:
+
+- **Permanent Invariant**: In `services/policy-engine/rules/v2/rules.yaml` and enforced directly in `PolicyEngineEvaluator`, any plan flagged with `proactive: true` is strictly barred from auto-merge (`auto_merge_eligible: false`), regardless of confidence score, risk tier, or code-owner approvals.
+- **Parametrized Matrix Verification**: Parametrized tests exhaustively evaluate all decision matrix combinations to guarantee that no rule configuration can enable auto-merge for proactive remediations.
+
+### 4. Pull Request Structure
+
+Proactive pull requests are formatted with transparent, distinct markers:
+
+- **Branch Name**: `airp/proactive-${candidateId}`
+- **GitHub Labels**: Includes `proactive`
+- **Header**:
+  ```markdown
+  > found by sweep, no incident, please review
+  ```
+- **Remediation Plan**: Includes the standard five-section format (Incident Link, Root Cause Diagnosis, Proposed Code Changes, Verification and Tests, Risk and Rollback Plan).
+
+## Configuration
+
+Proactive sweep mode is configured via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `SWEEP_SERVICES` | (none) | Comma-separated service names for the miner to scan. The explicit `services` option wins when both are set. |
+| `LOKI_URL` | `http://localhost:3100` | Loki base URL for the default `LokiSweepSource`. |
+| `INGEST_GATEWAY_URL` | `http://localhost:8000` | Ingest gateway URL used for incident-link filtering. |
+| `AIRP_SWEEP_QUOTA_PATH` | `~/.airp/sweep-quota.json` | Where the `airp sweep` CLI persists its daily rate-limit counts. |
+| `POLICY_RULES_VERSION` | `v1` | Policy rule version for the evaluator (the sweep worker defaults to `v2`). |
+| `POLICY_RULES_PATH` | (built-in) | Path to the policy rules file. |
+
+The miner also accepts `lookbackMs` (default 7 days), `minOccurrences` (default 2), and `cronExpression` (default `0 0 * * *`) as constructor options.
+
+## CLI
+
+Run a single sweep cycle from the command line:
+
+```sh
+airp sweep --services checkout,payments --lookback-days 7 --max-per-day 3
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--services <list>` | `SWEEP_SERVICES` or (none) | Comma-separated service names to scan. The flag wins over `SWEEP_SERVICES`; when both are absent the miner scans nothing. |
+| `--lookback-days <days>` | `7` | Log lookback window in days. Must be a positive integer. |
+| `--max-per-day <n>` | `3` | Maximum candidates the worker processes per day. Must be a positive integer. |
+| `--loki-url <url>` | `LOKI_URL` or `http://localhost:3100` | Loki base URL. |
+| `--gateway-url <url>` | `INGEST_GATEWAY_URL` or `http://localhost:8000` | Ingest gateway URL for incident-link filtering. |
+| `--dry-run` | off | List candidates without processing them. |
+
+The command prints each candidate (`service | signature | count_7d`), then one
+summary line per candidate (`service | signature -> status`, with the reason
+when the status is not `processed`). It exits non-zero if any candidate fails
+processing.
+
+## Operational Verification
+
+Run the proactive sweep unit and functional test suites:
+
+```sh
+# Run unit tests for miner, worker rate-limits, and policy invariant
+npx vitest run tests/unit/sweep-miner.test.ts tests/unit/sweep-worker.test.ts tests/unit/proactive-policy.test.ts
+
+# Run the end-to-end integration test against simulated and live services
+npx vitest run tests/functional/proactive-sweep-e2e.test.ts
+```

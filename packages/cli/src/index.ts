@@ -3,6 +3,7 @@ import { Command } from "commander";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
@@ -14,6 +15,7 @@ import {
   listDrafts,
   type DatasetFormat,
 } from "@airp/flywheel";
+import { SweepMiner, SweepWorker, type SweepCandidate } from "@airp/sweep";
 
 dotenv.config();
 
@@ -963,6 +965,116 @@ program
     }
 
     if (!overallSuccess) {
+      process.exitCode = 1;
+    }
+  });
+
+// Command: sweep
+async function runSweepWorker(
+  candidates: SweepCandidate[],
+  maxPerDay: number,
+): Promise<void> {
+  const worker = new SweepWorker({
+    maxDailyCandidates: maxPerDay,
+    quotaStorePath:
+      process.env.AIRP_SWEEP_QUOTA_PATH ||
+      path.join(os.homedir(), ".airp", "sweep-quota.json"),
+  });
+  try {
+    const results = await worker.processCandidates(candidates);
+    let anyFailed = false;
+    for (const r of results) {
+      const label = `${r.candidate.service} | ${r.candidate.signature}`;
+      if (r.status === "processed") {
+        console.log(`${label} -> processed`);
+      } else {
+        console.log(
+          `${label} -> ${r.status}${r.reason ? `: ${r.reason}` : ""}`,
+        );
+      }
+      if (r.status === "failed") {
+        anyFailed = true;
+      }
+    }
+    if (anyFailed) {
+      process.exitCode = 1;
+    }
+  } finally {
+    worker.cleanup();
+  }
+}
+
+program
+  .command("sweep")
+  .description(
+    "Run one proactive sweep cycle: mine recurring errors and process candidates (max 3/day)",
+  )
+  .option("--services <list>", "Comma-separated service names to scan")
+  .option("--lookback-days <days>", "Log lookback window in days", "7")
+  .option("--max-per-day <n>", "Max candidates processed per day", "3")
+  .option(
+    "--loki-url <url>",
+    "Loki base URL (default: LOKI_URL env or http://localhost:3100)",
+  )
+  .option(
+    "--gateway-url <url>",
+    "Ingest gateway URL for incident-link filtering",
+  )
+  .option("--dry-run", "List candidates without processing them")
+  .action(async (options) => {
+    const rawDays = options.lookbackDays;
+    const lookbackDays = Number(rawDays);
+    if (!Number.isInteger(lookbackDays) || lookbackDays <= 0) {
+      console.error(
+        `Error: --lookback-days must be a positive integer, got '${rawDays}'`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const rawMax = options.maxPerDay;
+    const maxPerDay = Number(rawMax);
+    if (!Number.isInteger(maxPerDay) || maxPerDay <= 0) {
+      console.error(
+        `Error: --max-per-day must be a positive integer, got '${rawMax}'`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const services = options.services
+      ? String(options.services)
+          .split(",")
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0)
+      : undefined;
+    if (!services && !process.env.SWEEP_SERVICES) {
+      console.warn(
+        "Warning: no services specified (--services or SWEEP_SERVICES); the miner will scan nothing.",
+      );
+    }
+
+    try {
+      const miner = new SweepMiner({
+        services,
+        lookbackMs: lookbackDays * 86400000,
+        lokiUrl: options.lokiUrl || process.env.LOKI_URL,
+        ingestGatewayUrl: options.gatewayUrl || process.env.INGEST_GATEWAY_URL,
+      });
+
+      const candidates = await miner.scan();
+      console.log(`Found ${candidates.length} candidate(s)`);
+      for (const c of candidates) {
+        console.log(`- ${c.service} | ${c.signature} | count_7d=${c.count_7d}`);
+      }
+
+      if (options.dryRun) {
+        return;
+      }
+
+      await runSweepWorker(candidates, maxPerDay);
+    } catch (err: any) {
+      console.error(`Error: sweep failed: ${err.message}`);
       process.exitCode = 1;
     }
   });
