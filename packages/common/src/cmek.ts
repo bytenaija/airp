@@ -28,8 +28,8 @@ export class LocalKMS implements KMSProvider {
     }
     let key = this.tenantKeys.get(tenantId);
     if (!key) {
-      // Derive a deterministic or random 256-bit AES key for the tenant
-      key = crypto.createHash("sha256").update(`airp-local-cmek-salt:${tenantId}`).digest();
+      // Generate a true random 256-bit AES key for the tenant
+      key = crypto.randomBytes(32);
       this.tenantKeys.set(tenantId, key);
     }
     return key;

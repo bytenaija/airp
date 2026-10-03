@@ -83,7 +83,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (le) (airp_confidence_distribution_bucket)",
+          "expr": "sum by (le) (increase(airp_confidence_distribution_bucket[$__range]))",
           "legendFormat": "{{le}}"
         }
       ]

@@ -66,7 +66,7 @@ Before running an AIRP image in production, verify its signature, build provenan
 ```bash
 # Verify image signature against repository identity
 cosign verify ghcr.io/bytenaija/airp-agent-runtime:0.1.0 \
-  --certificate-identity-regexp "https://github.com/bytenaija/airp" \
+  --certificate-identity-regexp "^https://github\.com/bytenaija/airp/\.github/workflows/publish-images\.yml@refs/heads/main$" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
 
 # Verify build provenance attestation

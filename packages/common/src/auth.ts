@@ -499,6 +499,14 @@ export class OIDCAuth implements AuthProvider {
 }
 
 export function getAuthProvider(): AuthProvider {
+  if (process.env.AUTH_PROVIDER === "oidc") {
+    return new OIDCAuth({
+      issuer: process.env.OIDC_ISSUER || "https://accounts.example.com",
+      clientId: process.env.OIDC_CLIENT_ID || "airp-default-client",
+      clientSecret: process.env.OIDC_CLIENT_SECRET,
+    });
+  }
+
   const issuer = process.env.OIDC_ISSUER;
   const clientId = process.env.OIDC_CLIENT_ID;
 

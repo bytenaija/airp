@@ -46,10 +46,20 @@ describe("Access Transparency Logging and Approvals", () => {
     expect(tenantARecords).toHaveLength(1);
     expect(tenantARecords[0].tenantId).toBe("tenant-a");
     expect(tenantARecords[0].actor).toBe("vendor-admin");
-    expect(tenantARecords[0].approver).toContain("tenant-security-officer@tenant-a");
+    expect(tenantARecords[0].status).toBe("pending");
+    expect(tenantARecords[0].approver).toBeUndefined();
+    expect(manager.isAccessGranted(tenantARecords[0].id)).toBe(false);
+
+    // Tenant explicitly approves access
+    const approved = manager.approveAccess(tenantARecords[0].id, "security-lead@tenant-a");
+    expect(approved.status).toBe("approved");
+    expect(approved.approver).toBe("security-lead@tenant-a");
+    expect(approved.approvedAt).toBeDefined();
+    expect(manager.isAccessGranted(tenantARecords[0].id)).toBe(true);
 
     const tenantBRecords = manager.listRecords("tenant-b");
     expect(tenantBRecords).toHaveLength(1);
     expect(tenantBRecords[0].tenantId).toBe("tenant-b");
+    expect(tenantBRecords[0].status).toBe("pending");
   });
 });

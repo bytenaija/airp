@@ -83,4 +83,31 @@ describe("Sandbox Escape Monitoring & Canary Leakage Detection", () => {
     const dispatched = monitor.getDispatchedAlerts();
     expect(dispatched.some((a) => a.type === "canary_token_leakage")).toBe(true);
   });
+
+  it("checks multiple issued canaries across tenants and supports custom alert notifiers", () => {
+    let notifiedAlert: any = null;
+    const monitor = new SandboxEscapeMonitor({
+      notifier: (alert) => {
+        notifiedAlert = alert;
+        return true;
+      },
+    });
+
+    const tokenA = monitor.generateCanarySecret("tenant-alpha");
+    const tokenB = monitor.generateCanarySecret("tenant-beta");
+    expect(tokenA).toBeDefined();
+
+    // Payload contains tenant-beta token, but we filter for tenant-alpha: no match
+    const payloadBeta = `Accessing external endpoint with ${tokenB}`;
+    const resultAlpha = monitor.detectCanaryLeakage(payloadBeta, "tenant-alpha");
+    expect(resultAlpha.leaked).toBe(false);
+
+    // Filter matches tenant-beta: leak detected and custom notifier called
+    const resultBeta = monitor.detectCanaryLeakage(payloadBeta, "tenant-beta");
+    expect(resultBeta.leaked).toBe(true);
+    expect(resultBeta.matchedToken).toBe(tokenB);
+    expect(resultBeta.alert?.pagedOnCall).toBe(true);
+    expect(notifiedAlert).toBeDefined();
+    expect(notifiedAlert?.details.tenantId).toBe("tenant-beta");
+  });
 });

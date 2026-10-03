@@ -37,12 +37,53 @@ export function generateSbom(options?: {
   if (fs.existsSync(rootPkgPath)) {
     try {
       rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf8"));
-    } catch {
-      // Fallback
+    } catch (err) {
+      throw new Error(`Corrupted root package.json at '${rootPkgPath}': ${(err as Error).message}`);
     }
   }
 
   const componentsMap = new Map<string, SbomComponent>();
+
+  // Source resolved versions and transitive dependencies from package-lock.json if present
+  const lockfilePath = path.join(root, "package-lock.json");
+  if (fs.existsSync(lockfilePath)) {
+    try {
+      const lockData = JSON.parse(fs.readFileSync(lockfilePath, "utf8"));
+      if (lockData.packages) {
+        for (const [pkgKey, pkgInfo] of Object.entries<any>(lockData.packages)) {
+          if (!pkgKey || pkgKey === "") continue;
+          if (pkgKey.startsWith("packages/") || pkgKey.startsWith("services/") || pkgKey.startsWith("demo/")) {
+            const name = pkgInfo.name;
+            const version = pkgInfo.version || "0.1.0";
+            if (name && !componentsMap.has(name)) {
+              componentsMap.set(name, {
+                name,
+                version,
+                type: "library",
+              });
+            }
+          } else if (pkgKey.startsWith("node_modules/")) {
+            const parts = pkgKey.split("node_modules/");
+            const rawName = parts[parts.length - 1];
+            const version = pkgInfo.version;
+            if (rawName && version && !componentsMap.has(rawName)) {
+              const isRegistry = !pkgInfo.link && !version.startsWith("file:") && !version.startsWith("workspace:");
+              componentsMap.set(rawName, {
+                name: rawName,
+                version,
+                type: "library",
+                ...(isRegistry && /^\d+\.\d+\.\d+/.test(version)
+                  ? { purl: `pkg:npm/${encodeURIComponent(rawName)}@${version}` }
+                  : {}),
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Fall through to manifest scan if lockfile parsing fails
+    }
+  }
 
   function processPkgJson(pkgPath: string) {
     if (!fs.existsSync(pkgPath)) return;
@@ -51,12 +92,16 @@ export function generateSbom(options?: {
       const deps = { ...data.dependencies, ...data.devDependencies };
       for (const [name, versionRange] of Object.entries(deps)) {
         if (!componentsMap.has(name)) {
-          const cleanVersion = String(versionRange).replace(/[\^~>=<]/g, "");
+          const vStr = String(versionRange).trim();
+          const cleanVersion = vStr.replace(/[\^~>=<]/g, "").trim();
+          const isRegistry = !vStr.startsWith("workspace:") && !vStr.startsWith("file:") && !vStr.startsWith("link:");
           componentsMap.set(name, {
             name,
             version: cleanVersion,
             type: "library",
-            purl: `pkg:npm/${encodeURIComponent(name)}@${cleanVersion}`,
+            ...(isRegistry && /^\d+\.\d+\.\d+/.test(cleanVersion)
+              ? { purl: `pkg:npm/${encodeURIComponent(name)}@${cleanVersion}` }
+              : {}),
           });
         }
       }
@@ -65,19 +110,21 @@ export function generateSbom(options?: {
     }
   }
 
-  // Scan root dependencies
-  processPkgJson(rootPkgPath);
+  if (componentsMap.size === 0) {
+    // Scan root dependencies
+    processPkgJson(rootPkgPath);
 
-  // Scan workspaces (packages/*, services/*)
-  const workspaceDirs = ["packages", "services", "demo"];
-  for (const ws of workspaceDirs) {
-    const wsDir = path.join(root, ws);
-    if (fs.existsSync(wsDir)) {
-      const entries = fs.readdirSync(wsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const pkgPath = path.join(wsDir, entry.name, "package.json");
-          processPkgJson(pkgPath);
+    // Scan workspaces (packages/*, services/*)
+    const workspaceDirs = ["packages", "services", "demo"];
+    for (const ws of workspaceDirs) {
+      const wsDir = path.join(root, ws);
+      if (fs.existsSync(wsDir)) {
+        const entries = fs.readdirSync(wsDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const pkgPath = path.join(wsDir, entry.name, "package.json");
+            processPkgJson(pkgPath);
+          }
         }
       }
     }

@@ -19,7 +19,7 @@ COPY services/ux/package*.json ./services/ux/
 COPY services/flywheel/package*.json ./services/flywheel/
 COPY demo/package*.json ./demo/
 
-RUN npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 
 COPY tsconfig.json ./
 COPY config ./config

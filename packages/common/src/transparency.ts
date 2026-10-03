@@ -8,9 +8,10 @@ export interface AccessApprovalRecord {
   resource: string;
   action: string;
   requestedAt: string;
-  approvedAt: string;
-  approver: string;
-  status: "approved" | "rejected" | "auto_approved";
+  approvedAt?: string;
+  rejectedAt?: string;
+  approver?: string;
+  status: "pending" | "approved" | "rejected" | "auto_approved";
   banner?: string;
 }
 
@@ -29,9 +30,9 @@ export class AccessTransparencyManager {
   async requestAccess(options: RequestAccessOptions): Promise<AccessApprovalRecord> {
     const isLocal =
       options.isLocal ??
-      (process.env.NODE_ENV !== "production" ||
-        options.tenantId === "local" ||
-        process.env.AIRP_LOCAL_MODE === "true");
+      (process.env.AIRP_LOCAL_MODE === "true" ||
+        process.env.NODE_ENV === "development" ||
+        process.env.NODE_ENV === "test");
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -59,7 +60,7 @@ export class AccessTransparencyManager {
       return record;
     }
 
-    // Production mode: requires explicit tenant approval
+    // Production mode: creates a pending record requiring explicit tenant approval
     const record: AccessApprovalRecord = {
       id,
       tenantId: options.tenantId,
@@ -68,13 +69,47 @@ export class AccessTransparencyManager {
       resource: options.resource,
       action,
       requestedAt: now,
-      approvedAt: now,
-      approver: `tenant-security-officer@${options.tenantId}`,
-      status: "approved",
+      status: "pending",
     };
 
     this.records.set(id, record);
     return record;
+  }
+
+  approveAccess(recordId: string, approver: string): AccessApprovalRecord {
+    const record = this.records.get(recordId);
+    if (!record) {
+      throw new Error(`Access approval record '${recordId}' not found`);
+    }
+    if (record.status !== "pending") {
+      throw new Error(`Cannot approve record in '${record.status}' status`);
+    }
+    record.status = "approved";
+    record.approver = approver;
+    record.approvedAt = new Date().toISOString();
+    return { ...record };
+  }
+
+  rejectAccess(recordId: string, rejector: string, reason?: string): AccessApprovalRecord {
+    const record = this.records.get(recordId);
+    if (!record) {
+      throw new Error(`Access approval record '${recordId}' not found`);
+    }
+    if (record.status !== "pending") {
+      throw new Error(`Cannot reject record in '${record.status}' status`);
+    }
+    record.status = "rejected";
+    record.approver = rejector;
+    record.rejectedAt = new Date().toISOString();
+    if (reason) {
+      record.reason = `${record.reason} (Rejected: ${reason})`;
+    }
+    return { ...record };
+  }
+
+  isAccessGranted(recordId: string): boolean {
+    const record = this.records.get(recordId);
+    return record?.status === "approved" || record?.status === "auto_approved";
   }
 
   listRecords(tenantId?: string): AccessApprovalRecord[] {

@@ -119,9 +119,9 @@ export function buildAgentRuntimeServer(
   function syncLLMMetrics(): void {
     if (!globalLLMMetrics || !globalLLMMetrics.tokensByProvider) return;
     for (const [key, totalTokens] of globalLLMMetrics.tokensByProvider.entries()) {
-      const parts = key.split(":");
-      const provider = parts[0] || "default";
-      const model = parts[1] || key;
+      const colonIdx = key.indexOf(":");
+      const provider = colonIdx !== -1 ? key.slice(0, colonIdx) : "default";
+      const model = colonIdx !== -1 ? key.slice(colonIdx + 1) : key;
       const prevTokens = lastReportedTokens.get(key) || 0;
       const deltaTokens = totalTokens - prevTokens;
       if (deltaTokens > 0) {
@@ -130,9 +130,9 @@ export function buildAgentRuntimeServer(
       }
     }
     for (const [key, totalCost] of globalLLMMetrics.costByProvider.entries()) {
-      const parts = key.split(":");
-      const provider = parts[0] || "default";
-      const model = parts[1] || key;
+      const colonIdx = key.indexOf(":");
+      const provider = colonIdx !== -1 ? key.slice(0, colonIdx) : "default";
+      const model = colonIdx !== -1 ? key.slice(colonIdx + 1) : key;
       const prevCost = lastReportedCost.get(key) || 0;
       const deltaCost = totalCost - prevCost;
       if (deltaCost > 0) {

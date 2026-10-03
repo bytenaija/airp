@@ -33,10 +33,14 @@ Perform these checks at the start of each on-call shift:
    - Tool execution breakdown.
 
 4. **Credential and Secret Scans**:
-   Verify no credential leakage or static secrets exist in running logs:
-   ```bash
-   npm run test tests/unit/static-secrets.test.ts
-   ```
+   - **Repository Static Scan**: Verify no hardcoded credentials exist in source code or configs:
+     ```bash
+     npm run test tests/unit/static-secrets.test.ts
+     ```
+   - **Runtime Log Inspection**: Inspect live container logs for leaked secrets or bearer tokens:
+     ```bash
+     docker compose -f infra/docker-compose.yml logs --tail=500 | grep -E "AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36}|Bearer [a-zA-Z0-9_-]{20,}"
+     ```
 
 ## 3. Alert Directory for Agent Runtime
 
@@ -101,6 +105,7 @@ Every week, operators must review LLM expenditures across all providers and tena
      SUM(total_tokens) AS tokens,
      ROUND(SUM(cost_usd)::numeric, 4) AS cost_usd
    FROM llm_cost_records
+   WHERE timestamp >= NOW() - INTERVAL '7 days'
    GROUP BY incident_id
    ORDER BY tokens DESC
    LIMIT 10;

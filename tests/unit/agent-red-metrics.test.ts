@@ -140,11 +140,17 @@ describe("Agent Self-RED Metrics & Grafana Prometheus Integration", () => {
   });
 
   it("reflects global LLM tokens and cost metrics in Prometheus output", async () => {
-    globalLLMMetrics.record("openai", "gpt-4o", 2500, 0.025);
-
     const { server } = buildAgentRuntimeServer({
       logger: false,
     });
+
+    // Establish baseline metrics
+    await server.inject({
+      method: "GET",
+      url: "/metrics",
+    });
+
+    globalLLMMetrics.record("openai", "gpt-4o", 2500, 0.025);
 
     const metricsRes = await server.inject({
       method: "GET",
@@ -152,7 +158,7 @@ describe("Agent Self-RED Metrics & Grafana Prometheus Integration", () => {
     });
 
     const metricsBody = metricsRes.body;
-    expect(metricsBody).toContain('airp_llm_tokens_total{provider="openai",model="gpt-4o"}');
-    expect(metricsBody).toContain('airp_llm_cost_dollars{provider="openai",model="gpt-4o"}');
+    expect(metricsBody).toContain('airp_llm_tokens_total{provider="openai",model="gpt-4o"} 2500');
+    expect(metricsBody).toContain('airp_llm_cost_dollars{provider="openai",model="gpt-4o"} 0.025');
   });
 });

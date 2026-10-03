@@ -1,17 +1,21 @@
-import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { generateSbom } from "../../packages/common/src/sbom.js";
 
 describe("Supply Chain Security: SBOM Generation", () => {
   it("generates a valid CycloneDX 1.5 Software Bill of Materials (SBOM)", () => {
     const sbom: any = generateSbom({ format: "cyclonedx" });
+    const rootPkg = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"),
+    );
 
     expect(sbom.bomFormat).toBe("CycloneDX");
     expect(sbom.specVersion).toBe("1.5");
     expect(sbom.$schema).toContain("bom-1.5.json");
     expect(sbom.serialNumber).toMatch(/^urn:uuid:[0-9a-f-]+$/i);
 
-    expect(sbom.metadata.component.name).toBe("airp");
-    expect(sbom.metadata.component.version).toBe("0.1.0");
+    expect(sbom.metadata.component.name).toBe(rootPkg.name || "airp");
+    expect(sbom.metadata.component.version).toBe(rootPkg.version || "0.1.0");
 
     expect(Array.isArray(sbom.components)).toBe(true);
     expect(sbom.components.length).toBeGreaterThan(0);

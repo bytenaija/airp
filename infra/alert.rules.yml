@@ -10,3 +10,33 @@ groups:
         annotations:
           summary: "AIRP Agent Runtime is down"
           description: "The agent-runtime container failed its healthcheck or is unreachable. Routing alerts to human fallback."
+
+      - alert: AgentHighErrorRate
+        expr: sum(rate(airp_investigations_errored_total[5m])) > 0.1
+        for: 1m
+        labels:
+          severity: warning
+          service: agent-runtime
+        annotations:
+          summary: "AIRP Agent Runtime investigation error rate elevated"
+          description: "Agent investigations are throwing uncaught exceptions at a rate exceeding 0.1 errors/sec."
+
+      - alert: HighTokenConsumption
+        expr: sum(rate(airp_llm_tokens_total[5m])) > 50000
+        for: 1m
+        labels:
+          severity: warning
+          service: agent-runtime
+        annotations:
+          summary: "High LLM token consumption detected"
+          description: "LLM token consumption rate exceeds 50k tokens/sec, indicating potential runaway prompt loops."
+
+      - alert: BreakerTripped
+        expr: airp_circuit_breaker_tripped > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: policy-engine
+        annotations:
+          summary: "Policy engine safety circuit breaker tripped"
+          description: "Automated remediation halted because safety circuit breaker threshold was reached."

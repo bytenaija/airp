@@ -30,5 +30,9 @@ describe("Customer-Managed Keys (CMEK) and Key Destruction", () => {
 
     // 5. Assert further encryption for this destroyed tenant is denied
     await expect(kms.encrypt("new data", tenantId)).rejects.toThrow(TenantKeyDestroyedError);
+
+    // 6. Assert a fresh KMS instance cannot decrypt the ciphertext of the destroyed key
+    const freshKms = new LocalKMS();
+    await expect(freshKms.decrypt(ciphertext, tenantId)).rejects.toThrow();
   });
 });
