@@ -1,0 +1,503 @@
+import { describe, it, expect } from "vitest";
+import { Diagnosis } from "@airp/common";
+import {
+  planOpsAction,
+  UnsupportedFixabilityError,
+  MissingActionParametersError,
+} from "../../services/ops-actions/src/planner.js";
+import { RollbackAction } from "../../services/ops-actions/src/actions/rollback.js";
+import { FlagToggleAction } from "../../services/ops-actions/src/actions/flag-toggle.js";
+import { ScaleAction } from "../../services/ops-actions/src/actions/scale.js";
+
+describe("Epic 7 Acceptance Criterion 2: Ops-Action Planner Selection", () => {
+  it("picks RollbackAction for bad-deploy scenario (implicated_change.type = 'deploy')", () => {
+    const deployDiagnosis: Diagnosis = {
+      id: "a1111111-1111-4111-8111-111111111111",
+      tenant_id: "local",
+      incident_id: "b2222222-2222-4222-8222-222222222222",
+      root_cause:
+        "Deploy v2.14.3 introduced bad regression in checkout/payments",
+      confidence: 0.92,
+      fixability: "ops_actionable",
+      implicated_change: {
+        id: "c3333333-3333-4333-8333-333333333333",
+        type: "deploy",
+        service: "checkout",
+        revision: "v2.14.3",
+        ts: "2026-10-02T12:00:00Z",
+        metadata: {
+          previous_revision: "v2.14.2",
+        },
+      },
+      evidence: [
+        {
+          tool: "changefeed",
+          query: "recent_changes",
+          observation: { type: "deploy", service: "checkout", revision: "v2.14.3" },
+          supports: true,
+        },
+      ],
+    };
+
+    const action = planOpsAction(deployDiagnosis, {
+      onRollback: () => {},
+    });
+    expect(action).toBeInstanceOf(RollbackAction);
+
+    const rollback = action as RollbackAction;
+    expect(rollback.targetService).toBe("checkout");
+    expect(rollback.currentVersion).toBe("v2.14.3");
+    expect(rollback.previousVersion).toBe("v2.14.2");
+
+    const desc = rollback.describe();
+    expect(desc.summary).toContain("Roll back service 'checkout' from version 'v2.14.3' to previous version 'v2.14.2'");
+    expect(desc.inverseSummary).toContain("Roll forward service 'checkout'");
+  });
+
+  it("picks FlagToggleAction for feature flag scenario (implicated_change.type = 'flag')", () => {
+    const flagDiagnosis: Diagnosis = {
+      id: "a2222222-2222-4222-8222-222222222222",
+      tenant_id: "local",
+      incident_id: "b3333333-3333-4333-8333-333333333333",
+      root_cause:
+        "Feature flag 'new_payment_flow' enabled an experimental path that fails downstream",
+      confidence: 0.88,
+      fixability: "ops_actionable",
+      implicated_change: {
+        id: "c4444444-4444-4444-8444-444444444444",
+        type: "flag",
+        service: "checkout",
+        revision: "new_payment_flow",
+        ts: "2026-10-02T12:10:00Z",
+        metadata: {
+          flag: "new_payment_flow",
+          value: true,
+        },
+      },
+      evidence: [
+        {
+          tool: "changefeed",
+          query: "recent_flags",
+          observation: { flag: "new_payment_flow", value: true },
+          supports: true,
+        },
+      ],
+    };
+
+    const action = planOpsAction(flagDiagnosis, {
+      servicePorts: { checkout: 8001 },
+    });
+    expect(action).toBeInstanceOf(FlagToggleAction);
+
+    const flagAction = action as FlagToggleAction;
+    expect(flagAction.targetService).toBe("checkout");
+    expect(flagAction.flagKey).toBe("new_payment_flow");
+    expect(flagAction.currentValue).toBe(true);
+    expect(flagAction.targetValue).toBe(false);
+
+    const desc = flagAction.describe();
+    expect(desc.summary).toContain("Toggle feature flag 'new_payment_flow' on 'checkout' from true to false");
+  });
+
+  it("picks ScaleAction for saturation scenario", () => {
+    const saturationDiagnosis: Diagnosis = {
+      id: "a3333333-3333-4333-8333-333333333333",
+      tenant_id: "local",
+      incident_id: "b4444444-4444-4444-8444-444444444444",
+      root_cause:
+        "High CPU saturation and connection queue buildup causing 504 timeouts on payments service",
+      confidence: 0.85,
+      fixability: "ops_actionable",
+      evidence: [
+        {
+          tool: "prometheus",
+          query: "container_cpu_usage",
+          observation: { service: "payments", cpu_percent: 98.4, status: "saturation" },
+          supports: true,
+        },
+      ],
+    };
+
+    const action = planOpsAction(saturationDiagnosis, {
+      serviceReplicas: { payments: 1 },
+      onScale: () => {},
+    });
+    expect(action).toBeInstanceOf(ScaleAction);
+
+    const scaleAction = action as ScaleAction;
+    expect(scaleAction.targetService).toBe("payments");
+    expect(scaleAction.currentReplicas).toBe(1);
+    expect(scaleAction.targetReplicas).toBe(3);
+
+    const desc = scaleAction.describe();
+    expect(desc.summary).toContain("Scale service 'payments' from 1 to 3 replicas");
+  });
+
+  it("rejects non-ops_actionable diagnoses (code_fixable / human_only)", () => {
+    const codeDiagnosis: Diagnosis = {
+      id: "a4444444-4444-4444-8444-444444444444",
+      tenant_id: "local",
+      incident_id: "b5555555-5555-4555-8555-555555555555",
+      root_cause: "Null pointer exception in retry.ts:47",
+      confidence: 0.9,
+      fixability: "code_fixable",
+      evidence: [],
+    };
+
+    expect(() => planOpsAction(codeDiagnosis)).toThrow(UnsupportedFixabilityError);
+    expect(() => planOpsAction(codeDiagnosis)).toThrow(
+      /Expected 'ops_actionable'/,
+    );
+
+    const humanDiagnosis: Diagnosis = {
+      ...codeDiagnosis,
+      fixability: "human_only",
+    };
+    expect(() => planOpsAction(humanDiagnosis)).toThrow(UnsupportedFixabilityError);
+  });
+
+  it("proves generality: plans actions correctly for arbitrary non-demo services", () => {
+    // 1. Non-demo deploy rollback for 'inventory-worker'
+    const nonDemoDeploy: Diagnosis = {
+      id: "a5555555-5555-4555-8555-555555555555",
+      tenant_id: "local",
+      incident_id: "b6666666-6666-4666-8666-666666666666",
+      root_cause: "Deploy v4.1.0 broke stock synchronization in inventory-worker",
+      confidence: 0.95,
+      fixability: "ops_actionable",
+      implicated_change: {
+        type: "deploy",
+        service: "inventory-worker",
+        revision: "v4.1.0",
+        ts: "2026-10-02T13:00:00Z",
+        metadata: { previous_revision: "v4.0.9" },
+      },
+      evidence: [],
+    };
+
+    const rollback = planOpsAction(nonDemoDeploy, {
+      onRollback: () => {},
+    }) as RollbackAction;
+    expect(rollback).toBeInstanceOf(RollbackAction);
+    expect(rollback.targetService).toBe("inventory-worker");
+    expect(rollback.currentVersion).toBe("v4.1.0");
+    expect(rollback.previousVersion).toBe("v4.0.9");
+
+    // 2. Non-demo flag toggle for 'search-indexer'
+    const nonDemoFlag: Diagnosis = {
+      id: "a6666666-6666-4666-8666-666666666666",
+      tenant_id: "local",
+      incident_id: "b7777777-7777-4777-8777-777777777777",
+      root_cause: "Flag 'vector_search_v2' causing out-of-memory errors in search-indexer",
+      confidence: 0.89,
+      fixability: "ops_actionable",
+      implicated_change: {
+        type: "flag",
+        service: "search-indexer",
+        revision: "vector_search_v2",
+        ts: "2026-10-02T13:30:00Z",
+        metadata: { flag: "vector_search_v2", value: true },
+      },
+      evidence: [],
+    };
+
+    const flagToggle = planOpsAction(nonDemoFlag, {
+      serviceFlagUrls: {
+        "search-indexer": "http://search-indexer:9091/admin/flags",
+      },
+    }) as FlagToggleAction;
+    expect(flagToggle).toBeInstanceOf(FlagToggleAction);
+    expect(flagToggle.targetService).toBe("search-indexer");
+    expect(flagToggle.flagKey).toBe("vector_search_v2");
+    expect(flagToggle.flagUrl).toBe("http://search-indexer:9091/admin/flags");
+
+    // 3. Non-demo scaling for 'notification-dispatcher'
+    const nonDemoScale: Diagnosis = {
+      id: "a7777777-7777-4777-8777-777777777777",
+      tenant_id: "local",
+      incident_id: "b8888888-8888-4888-8888-888888888888",
+      root_cause: "Thread exhaustion and CPU saturation on notification-dispatcher",
+      confidence: 0.91,
+      fixability: "ops_actionable",
+      evidence: [
+        {
+          tool: "metrics",
+          query: "cpu",
+          observation: { service: "notification-dispatcher", detail: "CPU saturation at 99%" },
+          supports: true,
+        },
+      ],
+    };
+
+    const scale = planOpsAction(nonDemoScale, {
+      serviceReplicas: { "notification-dispatcher": 1 },
+      onScale: () => {},
+    }) as ScaleAction;
+    expect(scale).toBeInstanceOf(ScaleAction);
+    expect(scale.targetService).toBe("notification-dispatcher");
+    expect(scale.targetReplicas).toBe(3);
+  });
+
+  describe("Parameter Fabrication Prevention & Refusal (Blockers 1, 2, 3)", () => {
+    it("refuses to plan (returns null) and does NOT default service to 'checkout' when service is missing", () => {
+      const diagnosisWithNoService: Diagnosis = {
+        id: "a8888888-8888-4888-8888-888888888888",
+        tenant_id: "local",
+        incident_id: "b9999999-9999-4999-8999-999999999999",
+        root_cause: "High saturation and connection pool exhaustion",
+        confidence: 0.85,
+        fixability: "ops_actionable",
+        evidence: [
+          {
+            tool: "prometheus",
+            query: "cpu",
+            observation: { detail: "CPU saturation at 99%" }, // Note: NO service field!
+            supports: true,
+          },
+        ],
+      };
+
+      // Must return null, NOT assume "checkout"
+      const action = planOpsAction(diagnosisWithNoService);
+      expect(action).toBeNull();
+
+      // With throwOnMissingParams, throws descriptive error
+      expect(() =>
+        planOpsAction(diagnosisWithNoService, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(diagnosisWithNoService, { throwOnMissingParams: true }),
+      ).toThrow(/Target service could not be determined/);
+    });
+
+    it("refuses to plan and does NOT fabricate versions ('v2.14.3' / 'v2.14.2') when deploy versions are missing", () => {
+      const deployWithoutVersions: Diagnosis = {
+        id: "a9999999-9999-4999-8999-999999999999",
+        tenant_id: "local",
+        incident_id: "baaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        root_cause: "Bad deploy introduced failure",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "deploy",
+          service: "billing-service",
+          revision: "deploy", // revision contains no actual version
+          ts: "2026-10-02T14:00:00Z",
+          metadata: {}, // no previous_revision or revision
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(deployWithoutVersions);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(deployWithoutVersions, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(deployWithoutVersions, { throwOnMissingParams: true }),
+      ).toThrow(/requires currentVersion and previousVersion/);
+    });
+
+    it("refuses to plan and does NOT fabricate flag key ('new_payment_flow') when flagKey is missing", () => {
+      const flagWithoutKey: Diagnosis = {
+        id: "aaaaaaaa-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        tenant_id: "local",
+        incident_id: "bbbbbbbb-cccc-4ccc-8ccc-cccccccccccc",
+        root_cause: "Feature flag caused errors",
+        confidence: 0.87,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "checkout",
+          revision: "flag", // no actual flag key
+          ts: "2026-10-02T14:00:00Z",
+          metadata: {}, // no flag or flagKey
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(flagWithoutKey, {
+        servicePorts: { checkout: 8001 },
+      });
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(flagWithoutKey, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(flagWithoutKey, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(/requires a flagKey/);
+    });
+
+    it("refuses to plan when flag administration URL cannot be resolved (no demo port guessing)", () => {
+      const flagWithoutUrl: Diagnosis = {
+        id: "accccccc-dddd-4ddd-8ddd-dddddddddddd",
+        tenant_id: "local",
+        incident_id: "bdeeeeee-ffff-4fff-8fff-ffffffffffff",
+        root_cause: "Flag 'beta_feature' caused errors",
+        confidence: 0.88,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "unknown-microservice",
+          revision: "beta_feature",
+          ts: "2026-10-02T14:00:00Z",
+          metadata: { flag: "beta_feature", value: true },
+        },
+        evidence: [],
+      };
+
+      // Without serviceFlagUrls, servicePorts, or metadata URL, must refuse
+      const action = planOpsAction(flagWithoutUrl);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(flagWithoutUrl, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(flagWithoutUrl, { throwOnMissingParams: true }),
+      ).toThrow(/requires a flag administration endpoint URL/);
+    });
+
+    it("refuses to plan and does NOT fabricate flag value (no defaulting to true) when value is missing", () => {
+      const flagWithoutValue: Diagnosis = {
+        id: "a1234567-89ab-cdef-0123-456789abcdef",
+        tenant_id: "local",
+        incident_id: "b1234567-89ab-cdef-0123-456789abcdef",
+        root_cause: "Flag error",
+        confidence: 0.88,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "flag",
+          service: "checkout",
+          revision: "beta_checkout",
+          ts: "2026-10-02T14:00:00Z",
+          metadata: { flag: "beta_checkout" }, // no value or currentValue
+        },
+        evidence: [],
+      };
+
+      const action = planOpsAction(flagWithoutValue, {
+        servicePorts: { checkout: 8001 },
+      });
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(flagWithoutValue, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(flagWithoutValue, {
+          throwOnMissingParams: true,
+          servicePorts: { checkout: 8001 },
+        }),
+      ).toThrow(/requires the current flag value/);
+    });
+
+    it("refuses to plan and does NOT fabricate currentReplicas (no defaulting to 1) when replicas missing", () => {
+      const saturationWithoutReplicas: Diagnosis = {
+        id: "a2345678-89ab-cdef-0123-456789abcdef",
+        tenant_id: "local",
+        incident_id: "b2345678-89ab-cdef-0123-456789abcdef",
+        root_cause: "High CPU saturation",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        evidence: [
+          {
+            tool: "prometheus",
+            query: "cpu",
+            observation: { service: "payments", cpu_percent: 99 },
+            supports: true,
+          },
+        ],
+      };
+
+      // No serviceReplicas or currentReplicas in options, none in diagnosis
+      const action = planOpsAction(saturationWithoutReplicas, {
+        onScale: () => {},
+      });
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(saturationWithoutReplicas, {
+          throwOnMissingParams: true,
+          onScale: () => {},
+        }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(saturationWithoutReplicas, {
+          throwOnMissingParams: true,
+          onScale: () => {},
+        }),
+      ).toThrow(/requires the current replica count for service 'payments'/);
+    });
+
+    it("refuses to plan RollbackAction when no execution backend is configured", () => {
+      const deployDiagnosis: Diagnosis = {
+        id: "a1111111-1111-4111-8111-111111111111",
+        tenant_id: "local",
+        incident_id: "b2222222-2222-4222-8222-222222222222",
+        root_cause: "Deploy regression",
+        confidence: 0.9,
+        fixability: "ops_actionable",
+        implicated_change: {
+          type: "deploy",
+          service: "checkout",
+          revision: "v2.0.0",
+          metadata: { previous_revision: "v1.9.0" },
+        },
+        evidence: [],
+      };
+
+      // No executor and no onRollback
+      const action = planOpsAction(deployDiagnosis);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(deployDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(deployDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(/requires an execution backend/);
+    });
+
+    it("refuses to plan ScaleAction when no execution backend is configured", () => {
+      const saturationDiagnosis: Diagnosis = {
+        id: "a3333333-3333-4333-8333-333333333333",
+        tenant_id: "local",
+        incident_id: "b4444444-4444-4444-8444-444444444444",
+        root_cause: "Saturation",
+        confidence: 0.85,
+        fixability: "ops_actionable",
+        evidence: [
+          {
+            tool: "prometheus",
+            query: "cpu",
+            observation: { service: "payments", cpu_percent: 98, current_replicas: 2 },
+            supports: true,
+          },
+        ],
+      };
+
+      // Current replicas present, but no executor and no onScale
+      const action = planOpsAction(saturationDiagnosis);
+      expect(action).toBeNull();
+
+      expect(() =>
+        planOpsAction(saturationDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(MissingActionParametersError);
+      expect(() =>
+        planOpsAction(saturationDiagnosis, { throwOnMissingParams: true }),
+      ).toThrow(/requires an execution backend/);
+    });
+  });
+});

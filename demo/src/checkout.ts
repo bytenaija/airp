@@ -5,32 +5,49 @@ import {
   injectTraceContext,
 } from "./instrumentation.js";
 import { FaultManager, registerFaultRoutes } from "./faults.js";
+import { FlagsManager, registerFlagRoutes } from "./flags.js";
 
 export function buildCheckoutServer(
   customFaultManager?: FaultManager,
   paymentsUrl: string = process.env.PAYMENTS_URL || "http://localhost:8002",
+  customFlagsManager?: FlagsManager,
 ): {
   server: FastifyInstance;
   faultManager: FaultManager;
+  flagsManager: FlagsManager;
 } {
   const faultManager = customFaultManager ?? new FaultManager();
+  const flagsManager = customFlagsManager ?? new FlagsManager();
   const inst = setupInstrumentation("checkout");
 
   const server = Fastify({ logger: false });
 
   registerInstrumentationHooks(server, inst);
   registerFaultRoutes(server, faultManager);
+  registerFlagRoutes(server, flagsManager);
 
   server.get("/health", async () => ({ status: "ok", service: "checkout" }));
 
   server.post("/checkout", async (req, reply) => {
     await faultManager.applyLatency();
+    await faultManager.applySaturation(40);
 
     if (faultManager.shouldInjectError()) {
       inst.logger.error({ error: "Injected fault error in checkout" });
       return reply
         .status(500)
         .send({ error: "Checkout service internal error (injected)" });
+    }
+
+    if (flagsManager.get("new_payment_flow")) {
+      inst.logger.error(
+        { flag: "new_payment_flow" },
+        "Flag-gated experimental payment flow triggered failure in checkout",
+      );
+      return reply.status(500).send({
+        error: "Experimental payment flow failure (flag: new_payment_flow)",
+        flag: "new_payment_flow",
+      });
     }
 
     const body =
@@ -97,7 +114,7 @@ export function buildCheckoutServer(
     }
   });
 
-  return { server, faultManager };
+  return { server, faultManager, flagsManager };
 }
 
 if (
@@ -107,12 +124,14 @@ if (
 ) {
   const port = Number(process.env.PORT || 8001);
   const host = process.env.HOST || "0.0.0.0";
+  const version =
+    process.env.SERVICE_VERSION || process.env.APP_VERSION || "v1.0.0";
   const { server } = buildCheckoutServer();
   server.listen({ port, host }, (err, address) => {
     if (err) {
       console.error(err);
       process.exit(1);
     }
-    console.log(`checkout listening on ${address}`);
+    console.log(`checkout listening on ${address} (version: ${version})`);
   });
 }
