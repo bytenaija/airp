@@ -25,6 +25,8 @@ export interface PolicyEngineServerOptions {
   useDatabaseAudit?: boolean;
   clefProvider?: DecisionModelProvider;
   jwtSecret?: string;
+  onPlanApproved?: (plan: RemediationPlan) => Promise<any>;
+  rolloutControllerUrl?: string;
 }
 
 export function buildPolicyEngineServer(
@@ -64,7 +66,32 @@ export function buildPolicyEngineServer(
     );
 
   const slackProvider = new StubSlackProvider();
-  const approvalManager = new ApprovalManager(rbac, auditStore, slackProvider);
+
+  const rolloutUrl =
+    options.rolloutControllerUrl || process.env.ROLLOUT_CONTROLLER_URL;
+
+  const onPlanApprovedHandler =
+    options.onPlanApproved ||
+    (rolloutUrl
+      ? async (plan: RemediationPlan) => {
+          try {
+            await fetch(`${rolloutUrl.replace(/\/$/, "")}/rollout/plan`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ plan }),
+            });
+          } catch {
+            // best-effort dispatch
+          }
+        }
+      : undefined);
+
+  const approvalManager = new ApprovalManager(
+    rbac,
+    auditStore,
+    slackProvider,
+    onPlanApprovedHandler,
+  );
   const breaker = new CircuitBreakerManager(rbac, auditStore);
 
   const clefProvider =

@@ -116,7 +116,7 @@ services:
     container_name: airp-demo
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      - "8010:8001"
       - "8002:8002"
       - "8003:8003"
     environment:
@@ -135,11 +135,64 @@ services:
     networks:
       default:
         aliases:
-          - checkout
+          - checkout-stable
           - payments
           - fraud-check
     depends_on:
       - otel-collector
+
+  checkout-canary:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: airp-checkout-canary
+    restart: unless-stopped
+    ports:
+      - "8011:8001"
+    environment:
+      - NODE_ENV=production
+      - SERVICE=checkout
+      - CHECKOUT_PORT=8001
+      - SERVICE_VERSION=v1.0.1-canary
+      - FAULTS_ENABLED=1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - LOG_DIR=/var/log/airp
+      - PAYMENTS_URL=http://demo:8002
+    volumes:
+      - app_logs:/var/log/airp
+    networks:
+      default:
+        aliases:
+          - checkout-canary
+    depends_on:
+      - otel-collector
+      - demo
+
+  nginx:
+    image: nginx:alpine
+    container_name: airp-nginx
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    environment:
+      - NGINX_PORT=8001
+      - STABLE_UPSTREAM=demo:8001
+      - CANARY_UPSTREAM=checkout-canary:8001
+      - STABLE_WEIGHT=100
+      - STABLE_STATUS=
+      - CANARY_WEIGHT=1
+      - CANARY_STATUS=down
+    volumes:
+      - ./canary/nginx-canary.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      default:
+        aliases:
+          - checkout
+    depends_on:
+      - demo
+      - checkout-canary
+
 
   changefeed:
     build:

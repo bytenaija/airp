@@ -12,6 +12,8 @@ COPY services/ingest-gateway/package*.json ./services/ingest-gateway/
 COPY services/code-index/package*.json ./services/code-index/
 COPY services/agent-runtime/package*.json ./services/agent-runtime/
 COPY services/policy-engine/package*.json ./services/policy-engine/
+COPY services/ops-actions/package*.json ./services/ops-actions/
+COPY services/rollout-controller/package*.json ./services/rollout-controller/
 COPY demo/package*.json ./demo/
 
 RUN npm install
@@ -30,6 +32,8 @@ COPY services/ingest-gateway ./services/ingest-gateway
 COPY services/code-index ./services/code-index
 COPY services/agent-runtime ./services/agent-runtime
 COPY services/policy-engine ./services/policy-engine
+COPY services/ops-actions ./services/ops-actions
+COPY services/rollout-controller ./services/rollout-controller
 COPY demo ./demo
 
 RUN npm run build

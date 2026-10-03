@@ -26,15 +26,18 @@ export class ApprovalManager {
   private rbac: RbacManager;
   private auditStore: PolicyAuditStore;
   private slackProvider?: SlackProvider;
+  private onPlanApproved?: (plan: RemediationPlan) => Promise<any>;
 
   constructor(
     rbac: RbacManager,
     auditStore: PolicyAuditStore,
     slackProvider?: SlackProvider,
+    onPlanApproved?: (plan: RemediationPlan) => Promise<any>,
   ) {
     this.rbac = rbac;
     this.auditStore = auditStore;
     this.slackProvider = slackProvider;
+    this.onPlanApproved = onPlanApproved;
   }
 
   registerPlan(plan: RemediationPlan, decision: PolicyDecision): PlanApprovalState {
@@ -64,6 +67,10 @@ export class ApprovalManager {
         confidence: plan.confidence,
         ruleVersion: decision.rule_version,
       });
+    }
+
+    if (isAuto && this.onPlanApproved) {
+      void this.onPlanApproved(plan);
     }
 
     return state;
@@ -154,6 +161,9 @@ export class ApprovalManager {
 
     if (canProceed) {
       state.status = "approved";
+      if (this.onPlanApproved) {
+        void this.onPlanApproved(plan);
+      }
     }
 
     return {
