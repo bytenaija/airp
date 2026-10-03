@@ -1,52 +1,61 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
+import { z } from "zod";
 
-export interface RoleCredentialsConfig {
-  version: string;
-  roles: Record<
-    string,
-    {
-      description?: string;
-      env_vars: string[];
-      allowed_scopes?: string[];
-      scopes?: string[];
+export const RoleCredentialsConfigSchema = z.object({
+  version: z.string().default("1"),
+  roles: z.record(
+    z.string(),
+    z.object({
+      description: z.string().optional(),
+      env_vars: z.array(z.string()),
+      allowed_scopes: z.array(z.string()).optional(),
+      scopes: z.array(z.string()).optional(),
+    }),
+  ),
+});
+
+export type RoleCredentialsConfig = z.infer<typeof RoleCredentialsConfigSchema>;
+
+export function resolveCredentialsConfigPath(customPath?: string): string {
+  if (customPath) return path.resolve(customPath);
+  if (process.env.AIRP_CREDENTIALS_CONFIG_PATH) {
+    return path.resolve(process.env.AIRP_CREDENTIALS_CONFIG_PATH);
+  }
+  const candidates = [
+    path.resolve(__dirname, "../../../config/credentials.yaml"),
+    path.resolve(__dirname, "../../config/credentials.yaml"),
+    path.resolve(process.cwd(), "config/credentials.yaml"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
     }
-  >;
+  }
+  return candidates[0];
 }
 
 export function loadCredentialsConfig(
   customPath?: string,
 ): RoleCredentialsConfig {
-  const defaultPath = path.resolve(process.cwd(), "config/credentials.yaml");
-  const filePath = customPath || defaultPath;
+  const filePath = resolveCredentialsConfigPath(customPath);
 
   if (!fs.existsSync(filePath)) {
-    // Return standard fallback if file doesn't exist
-    return {
-      version: "1",
-      roles: {
-        agent_ro: {
-          env_vars: [
-            "PROMETHEUS_READ_TOKEN",
-            "LOKI_READ_TOKEN",
-            "TEMPO_READ_TOKEN",
-            "CODE_INDEX_READ_TOKEN",
-          ],
-        },
-        actuation_rw: {
-          env_vars: [
-            "GITHUB_TOKEN",
-            "DOCKER_AUTH_CONFIG",
-            "FLAGS_ADMIN_TOKEN",
-          ],
-        },
-      },
-    };
+    throw new Error(
+      `Credentials configuration file not found at '${filePath}'. Failing closed.`,
+    );
   }
 
   const raw = fs.readFileSync(filePath, "utf-8");
-  return yaml.load(raw) as RoleCredentialsConfig;
+  const parsed = yaml.load(raw);
+  const result = RoleCredentialsConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `Invalid credentials configuration at '${filePath}': ${result.error.message}`,
+    );
+  }
+  return result.data;
 }
 
 export function applyRoleCredentialSeparation(
@@ -54,7 +63,10 @@ export function applyRoleCredentialSeparation(
   customPath?: string,
 ): { allowedEnvVars: string[]; scrubbedEnvVars: string[] } {
   const config = loadCredentialsConfig(customPath);
-  const allowedVars = new Set(config.roles[role]?.env_vars || []);
+  if (!config.roles[role]) {
+    throw new Error(`Role '${role}' is not defined in credentials configuration`);
+  }
+  const allowedVars = new Set(config.roles[role].env_vars);
 
   const scrubbed: string[] = [];
 

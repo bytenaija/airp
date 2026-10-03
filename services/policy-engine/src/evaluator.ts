@@ -313,6 +313,9 @@ function formatReason(template: string, attrs: PlanAttributes): string {
     // 3. ABAC Rules: Evaluate additional approvals from abac_rules in YAML
     for (const abacRule of rulesConfig.abac_rules || []) {
       if (matchCondition(abacRule.when, attrs)) {
+        if (abacRule.additional_approvals && abacRule.additional_approvals.length > 0) {
+          autoMerge = false;
+        }
         for (const req of abacRule.additional_approvals) {
           if (!requiredApprovals.includes(req)) {
             requiredApprovals.push(req);

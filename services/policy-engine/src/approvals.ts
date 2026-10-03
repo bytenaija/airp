@@ -122,17 +122,15 @@ export class ApprovalManager {
       );
     }
 
-    // 2. Record approval
+    // 2. Prepare approval record
     const approval: RecordedApproval = {
       approver: user.sub,
       role: approvalRole,
       team: user.team || user.teams?.[0],
       timestamp: new Date(),
     };
-    state.recordedApprovals.push(approval);
-    state.updatedAt = new Date();
 
-    // 3. Log audit event
+    // 3. Log audit event before in-memory mutation
     await this.auditStore.record({
       eventType: "approval",
       identity: user.sub,
@@ -142,9 +140,13 @@ export class ApprovalManager {
       metadata: {
         approvalRole,
         team: approval.team,
-        recordedApprovalsCount: state.recordedApprovals.length,
+        recordedApprovalsCount: state.recordedApprovals.length + 1,
       },
     });
+
+    // 4. Update in-memory approval state on successful audit write
+    state.recordedApprovals.push(approval);
+    state.updatedAt = new Date();
 
     // 4. Check if all required approvals are satisfied
     const missing = this.getMissingApprovals(state);

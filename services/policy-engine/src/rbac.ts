@@ -55,12 +55,13 @@ export class AuthorizationError extends Error {
 export function getJwtSecret(secret?: string): string {
   if (secret) return secret;
   if (process.env.POLICY_JWT_SECRET) return process.env.POLICY_JWT_SECRET;
-  if (process.env.NODE_ENV === "production") {
-    throw new AuthenticationError(
-      "POLICY_JWT_SECRET environment variable is required in production",
-    );
+  const env = process.env.NODE_ENV;
+  if (env === "test" || env === "development") {
+    return "airp-default-policy-jwt-secret-key-12345";
   }
-  return "airp-default-policy-jwt-secret-key-12345";
+  throw new AuthenticationError(
+    "POLICY_JWT_SECRET environment variable is required outside of test and development",
+  );
 }
 
 /**
@@ -106,14 +107,21 @@ export function verifyJwt(token: string, secret?: string): UserClaims {
     .update(data)
     .digest("base64url");
 
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+  const sigBuf = Buffer.from(signature);
+  const expectedSigBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedSigBuf.length || !crypto.timingSafeEqual(sigBuf, expectedSigBuf)) {
     throw new AuthenticationError("Invalid JWT signature");
   }
 
   try {
     const payload = JSON.parse(Buffer.from(b64Payload, "base64url").toString("utf-8"));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-      throw new AuthenticationError("JWT token has expired");
+    if (payload.exp !== undefined) {
+      if (typeof payload.exp !== "number" || isNaN(payload.exp)) {
+        throw new AuthenticationError("JWT exp claim must be a number");
+      }
+      if (payload.exp < Math.floor(Date.now() / 1000)) {
+        throw new AuthenticationError("JWT token has expired");
+      }
     }
     if (!payload.sub || !Array.isArray(payload.roles)) {
       throw new AuthenticationError("JWT missing required claims (sub, roles)");
@@ -213,7 +221,7 @@ export class RbacManager {
     approvalType: "code_owner" | "oncall" | "security_auditor",
     existingApprovals: Array<{ approver: string; team?: string; role: string }> = [],
   ): { authorized: boolean; reason?: string } {
-    // 1. Role Check: Must have approver or security_auditor role
+    // 1. Role and Team Scope Checks
     if (approvalType === "security_auditor") {
       if (!user.roles.includes("security_auditor") && !user.roles.includes("org_admin")) {
         return {
@@ -221,24 +229,23 @@ export class RbacManager {
           reason: `User '${user.sub}' does not have 'security_auditor' role required for this approval`,
         };
       }
-      return { authorized: true };
-    }
+    } else {
+      if (!user.roles.includes("approver") && !user.roles.includes("org_admin")) {
+        return {
+          authorized: false,
+          reason: `User '${user.sub}' with roles [${user.roles.join(", ")}] is not authorized to approve plans (requires 'approver' role)`,
+        };
+      }
 
-    if (!user.roles.includes("approver") && !user.roles.includes("org_admin")) {
-      return {
-        authorized: false,
-        reason: `User '${user.sub}' with roles [${user.roles.join(", ")}] is not authorized to approve plans (requires 'approver' role)`,
-      };
-    }
-
-    // 2. Team Scope Check: Approvers cover their team's services only
-    const hasScope = this.isApproverScopedForService(user, plan.service);
-    if (!hasScope) {
-      const userTeam = user.team || user.teams?.[0] || "unspecified";
-      return {
-        authorized: false,
-        reason: `Approver '${user.sub}' (team '${userTeam}') does not have team scope for service '${plan.service}'`,
-      };
+      // 2. Team Scope Check: Approvers cover their team's services only
+      const hasScope = this.isApproverScopedForService(user, plan.service);
+      if (!hasScope) {
+        const userTeam = user.team || user.teams?.[0] || "unspecified";
+        return {
+          authorized: false,
+          reason: `Approver '${user.sub}' (team '${userTeam}') does not have team scope for service '${plan.service}'`,
+        };
+      }
     }
 
     // 3. Separation of duties: requester cannot approve their own plan

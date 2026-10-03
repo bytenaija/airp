@@ -2,8 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { loadCredentialsConfig, applyRoleCredentialSeparation } from "@airp/common";
 import { buildAgentRuntimeServer } from "../../services/agent-runtime/src/server.js";
 
+import path from "node:path";
+
 describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
   const originalEnv = { ...process.env };
+  const credentialsPath = path.resolve(__dirname, "../../config/credentials.yaml");
 
   beforeEach(() => {
     process.env = { ...originalEnv };
@@ -14,7 +17,7 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
   });
 
   it("config/credentials.yaml defines two roles: agent_ro and actuation_rw", () => {
-    const config = loadCredentialsConfig();
+    const config = loadCredentialsConfig(credentialsPath);
     expect(config.roles).toBeDefined();
     expect(config.roles.agent_ro).toBeDefined();
     expect(config.roles.actuation_rw).toBeDefined();
@@ -25,6 +28,12 @@ describe("Epic 8 Acceptance: Credential Separation (Item 4)", () => {
     expect(config.roles.actuation_rw.env_vars).toContain("GITHUB_TOKEN");
     expect(config.roles.actuation_rw.env_vars).toContain("DOCKER_AUTH_CONFIG");
     expect(config.roles.actuation_rw.env_vars).toContain("FLAGS_ADMIN_TOKEN");
+  });
+
+  it("fails closed when credential configuration is missing or malformed", () => {
+    expect(() => loadCredentialsConfig("/non/existent/credentials.yaml")).toThrow(
+      /Credentials configuration file not found/i,
+    );
   });
 
   it("agent runtime process loads ONLY agent_ro and ensures actuation credentials are absent from environment", () => {

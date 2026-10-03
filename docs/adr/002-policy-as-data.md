@@ -44,5 +44,4 @@ Advisory decision models (such as Clef/Clef-flash open-weight models) interface 
 - Full decision matrix (Chapter 18.2) is directly testable with deterministic unit test suites.
 
 ### Considerations & Mitigations
-- Complex policy logic requires disciplined schema design in YAML; mitigated by keeping rule primitives declarative (`diff_lines_lte`, `confidence_gte`, `is_tier0`, `tests_green`).
-- Policy rule edits enforce separation of duties: a policy administrator cannot approve their own policy modifications.
+- Policy rule edits design separation of duties: `RbacManager.validatePolicyEdit` defines the authorization contract preventing a policy administrator from approving their own policy modifications, planned for integration with dynamic policy mutation workflows.

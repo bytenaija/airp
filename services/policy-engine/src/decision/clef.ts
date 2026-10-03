@@ -10,6 +10,7 @@ export interface ClefProviderOptions {
   model?: string;
   version?: string;
   endpoint?: string;
+  timeoutMs?: number;
   fetcher?: (url: string, init?: any) => Promise<any>;
   mockAssessments?: AssessmentResult[];
 }
@@ -20,6 +21,7 @@ export class ClefProvider implements DecisionModelProvider {
   private model: string;
   private version: string;
   private endpoint?: string;
+  private timeoutMs: number;
   private fetcher?: (url: string, init?: any) => Promise<any>;
   private mockAssessments?: AssessmentResult[];
 
@@ -31,6 +33,7 @@ export class ClefProvider implements DecisionModelProvider {
     this.model = options.model || process.env.CLEF_MODEL || "clef-flash";
     this.version = options.version || "1.0.0";
     this.endpoint = options.endpoint || process.env.CLEF_ENDPOINT;
+    this.timeoutMs = options.timeoutMs || 3000;
     this.fetcher = options.fetcher;
     this.mockAssessments = options.mockAssessments;
   }
@@ -81,36 +84,44 @@ export class ClefProvider implements DecisionModelProvider {
       // 2. If an endpoint is configured, invoke the model runner
       if (this.endpoint) {
         const fetchFn = this.fetcher || globalThis.fetch;
-        const res = await fetchFn(this.endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: this.model,
-            plan,
-            state: stateContext,
-            questions: [
-              {
-                id: "approval_triage",
-                question: "Is this remediation plan routine or does it need careful review?",
-                options: ["routine", "needs-careful-review"],
-              },
-              {
-                id: "regression_risk",
-                question: "What is the likelihood of regression from this remediation?",
-                options: ["low", "high"],
-              },
-            ],
-          }),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
-        if (res.ok) {
-          const data = (await res.json()) as any;
-          return {
-            model: data.model || this.model,
-            version: data.version || this.version,
-            triage: data.triage || "routine",
-            assessments: data.assessments || [],
-          };
+        try {
+          const res = await fetchFn(this.endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model: this.model,
+              plan,
+              state: stateContext,
+              questions: [
+                {
+                  id: "approval_triage",
+                  question: "Is this remediation plan routine or does it need careful review?",
+                  options: ["routine", "needs-careful-review"],
+                },
+                {
+                  id: "regression_risk",
+                  question: "What is the likelihood of regression from this remediation?",
+                  options: ["low", "high"],
+                },
+              ],
+            }),
+          });
+
+          if (res.ok) {
+            const data = (await res.json()) as any;
+            return {
+              model: data.model || this.model,
+              version: data.version || this.version,
+              triage: data.triage || "routine",
+              assessments: data.assessments || [],
+            };
+          }
+        } finally {
+          clearTimeout(timeoutId);
         }
       }
 

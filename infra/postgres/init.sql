@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS policy_audit_logs (
     policy_version TEXT NOT NULL,
     target_id TEXT NOT NULL,
     action_or_decision TEXT NOT NULL,
-    auto_merge_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+    auto_merge_eligible BOOLEAN,
     required_approvals JSONB NOT NULL DEFAULT '[]'::jsonb,
     reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
     advisory JSONB,

@@ -245,6 +245,7 @@ describe("Epic 8 Acceptance Criterion 1: Decision Matrix (Chapter 8.3 & 18.2)", 
 
       const decision = evaluator.evaluate(plan);
       expect(decision.required_approvals).toContain("security_auditor");
+      expect(decision.auto_merge_eligible).toBe(false);
       expect(decision.reasons.some((r) => r.includes("pii"))).toBe(true);
     });
 
@@ -259,6 +260,7 @@ describe("Epic 8 Acceptance Criterion 1: Decision Matrix (Chapter 8.3 & 18.2)", 
 
       const decision = evaluator.evaluate(plan);
       expect(decision.required_approvals).toContain("security_auditor");
+      expect(decision.auto_merge_eligible).toBe(false);
       expect(decision.reasons.some((r) => r.includes("top_secret"))).toBe(true);
     });
   });

@@ -23,17 +23,15 @@ describe("Epic 8 Acceptance Criterion 2: Database-level Insert-Only Audit Log", 
 
     try {
       await prisma.$connect();
-      // Test basic query to see if Postgres is up
       await prisma.$queryRaw`SELECT 1`;
       dbAvailable = true;
-
-      auditStore = new PolicyAuditStore(prisma);
-      // Ensure the table and trigger are present
-      await auditStore.ensureDatabaseTrigger();
     } catch {
       dbAvailable = false;
-      auditStore = new PolicyAuditStore();
+      return;
     }
+
+    auditStore = new PolicyAuditStore(prisma);
+    await auditStore.ensureDatabaseTrigger();
   });
 
   afterAll(async () => {
@@ -42,7 +40,11 @@ describe("Epic 8 Acceptance Criterion 2: Database-level Insert-Only Audit Log", 
     }
   });
 
-  it("inserts an audit entry and strictly blocks UPDATE and DELETE at the database level", async () => {
+  it("inserts an audit entry and strictly blocks UPDATE and DELETE at the database level", async (ctx) => {
+    if (!dbAvailable) {
+      ctx.skip();
+      return;
+    }
     const entryId = crypto.randomUUID();
 
     // 1. Insert audit log record

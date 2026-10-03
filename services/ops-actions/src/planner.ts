@@ -22,6 +22,7 @@ export interface PlannerOptions {
   currentReplicas?: number;
   targetReplicas?: number;
   allowedOrigins?: string[];
+  allowedHostSuffixes?: string[];
   allowMetadataDestination?: boolean;
   throwOnMissingParams?: boolean;
   onRollback?: (service: string, targetVersion: string) => Promise<void> | void;
@@ -75,12 +76,14 @@ function isValidServiceFlagUrl(
     const host = url.hostname.toLowerCase();
     const svc = service.toLowerCase();
 
-    // 1. Direct service name match (e.g. Docker compose service DNS: checkout, checkout.internal, etc.)
-    if (
-      host === svc ||
-      host.startsWith(`${svc}.`) ||
-      host.endsWith(`.${svc}`)
-    ) {
+    // 1. Direct service name match or exact hostname with allowed internal suffix
+    const allowedSuffixes: string[] = options.allowedHostSuffixes || [".internal", ".local"];
+    const matchesSuffix = allowedSuffixes.some((suffix: string) => {
+      const formattedSuffix = suffix.startsWith(".") ? suffix : `.${suffix}`;
+      return host === `${svc}${formattedSuffix}`;
+    });
+
+    if (host === svc || matchesSuffix) {
       return true;
     }
 
@@ -90,7 +93,8 @@ function isValidServiceFlagUrl(
     }
 
     // 3. Loopback / local development (localhost, 127.0.0.1, ::1, 0.0.0.0)
-    // Destination authority binding: loopback URLs must bind to configured servicePorts or metadataPort
+    // Destination authority binding: loopback URLs must bind to configured servicePorts
+    // or require options.allowMetadataDestination opt-in
     const isLocalhost =
       host === "localhost" ||
       host === "127.0.0.1" ||
@@ -106,10 +110,10 @@ function isValidServiceFlagUrl(
       if (options.servicePorts && options.servicePorts[service]) {
         return port === options.servicePorts[service];
       }
-      if (typeof metadataPort === "number" && metadataPort > 0) {
-        return port === metadataPort;
-      }
       if (options.allowMetadataDestination) {
+        if (typeof metadataPort === "number" && metadataPort > 0) {
+          return port === metadataPort;
+        }
         return port > 0 && port <= 65535;
       }
       return false;
@@ -150,8 +154,9 @@ export function resolveFlagUrl(
           : null;
 
     if (candidateUrl) {
+      const authorizedMetadataPort = options.allowMetadataDestination ? candidatePort : undefined;
       if (
-        isValidServiceFlagUrl(candidateUrl, service, options, candidatePort)
+        isValidServiceFlagUrl(candidateUrl, service, options, authorizedMetadataPort)
       ) {
         return candidateUrl;
       }

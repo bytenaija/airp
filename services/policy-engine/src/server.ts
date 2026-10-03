@@ -1,4 +1,5 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { PrismaClient } from "@prisma/client";
 import {
   RemediationPlanSchema,
   type RemediationPlan,
@@ -47,9 +48,11 @@ export function buildPolicyEngineServer(
     ownershipPath: options.ownershipPath,
   });
 
-  const auditStore = options.auditStore || new PolicyAuditStore();
-  // Ensure the database trigger is installed on PostgreSQL if running with a database
-  auditStore.ensureDatabaseTrigger().catch(() => {});
+  const auditStore =
+    options.auditStore ||
+    new PolicyAuditStore(
+      process.env.DATABASE_URL ? new PrismaClient() : undefined,
+    );
 
   const slackProvider = new StubSlackProvider();
   const approvalManager = new ApprovalManager(rbac, auditStore, slackProvider);
@@ -68,7 +71,11 @@ export function buildPolicyEngineServer(
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.slice(7).trim();
-      return verifyJwt(token, options.jwtSecret);
+      try {
+        return verifyJwt(token, options.jwtSecret);
+      } catch {
+        return null;
+      }
     }
 
     // Gated test / dev-only insecure claims fallback:
@@ -129,9 +136,18 @@ export function buildPolicyEngineServer(
     }
 
     const plan: RemediationPlan = parseResult.data;
+
+    // Reject duplicate plan registration
+    if (approvalManager.getPlan(plan.id)) {
+      return reply.status(409).send({
+        error: "PlanConflict",
+        message: `Plan with ID '${plan.id}' is already registered`,
+      });
+    }
+
     const context: EvaluationContext = {
       breaker_tripped: breaker.isTripped(),
-      ...body.context,
+      timestamp: new Date(),
     };
 
     // 1. Authoritative Rules Evaluation (YAML + TypeScript rules engine)
@@ -196,21 +212,6 @@ export function buildPolicyEngineServer(
     }
 
     const requestedRole = (body.role || body.by || "code_owner") as string;
-    if (requestedRole === "security_auditor") {
-      if (!user.roles.includes("security_auditor") && !user.roles.includes("org_admin")) {
-        return reply.status(403).send({
-          error: "Forbidden",
-          reason: `User '${user.sub}' lacks 'security_auditor' role required to grant this approval`,
-        });
-      }
-    } else {
-      if (!user.roles.includes("approver") && !user.roles.includes("org_admin")) {
-        return reply.status(403).send({
-          error: "Forbidden",
-          reason: `User '${user.sub}' lacks 'approver' role required to grant approvals`,
-        });
-      }
-    }
 
     try {
       const result = await approvalManager.recordApproval(planId, user, requestedRole);
@@ -264,7 +265,7 @@ export function buildPolicyEngineServer(
     const body = (req.body as any) || {};
     const reason = body.reason || "Manual trip or correlated incident threshold exceeded";
     const user = extractUser(req);
-    const trippedBy = user?.sub || body.trippedBy || "operator";
+    const trippedBy = user?.sub || "anonymous";
 
     const state = await breaker.trip(reason, trippedBy);
     return reply.status(200).send(state);
