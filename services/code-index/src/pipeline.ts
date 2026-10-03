@@ -181,10 +181,21 @@ export class CodeIndexPipeline {
     const allChunks: StoredChunk[] = [];
 
     for (const file of files) {
+      if (!fs.existsSync(file)) {
+        continue;
+      }
       const relativePath = path
         .relative(process.cwd(), file)
         .replace(/\\/g, "/");
-      const code = fs.readFileSync(file, "utf8");
+      let code: string;
+      try {
+        code = fs.readFileSync(file, "utf8");
+      } catch (err: any) {
+        if (err?.code === "ENOENT") {
+          continue;
+        }
+        throw err;
+      }
       const symbols = await this.parser.parseSymbols(
         resolvedRepoName,
         relativePath,

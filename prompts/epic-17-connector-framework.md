@@ -73,11 +73,71 @@ BUILD:
    invoked, and render as disabled "coming soon" entries in the Epic 19
    onboarding UI. No committed timelines are published anywhere; docs
    list them as planned without dates.
-9. Registry format: model infra/connectors.yaml on a catalog shape with
-   type, category, name, description, icon, comingSoon flag, lifecycle
-   (connect method, browser/headless flags, teardown, residue left behind
-   on disconnect), tools[] with per-tool summaries, and supportedResources
-   for cloud/platform connectors.
+9. Registry format: model infra/connectors.yaml on the catalog shape below.
+   Every connector entry carries: type (machine key), category and
+   subcategory, name, description (one line), longDescription (a paragraph
+   for the person connecting it), icon, and a comingSoon flag for planned
+   entries. The lifecycle block declares how the connection is
+   established and torn down: the connect method (api-key, oauth,
+   app-install, cloudformation, helm, or none), whether connecting needs
+   a browser, whether it can connect headlessly, what teardown removes,
+   and residue, an explicit list of what the integration leaves behind
+   in the user's account after disconnect (webhook suffixes, tags,
+   branches, PRs). Planned entries use connect none, teardown none,
+   empty residue, and an empty tools list. The tools list is the agent's
+   capability registry for the connector: each entry has a name and a
+   one-line summary of one discrete operation the agent can invoke
+   (query metrics, search logs, read incidents, open a PR, trigger a
+   pipeline), plus a generic escape-hatch tool for raw API calls the
+   dedicated tools do not cover. Cloud and platform connectors also
+   list supportedResources, the resource types they can see
+   (e.g. virtual machines, storage buckets, serverless functions).
+   Our CredentialScheme covers more cases than the connect vocabulary
+   above (dual-credential pairs, bearer, basic, IAM role, MCP), so the
+   mapping is one-way: connect values map into our schemes.
+
+   The registry serves this exact JSON shape as its catalog document
+   (consumed by the Epic 19 onboarding UI and by agents discovering
+   connector capabilities):
+
+   {
+     "success": true,
+     "error": null,
+     "message": { "message": "Successful request" },
+     "result": {
+       "items": [
+         {
+           "type": "github",
+           "category": "tool",
+           "subcategory": "git",
+           "name": "GitHub",
+           "description": "Connect GitHub for enhanced codebase context",
+           "longDescription": "Give agents access to your GitHub repositories for code search, pull request context, and codebase understanding.",
+           "icon": "i-octicon-mark-github-16",
+           "comingSoon": false,
+           "lifecycle": {
+             "connect": "app-install",
+             "browser": true,
+             "headlessConnect": false,
+             "teardown": "partial",
+             "residue": ["branches, PRs, or check runs left behind after disconnect"]
+           },
+           "tools": [
+             { "name": "githubFetchFiles", "summary": "Fetch file contents from a GitHub repository" },
+             { "name": "githubApi", "summary": "Call any GitHub REST endpoint that lacks a dedicated tool" }
+           ],
+           "supportedResources": []
+         }
+       ]
+     }
+   }
+
+   Field rules: type is the unique machine key; comingSoon true means
+   planned (connect none, teardown none, empty residue, empty tools
+   list); lifecycle.connect is one of none, api-key, oauth, app-install,
+   cloudformation, helm; every integration exposes the generic
+   escape-hatch tool alongside its dedicated tools; cloud/platform
+   connectors fill supportedResources with {type, name, icon} entries.
 
 ACCEPTANCE CRITERIA:
 - `airp connectors health` green on a fully-local setup (all Local).
@@ -100,6 +160,9 @@ ACCEPTANCE CRITERIA:
   chosen auth type and passes a handshake test.
 - The registry entry for every connector carries its lifecycle
   (connect/teardown/residue) and its declared agent tools.
+- The registry serves the JSON catalog shape specified in step 9
+  (envelope, items, lifecycle, tools, supportedResources); planned
+  entries appear with comingSoon true and an empty tools list.
 
 ---
 ## Standing operational requirements (apply to every epic)

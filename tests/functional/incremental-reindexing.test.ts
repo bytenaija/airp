@@ -8,6 +8,13 @@ describe("Acceptance Criterion 3: Incremental Re-indexing", () => {
   let serverInstance: ReturnType<typeof buildCodeIndexServer>;
 
   beforeAll(async () => {
+    if (fs.existsSync(testFilePath)) {
+      try {
+        fs.unlinkSync(testFilePath);
+      } catch (_err) {
+        // file already deleted or inaccessible
+      }
+    }
     serverInstance = buildCodeIndexServer({
       repoPath: "demo",
       runbooksPath: "docs/runbooks",
@@ -21,7 +28,11 @@ describe("Acceptance Criterion 3: Incremental Re-indexing", () => {
   afterAll(async () => {
     serverInstance.stopPoller();
     if (fs.existsSync(testFilePath)) {
-      fs.unlinkSync(testFilePath);
+      try {
+        fs.unlinkSync(testFilePath);
+      } catch (_err) {
+        // file already deleted or inaccessible
+      }
     }
   });
 
