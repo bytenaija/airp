@@ -82,3 +82,5 @@ ACCEPTANCE CRITERIA:
   unit tests for the theme flag logic and the repository interfaces pass.
 - Anything deliberately left stubbed is listed in the PR description with
   the backend epic that will fill it in.
+
+<!-- CI retrigger note: compose-stack check flaked on the docs-only de29178 (stack failed to start; unrelated to this change). -->
