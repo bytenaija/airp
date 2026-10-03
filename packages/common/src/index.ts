@@ -6,3 +6,4 @@ export * from "./vcs.js";
 export * from "./credentials.js";
 export * from "./notify.js";
 export * from "./logging.js";
+export * from "../storage/index.js";
