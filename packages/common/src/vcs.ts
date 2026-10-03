@@ -54,14 +54,17 @@ export interface VCSProvider {
  */
 export function formatPRDescription(options: CreatePullRequestOptions): string {
   const parts: string[] = [];
+  const isProactive = Boolean(
+    options.isProactive || options.labels?.includes("proactive"),
+  );
 
-  if (options.isProactive || options.labels?.includes("proactive")) {
+  if (isProactive) {
     parts.push("> found by sweep, no incident, please review", "");
   } else if (options.header) {
     parts.push(`> ${options.header}`, "");
   }
 
-  const prefix = options.isProactive ? "Proactive Remediation" : "Remediation";
+  const prefix = isProactive ? "Proactive Remediation" : "Remediation";
   parts.push(
     `# [${prefix}] ${options.title}`,
     "",
@@ -81,7 +84,7 @@ export function formatPRDescription(options: CreatePullRequestOptions): string {
     options.rollbackPlan,
     "",
     "---",
-    options.isProactive
+    isProactive
       ? "_Generated automatically by AIRP Proactive Sweep (proposes, never merges)._"
       : "_Generated automatically by AIRP Patch Pipeline (proposes, never merges)._",
   );
