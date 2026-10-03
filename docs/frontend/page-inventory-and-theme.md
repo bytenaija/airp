@@ -93,7 +93,7 @@ Accent `#f87171`, hover `#ef4444`, on dark `#0c0909`, surface `#181214`, text `#
 All five options ship. The active accent is controlled by a feature flag rather than a hardcoded choice:
 
 - Flag: `ui.theme.accent`, values `signal-green | ember-orange | cyan | violet | crimson`
-- Default: `signal-green` (closest to the reference). Eva's lean (2026-10-03): violet first, crimson second — prototype defaults to violet.
+- Default: `violet` (Eva's decision 2026-10-03; `signal-green` is closest to the reference look). Prototype defaults to violet.
 - Each theme is a token set (CSS custom properties) applied via a `data-theme` attribute on the root element, so switching needs no redeploy and no page rebuild
 - Scope: per workspace, changeable from Workspace settings; admins only
 - The designs below demonstrate all five themes live through a flag switcher.
