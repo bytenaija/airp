@@ -2,6 +2,14 @@
 import { Command } from "commander";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
+import {
+  OutcomeStore,
+  exportDataset,
+  validateClefJsonl,
+  publishRunbook,
+  listDrafts,
+  type DatasetFormat,
+} from "@airp/flywheel";
 
 dotenv.config();
 
@@ -694,6 +702,140 @@ program
       console.log("-".repeat(60));
     } catch (err: any) {
       console.error(`Feedback command error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+function getFlywheelStore(storePath?: string): OutcomeStore {
+  return new OutcomeStore(storePath ? { path: storePath } : {});
+}
+
+// Command group: flywheel
+const flywheelCmd = program
+  .command("flywheel")
+  .description("Learning flywheel: outcome records and training datasets");
+
+// Command: flywheel export
+flywheelCmd
+  .command("export")
+  .description(
+    "Export reviewed outcome records as a training dataset (JSONL). " +
+      "Unreviewed outcomes and unpublished runbook drafts are always excluded.",
+  )
+  .option("--format <format>", "Dataset format: jsonl or clef-jsonl", "jsonl")
+  .option("--out <file>", "Write to file instead of stdout")
+  .option("--store <path>", "Outcome store JSONL path")
+  .action(async (options) => {
+    const format = options.format as DatasetFormat;
+    if (format !== "jsonl" && format !== "clef-jsonl") {
+      console.error(`Error: --format must be 'jsonl' or 'clef-jsonl', got '${options.format}'`);
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      const store = getFlywheelStore(options.store);
+      const document = exportDataset(store, format);
+      const eligible = store.list().filter((r) => r.reviewed).length;
+      if (format === "clef-jsonl") {
+        const check = validateClefJsonl(document);
+        if (!check.valid) {
+          console.error("Export validation failed:");
+          for (const e of check.errors) console.error(`  ${e}`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+      if (options.out) {
+        const fs = await import("node:fs");
+        fs.writeFileSync(options.out, document, "utf8");
+        console.log(
+          `Exported ${eligible} reviewed outcome records (${format}) to ${options.out}`,
+        );
+      } else {
+        process.stdout.write(document);
+      }
+    } catch (err: any) {
+      console.error(`Flywheel export error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// Command: flywheel list
+flywheelCmd
+  .command("list")
+  .description("List labeled outcome records in the flywheel store")
+  .option("--store <path>", "Outcome store JSONL path")
+  .option("--reviewed-only", "Show only reviewed records", false)
+  .action(async (options) => {
+    try {
+      const store = getFlywheelStore(options.store);
+      let records = store.list();
+      if (options.reviewedOnly) {
+        records = records.filter((r) => r.reviewed);
+      }
+      console.log(`Outcome records: ${records.length}`);
+      console.log("-".repeat(80));
+      for (const r of records) {
+        console.log(
+          `${r.incident_id} | ${r.scenario_label} | correct=${r.diagnosis_correct} ` +
+            `| unmodified=${r.fix_merged_unmodified} | mttr=${r.mttr_seconds}s ` +
+            `| reward=${r.reward} | reviewed=${r.reviewed}`,
+        );
+      }
+    } catch (err: any) {
+      console.error(`Flywheel list error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// Command group: runbook
+const runbookCmd = program
+  .command("runbook")
+  .description("Draft and published runbook management");
+
+// Command: runbook publish
+runbookCmd
+  .command("publish <draft>")
+  .description(
+    "Publish a draft runbook (human approval). Moves the draft from " +
+      "docs/runbooks/drafts/ to docs/runbooks/.",
+  )
+  .option("--drafts-dir <dir>", "Drafts directory")
+  .option("--runbooks-dir <dir>", "Published runbooks directory")
+  .action(async (draft, options) => {
+    try {
+      const published = publishRunbook(draft, {
+        draftsDir: options.draftsDir,
+        publishedDir: options.runbooksDir,
+      });
+      console.log(`Published runbook: ${published}`);
+      console.log(
+        "Note: the code-index runbook search indexes the published directory on its next index run.",
+      );
+    } catch (err: any) {
+      console.error(`Runbook publish error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// Command: runbook drafts
+runbookCmd
+  .command("drafts")
+  .description("List unpublished draft runbooks awaiting human approval")
+  .option("--drafts-dir <dir>", "Drafts directory")
+  .action(async (options) => {
+    try {
+      const drafts = listDrafts({ draftsDir: options.draftsDir });
+      if (drafts.length === 0) {
+        console.log("No draft runbooks awaiting approval.");
+        return;
+      }
+      console.log(`Draft runbooks (${drafts.length}):`);
+      for (const d of drafts) {
+        console.log(`  ${d}`);
+      }
+    } catch (err: any) {
+      console.error(`Runbook drafts error: ${err.message}`);
       process.exitCode = 1;
     }
   });

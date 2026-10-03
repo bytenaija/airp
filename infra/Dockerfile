@@ -16,6 +16,7 @@ COPY services/ops-actions/package*.json ./services/ops-actions/
 COPY services/rollout-controller/package*.json ./services/rollout-controller/
 COPY services/handoff/package*.json ./services/handoff/
 COPY services/ux/package*.json ./services/ux/
+COPY services/flywheel/package*.json ./services/flywheel/
 COPY demo/package*.json ./demo/
 
 RUN npm install
@@ -39,6 +40,7 @@ COPY services/ops-actions ./services/ops-actions
 COPY services/rollout-controller ./services/rollout-controller
 COPY services/handoff ./services/handoff
 COPY services/ux ./services/ux
+COPY services/flywheel ./services/flywheel
 COPY demo ./demo
 
 RUN npm run build

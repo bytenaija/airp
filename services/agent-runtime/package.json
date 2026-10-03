@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@airp/common": "*",
+    "@airp/flywheel": "*",
     "@airp/handoff": "*",
     "ai": "^4.3.19",
     "dotenv": "^16.4.5",
