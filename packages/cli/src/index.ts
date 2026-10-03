@@ -6,6 +6,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  buildDeployPlan,
+  resolveTarget,
+  DeployPlanError,
+} from "./deploy/plan.js";
+import {
+  cloudflarePreflightChecks,
+  composePreflightChecks,
+  runPreflight,
+} from "./deploy/preflight.js";
+import {
+  consoleOutput,
+  defaultExec,
+  DeployError,
+  executePlan,
+  findRepoRoot,
+} from "./deploy/executor.js";
+import {
   IOutcomeStore,
   createOutcomeStore,
   exportDataset,
@@ -963,6 +980,86 @@ program
     }
 
     if (!overallSuccess) {
+      process.exitCode = 1;
+    }
+  });
+
+// Command: deploy
+program
+  .command("deploy")
+  .description(
+    "Deploy AIRP to a target: the compose reference stack or Cloudflare",
+  )
+  .requiredOption(
+    "--target <target>",
+    "Deployment target: compose | cloudflare",
+  )
+  .option("--dry-run", "Print every step without executing anything", false)
+  .option(
+    "--env <name>",
+    "Environment name (container image tag; passed to wrangler only when defined there)",
+  )
+  .option(
+    "--registry <registry>",
+    "Container registry for Cloudflare image builds",
+    process.env.AIRP_CONTAINER_REGISTRY || "ghcr.io/bytenaija",
+  )
+  .action(async (options) => {
+    try {
+      const target = resolveTarget(options.target);
+      const repoRoot = findRepoRoot();
+      const readToml = (configPath: string): string => {
+        try {
+          return fs.readFileSync(path.join(repoRoot, configPath), "utf-8");
+        } catch {
+          return "";
+        }
+      };
+      const plan = buildDeployPlan(
+        { target, env: options.env, registry: options.registry },
+        readToml,
+      );
+
+      // Preflight: fail fast with actionable errors.
+      // In dry-run mode nothing is executed, so checks are listed, not run.
+      const checks =
+        target === "compose"
+          ? composePreflightChecks()
+          : cloudflarePreflightChecks();
+      const isDryRun = options.dryRun === true;
+      consoleOutput.log("Preflight checks:");
+      if (isDryRun) {
+        for (const check of checks) {
+          consoleOutput.log(`  [would check] ${check.title}`);
+        }
+      } else {
+        const outcomes = await runPreflight(checks, defaultExec);
+        for (const o of outcomes) {
+          if (o.ok) {
+            consoleOutput.log(`  [ok] ${o.title}`);
+          } else {
+            consoleOutput.error(`  [FAIL] ${o.title}`);
+            if (o.detail) consoleOutput.error(`         ${o.detail}`);
+            if (o.hint) consoleOutput.error(`         Fix: ${o.hint}`);
+            throw new DeployError(
+              `Preflight failed: ${o.title}. See the fix above, then re-run.`,
+            );
+          }
+        }
+      }
+      consoleOutput.log("");
+
+      await executePlan(plan, defaultExec, {
+        dryRun: isDryRun,
+        repoRoot,
+        out: consoleOutput,
+      });
+    } catch (err: any) {
+      if (err instanceof DeployPlanError || err instanceof DeployError) {
+        console.error(`Error: ${err.message}`);
+      } else {
+        console.error(`Deploy failed with error: ${err.message}`);
+      }
       process.exitCode = 1;
     }
   });

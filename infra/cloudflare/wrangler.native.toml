@@ -1,0 +1,92 @@
+# AIRP Cloudflare-native runtime (Epic 20, work package 3).
+#
+# One Worker (infra/cloudflare/native/src/worker.ts, custom-entrypoint
+# pattern) hosts:
+#   - AirpAgent: Agents SDK agent host, one Durable Object per
+#     investigation session (per-session state, Epic 4 budgets,
+#     read-only tool policy)
+#   - RemediationWorkflow: Cloudflare Workflow for the sweep,
+#     investigate, patch pipeline (durable steps, retries)
+#   - queue() consumer for the changefeed queue
+#   - scheduled() cron trigger for proactive sweeps
+#
+# Deploy with: wrangler deploy --config infra/cloudflare/wrangler.native.toml
+# (from the repo root). Fill in every <placeholder> first. Secrets via
+#   wrangler secret put <NAME>
+# never in this file.
+#
+# NOTE: when the Epic 21 TanStack Start console lands, these bindings move
+# into the console's wrangler.jsonc and worker.ts absorbs this file's
+# named exports (AirpAgent, RemediationWorkflow) into its custom server
+# entrypoint. This file is then retired.
+
+name = "airp-native"
+main = "infra/cloudflare/native/dist/worker.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Non-secret config only.
+STORAGE_TARGET = "r2"
+LOG_LEVEL = "info"
+# Edge-router base URL the workflow calls for sweep/patch/status.
+# Points at the package-2 router worker (or the console worker later).
+ROUTER_BASE_URL = "https://airp-edge-router.<account>.workers.dev"
+
+# --- Durable Object: the Agents SDK agent host ---
+[durable_objects]
+bindings = [
+  { name = "AIRP_AGENT", class_name = "AirpAgent" },
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AirpAgent"]
+
+# --- Workflow: sweep, investigate, patch orchestration ---
+[[workflows]]
+name = "remediation"
+binding = "REMEDIATION_WORKFLOW"
+class_name = "RemediationWorkflow"
+
+# --- Queues: changefeed in, workflow triggers out ---
+[[queues.consumers]]
+queue = "<changefeed-queue-name>"
+max_batch_size = 10
+max_retries = 5
+
+[[queues.producers]]
+binding = "CHANGEFEED_QUEUE"
+queue = "<changefeed-queue-name>"
+
+# --- Cloudflare-managed state (same as the hybrid flavor) ---
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<hyperdrive-id>"
+
+[[r2_buckets]]
+binding = "BLOB_BUCKET"
+bucket_name = "<r2-bucket-name>"
+
+# --- Vectorize: code chunks, runbooks, embedding search ---
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "<vectorize-index-name>"
+# The index must have a metadata index on __namespace (and on any
+# metadata keys used in query filters) and use the cosine distance
+# metric. See docs/storage-backends.md.
+
+# --- Cron: proactive sweep ---
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Required secrets (wrangler secret put):
+#   AIRP_API_TOKEN        Bearer <redacted> the worker enforces at the edge
+#   DATABASE_URL          Managed Postgres URL (used via Hyperdrive)
+#   LLM provider keys for the agent host (same names as compose:
+#     ANTHROPIC_API_KEY / OPENAI_API_KEY / LLM_PROVIDER)
+
+# Optional vars (override per environment):
+#   SWEEP_API_URL         Sweep scan endpoint (default: $ROUTER_BASE_URL/api/sweep)
+#   PATCH_API_URL         Patch pipeline endpoint (default: $ROUTER_BASE_URL/api/patch)
+#   INCIDENTS_API_URL     Incident status API (default: $ROUTER_BASE_URL/api/ingest)

@@ -159,6 +159,10 @@ benchmark, end-to-end scenarios, and CI regression gates. See
 Concrete guides are in `docs/deployment/`: `vps.md` (single Ubuntu VPS),
 `aws.md` (EC2), `google-cloud.md` (GCE), `azure.md` (Azure VM), and
 `cloudflare.md` (Tunnel/DNS in front of a self-hosted stack).
+The Cloudflare Containers-hybrid flavor (edge router + services as
+Cloudflare Containers, managed Postgres/R2/Queues) is documented in
+`docs/cloudflare-hybrid.md`; the storage backend matrix is in
+`docs/storage-backends.md`.
 
 ### Before you expose anything: mandatory security checklist
 

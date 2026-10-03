@@ -1,0 +1,1 @@
+{"compilerOptions":{"lib":["ES2022","WebWorker"],"module":"ESNext","moduleResolution":"Bundler","outDir":"./dist","rootDir":"./src","types":[]},"extends":"../../../tsconfig.json","include":["src/**/*"]}
